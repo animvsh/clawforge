@@ -400,15 +400,15 @@ Acceptance criteria:
 
 Recommended MVP tools:
 
-| Tool | Purpose | Permission | Risk |
-| --- | --- | --- | --- |
-| Log Reader | Reads sample logs | Allowed | Low |
-| Threat Classifier | Classifies suspicious behavior | Allowed | Low |
-| Report Writer | Writes final report | Allowed | Low |
-| Ticket Creator | Creates mock incident ticket | Approval Required | Medium |
-| Shell Executor | Simulates command execution | Approval Required | High |
-| External Alert Sender | Simulates Slack/email alert | Approval Required | Medium |
-| Data Export | Attempts raw data export | Blocked | High |
+| Tool                  | Purpose                        | Permission        | Risk   |
+| --------------------- | ------------------------------ | ----------------- | ------ |
+| Log Reader            | Reads sample logs              | Allowed           | Low    |
+| Threat Classifier     | Classifies suspicious behavior | Allowed           | Low    |
+| Report Writer         | Writes final report            | Allowed           | Low    |
+| Ticket Creator        | Creates mock incident ticket   | Approval Required | Medium |
+| Shell Executor        | Simulates command execution    | Approval Required | High   |
+| External Alert Sender | Simulates Slack/email alert    | Approval Required | Medium |
+| Data Export           | Attempts raw data export       | Blocked           | High   |
 
 Acceptance criteria:
 
@@ -561,12 +561,12 @@ ClawForge must support a provider abstraction so reasoning can run through NVIDI
 
 ### Provider Modes
 
-| Mode | Purpose |
-| --- | --- |
-| `nemotron` | Primary hackathon reasoning provider |
-| `minimax` | Alternative intelligence provider |
-| `auto` | Prefer Nemotron, fallback to MiniMax, then mock |
-| `mock` | Deterministic demo-safe fallback |
+| Mode       | Purpose                                         |
+| ---------- | ----------------------------------------------- |
+| `nemotron` | Primary hackathon reasoning provider            |
+| `minimax`  | Alternative intelligence provider               |
+| `auto`     | Prefer Nemotron, fallback to MiniMax, then mock |
+| `mock`     | Deterministic demo-safe fallback                |
 
 ### Required Environment Variables
 

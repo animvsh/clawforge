@@ -1,5 +1,6 @@
 node_modules
 dist
+railway-dist
 .output
 .vinxi
 pnpm-lock.yaml

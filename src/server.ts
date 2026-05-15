@@ -7,6 +7,26 @@ type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
 };
 
+function json(data: unknown, init?: ResponseInit): Response {
+  return new Response(JSON.stringify(data), {
+    ...init,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      ...init?.headers,
+    },
+  });
+}
+
+function healthResponse(): Response {
+  return json({
+    ok: true,
+    app: "clawforge",
+    service: "backend",
+    runtime: "cloudflare-workers",
+    frontend: "tanstack-start",
+  });
+}
+
 let serverEntryPromise: Promise<ServerEntry> | undefined;
 
 async function getServerEntry(): Promise<ServerEntry> {
@@ -68,6 +88,11 @@ async function normalizeCatastrophicSsrResponse(response: Response): Promise<Res
 
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
+    const url = new URL(request.url);
+    if (url.pathname === "/api/health") {
+      return healthResponse();
+    }
+
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);

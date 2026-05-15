@@ -918,4 +918,3 @@ These requirements apply to every issue in the backlog.
 8. Final report generation and report screen.
 9. Provider adapters and auto fallback hardening.
 10. Railway deployment verification and demo script.
-

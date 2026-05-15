@@ -5,11 +5,11 @@ import { useReveal } from "@/hooks/use-reveal";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "clawforge — lovable for ai employees" },
+      { title: "ClawForge — secure autonomous agents from one prompt" },
       {
         name: "description",
         content:
-          "clawforge helps small teams build ai employees that automate intake, support, scheduling, follow-ups and operational work — in plain english. powered by clawforge.",
+          "ClawForge generates OpenClaw/NemoClaw agents powered by NVIDIA Nemotron, with MiniMax support, safety policies, memory, and live audit logs.",
       },
     ],
   }),
