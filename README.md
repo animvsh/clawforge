@@ -1,20 +1,19 @@
-# clawforge
+# Clawforge
 
-Clawforge is a fresh project scaffold, ready to shape into a product, tool, or experiment.
+Clawforge is a landing page built from the Buildspace starter site.
 
-## Getting Started
+## Development
 
-Run the app locally with any static file server. For example:
+Install dependencies, then run the Vite dev server:
 
 ```sh
-npx serve .
+npm install
+npm run dev
 ```
 
-Then open the local URL shown in your terminal.
+## Scripts
 
-## Project Structure
-
-- `index.html` - app entrypoint
-- `src/styles.css` - base visual styling
-- `src/main.js` - starter JavaScript
-
+- `npm run dev` - start local development
+- `npm run build` - create a production build
+- `npm run preview` - preview the production build
+- `npm run lint` - run ESLint
