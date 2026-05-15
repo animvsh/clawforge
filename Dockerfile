@@ -1,4 +1,4 @@
 FROM caddy:2-alpine
 
 COPY Caddyfile /etc/caddy/Caddyfile
-COPY dist/client /srv
+COPY railway-dist /srv
