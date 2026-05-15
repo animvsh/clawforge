@@ -1,0 +1,10 @@
+node_modules
+dist
+.git
+.DS_Store
+npm-debug.log*
+.env*
+.wrangler
+.vinxi
+.tanstack
+.nitro
