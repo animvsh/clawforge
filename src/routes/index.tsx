@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { ArrowUp, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AgentBuilder } from "@/components/clawforge/AgentBuilder";
 import { AuthPanel } from "@/components/clawforge/AuthPanel";
@@ -10,6 +11,9 @@ import type {
   BlueprintResponse,
   IncidentReport as IncidentReportModel,
 } from "@/lib/clawforge/types";
+
+const heroPromptDefault =
+  "Create an agent that watches system logs, spots suspicious activity, writes a report, and asks before taking action.";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -64,7 +68,16 @@ function Section({
   );
 }
 
-function Hero() {
+function Hero({ onBuild }: { onBuild: (prompt: string) => void }) {
+  const [prompt, setPrompt] = useState(heroPromptDefault);
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const nextPrompt = prompt.trim();
+    if (!nextPrompt) return;
+    onBuild(nextPrompt);
+  }
+
   return (
     <section className="grid min-h-screen bg-black lg:grid-cols-[34%_66%]">
       <div className="order-1 flex min-h-[58vh] flex-col border-b border-white/10 px-6 py-6 md:px-10 lg:min-h-screen lg:border-b-0 lg:border-r lg:px-14 lg:py-8">
@@ -84,20 +97,42 @@ function Hero() {
             Tell ClawForge what you want done. It builds the agent, adds guardrails, and shows you
             every step.
           </p>
-          <div className="mt-8 grid gap-3 sm:flex sm:flex-wrap">
-            <a
-              href="#builder"
-              className="bg-white px-6 py-3 text-center text-sm font-semibold text-black transition hover:bg-white/90"
-            >
-              Build an Agent
-            </a>
-            <a
-              href="#dashboard"
-              className="border border-white/25 px-6 py-3 text-center text-sm font-semibold text-white transition hover:bg-white/8"
-            >
-              Watch Safety Demo
-            </a>
-          </div>
+          <form
+            onSubmit={submit}
+            className="mt-8 overflow-hidden rounded-[28px] border border-white/14 bg-[#20201e] shadow-[0_20px_80px_rgba(0,0,0,0.45)]"
+          >
+            <label className="sr-only" htmlFor="hero-agent-prompt">
+              Describe the agent you want
+            </label>
+            <textarea
+              id="hero-agent-prompt"
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              rows={3}
+              className="min-h-28 w-full resize-none border-0 bg-transparent px-6 pt-6 text-base leading-relaxed text-white outline-none placeholder:text-white/28"
+              placeholder="Describe the agent you want..."
+            />
+            <div className="flex items-center justify-between gap-3 px-4 pb-4">
+              <button
+                type="button"
+                className="grid h-10 w-10 place-items-center rounded-full text-white/70 transition hover:bg-white/8 hover:text-white"
+                aria-label="Add context"
+              >
+                <Plus className="h-5 w-5" aria-hidden="true" />
+              </button>
+              <div className="flex items-center gap-3">
+                <span className="hidden text-sm text-white/62 sm:inline">Build</span>
+                <button
+                  type="submit"
+                  className="grid h-11 w-11 place-items-center rounded-full bg-white text-black transition hover:bg-white/88 disabled:cursor-not-allowed disabled:opacity-45"
+                  disabled={!prompt.trim()}
+                  aria-label="Build agent"
+                >
+                  <ArrowUp className="h-5 w-5" aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+          </form>
         </div>
       </div>
 
@@ -161,6 +196,8 @@ function Index() {
   const [blueprint, setBlueprint] = useState<BlueprintResponse | null>(null);
   const [agentId, setAgentId] = useState<string | undefined>();
   const [report, setReport] = useState<IncidentReportModel | null>(null);
+  const [builderPrompt, setBuilderPrompt] = useState(heroPromptDefault);
+  const [autoBuildSignal, setAutoBuildSignal] = useState(0);
 
   useEffect(() => {
     if (!agentId) return;
@@ -172,11 +209,24 @@ function Index() {
 
   return (
     <main className="min-h-screen bg-black text-white">
-      <Hero />
+      <Hero
+        onBuild={(nextPrompt) => {
+          setBuilderPrompt(nextPrompt);
+          setAutoBuildSignal((current) => current + 1);
+          setBlueprint(null);
+          setAgentId(undefined);
+          setReport(null);
+          window.setTimeout(() => {
+            document.getElementById("builder")?.scrollIntoView({ behavior: "smooth" });
+          }, 40);
+        }}
+      />
       <HowItWorks />
 
       <Section id="builder" eyebrow="builder" title="Describe the agent you want.">
         <AgentBuilder
+          initialPrompt={builderPrompt}
+          autoBuildSignal={autoBuildSignal}
           onBlueprint={(nextBlueprint) => {
             setBlueprint(nextBlueprint);
             setAgentId(undefined);

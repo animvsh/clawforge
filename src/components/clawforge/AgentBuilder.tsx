@@ -1,7 +1,9 @@
 import type { BlueprintResponse, ProviderMode } from "@/lib/clawforge/types";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type AgentBuilderProps = {
+  initialPrompt?: string;
+  autoBuildSignal?: number;
   provider?: ProviderMode;
   onBlueprint?: (blueprint: BlueprintResponse) => void;
 };
@@ -34,13 +36,51 @@ const providerLabels: Array<[ProviderMode, string]> = [
   ["mock", "Mock"],
 ];
 
-export function AgentBuilder({ provider = "auto", onBlueprint }: AgentBuilderProps) {
-  const [prompt, setPrompt] = useState(defaultPrompt);
+export function AgentBuilder({
+  initialPrompt = defaultPrompt,
+  autoBuildSignal = 0,
+  provider = "auto",
+  onBlueprint,
+}: AgentBuilderProps) {
+  const [prompt, setPrompt] = useState(initialPrompt);
   const [selectedProvider, setSelectedProvider] = useState<ProviderMode>(provider);
   const [loading, setLoading] = useState(false);
   const [activeStep, setActiveStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [blueprintReady, setBlueprintReady] = useState(false);
+  const latestGenerateBlueprint = useRef<(nextPrompt?: string) => Promise<void>>(async () => {});
+  const lastAutoBuildSignal = useRef(0);
+
+  const generateBlueprint = useCallback(
+    async (nextPrompt = prompt) => {
+      setLoading(true);
+      setError(null);
+      setBlueprintReady(false);
+      try {
+        const response = await fetch("/api/blueprints", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ prompt: nextPrompt, provider: selectedProvider }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+          throw new Error(data.error?.message || "Blueprint generation failed.");
+        }
+        setActiveStep(loadingSteps.length - 1);
+        setBlueprintReady(true);
+        onBlueprint?.(data.blueprint);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Blueprint generation failed.");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [onBlueprint, prompt, selectedProvider],
+  );
+
+  useEffect(() => {
+    latestGenerateBlueprint.current = generateBlueprint;
+  }, [generateBlueprint]);
 
   useEffect(() => {
     if (!loading) return;
@@ -51,29 +91,20 @@ export function AgentBuilder({ provider = "auto", onBlueprint }: AgentBuilderPro
     return () => window.clearInterval(timer);
   }, [loading]);
 
-  async function generateBlueprint() {
-    setLoading(true);
-    setError(null);
-    setBlueprintReady(false);
-    try {
-      const response = await fetch("/api/blueprints", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt, provider: selectedProvider }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.ok) {
-        throw new Error(data.error?.message || "Blueprint generation failed.");
-      }
-      setActiveStep(loadingSteps.length - 1);
-      setBlueprintReady(true);
-      onBlueprint?.(data.blueprint);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Blueprint generation failed.");
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    setPrompt(initialPrompt);
+  }, [initialPrompt]);
+
+  useEffect(() => {
+    if (
+      autoBuildSignal > 0 &&
+      autoBuildSignal !== lastAutoBuildSignal.current &&
+      initialPrompt.trim()
+    ) {
+      lastAutoBuildSignal.current = autoBuildSignal;
+      void latestGenerateBlueprint.current(initialPrompt);
     }
-  }
+  }, [autoBuildSignal, initialPrompt]);
 
   return (
     <div className="border border-white/12 bg-white/[0.018] p-5 md:p-6">
