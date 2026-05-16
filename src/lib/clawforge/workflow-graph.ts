@@ -1,4 +1,4 @@
-import type { BlueprintResponse, WorkflowStep, ToolDefinition, PolicyDefinition, MemorySchemaItem } from "./types";
+import type { BlueprintResponse, WorkflowStep, ToolDefinition, PolicyDefinition, MemorySchemaItem, CanvasGraph } from "./types";
 
 export type WorkflowNodeKind =
   | "input"      // trigger / start
@@ -70,66 +70,25 @@ function node(
 // buildOptimisticWorkflowGraph
 // ---------------------------------------------------------------------------
 
-export function buildOptimisticWorkflowGraph(prompt: string): WorkflowGraph {
-  const lowerPrompt = prompt.toLowerCase();
+export function buildOptimisticWorkflowGraph(_prompt: string): WorkflowGraph {
+  // Minimal graph for loading/forging state — just input, 2 generic tool steps,
+  // approval, and output. Avoids expensive keyword matching.
+  const nodes: WorkflowNode[] = [];
+  const edges: WorkflowEdge[] = [];
 
-  // Detect category via keyword matching
-  if (
-    lowerPrompt.includes("cyber") ||
-    lowerPrompt.includes("security") ||
-    lowerPrompt.includes("threat") ||
-    lowerPrompt.includes("log") ||
-    lowerPrompt.includes("monitor") ||
-    lowerPrompt.includes("siem") ||
-    lowerPrompt.includes("firewall") ||
-    lowerPrompt.includes("intrusion")
-  ) {
-    return buildCybersecurityGraph(prompt);
-  }
+  nodes.push(node("in-0", "Trigger", "Starting...", "input", "generating", "⚡", 0, 0));
+  nodes.push(node("tool-0", "Planning", "Analyzing goal", "tool", "generating", "📋", 1, 0));
+  nodes.push(node("tool-1", "Tool Mapping", "Mapping to tools", "tool", "generating", "🔧", 2, 0));
+  nodes.push(node("approval-0", "Approval Gate", "Human review", "approval", "waiting", "⏸️", 3, 0));
+  nodes.push(node("out-0", "Output", "Final result", "output", "idle", "✅", 4, 0));
 
-  if (
-    lowerPrompt.includes("receptionist") ||
-    lowerPrompt.includes("phone") ||
-    lowerPrompt.includes("call") ||
-    lowerPrompt.includes("booking") ||
-    lowerPrompt.includes("calendar") ||
-    lowerPrompt.includes("schedule") ||
-    lowerPrompt.includes("appointment")
-  ) {
-    return buildReceptionistGraph(prompt);
-  }
+  const edgeData: [string, string][] = [
+    ["in-0", "tool-0"], ["tool-0", "tool-1"], ["tool-1", "approval-0"], ["approval-0", "out-0"],
+  ];
 
-  if (
-    lowerPrompt.includes("github") ||
-    lowerPrompt.includes("issue") ||
-    lowerPrompt.includes("pr ") ||
-    lowerPrompt.includes("pull request") ||
-    lowerPrompt.includes("triage") ||
-    lowerPrompt.includes("repository")
-  ) {
-    return buildGitHubGraph(prompt);
-  }
+  edgeData.forEach(([src, tgt], i) => edges.push({ id: makeEdgeId(i), sourceId: src, targetId: tgt, type: "execution" }));
 
-  if (
-    lowerPrompt.includes("inbox") ||
-    lowerPrompt.includes("email") ||
-    lowerPrompt.includes("mail") ||
-    lowerPrompt.includes("gmail")
-  ) {
-    return buildInboxGraph(prompt);
-  }
-
-  if (
-    lowerPrompt.includes("research") ||
-    lowerPrompt.includes("paper") ||
-    lowerPrompt.includes("study") ||
-    lowerPrompt.includes("survey") ||
-    lowerPrompt.includes("literature")
-  ) {
-    return buildResearchGraph(prompt);
-  }
-
-  return buildGenericGraph(prompt);
+  return { nodes, edges };
 }
 
 // ---------------------------------------------------------------------------
@@ -283,6 +242,28 @@ export function buildBlueprintWorkflowGraph(
   prompt: string,
   blueprint: BlueprintResponse,
 ): WorkflowGraph {
+  // Prefer canvas_graph from Nemotron if available and non-empty
+  if (blueprint.canvas_graph?.nodes?.length) {
+    return {
+      nodes: blueprint.canvas_graph.nodes.map((n) => ({
+        id: n.id,
+        title: n.title,
+        subtitle: n.subtitle ?? "",
+        kind: n.kind,
+        status: n.status ?? "idle",
+        icon: n.icon ?? "🔧",
+        x: 0,
+        y: 0,
+      })),
+      edges: (blueprint.canvas_graph.edges ?? []).map((e) => ({
+        id: e.id,
+        sourceId: e.sourceId,
+        targetId: e.targetId,
+        type: e.type ?? "execution",
+      })),
+    };
+  }
+
   const nodes: WorkflowNode[] = [];
   const edges: WorkflowEdge[] = [];
 

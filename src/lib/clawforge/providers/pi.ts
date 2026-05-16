@@ -31,6 +31,9 @@ export function createPiProvider(env: Record<string, string | undefined> = {}): 
   return {
     mode: "pi",
     model,
+    async planBlueprint(): Promise<Record<string, unknown>> {
+      return {};
+    },
     async plan(input: { prompt: string; context?: Record<string, unknown> }): Promise<string[]> {
       if (!input.prompt.trim()) {
         return ["No task provided"];

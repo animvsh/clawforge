@@ -63,6 +63,29 @@ async function miniMaxChatCompletion(
   return content;
 }
 
+function parseBlueprintJson(content: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Fall through
+  }
+  const match = content.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (match) {
+    try {
+      const parsed = JSON.parse(match[1].trim());
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Fall through
+    }
+  }
+  return {};
+}
+
 export function createMiniMaxProvider(
   env: Record<string, string | undefined> = process.env as Record<string, string | undefined>,
 ): ReasoningProvider {
@@ -109,6 +132,33 @@ export function createMiniMaxProvider(
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         throw new Error(sanitizeError(`Plan generation failed: ${message}`));
+      }
+    },
+
+    async planBlueprint(input: ReasoningInput): Promise<Record<string, unknown>> {
+      if (!input.prompt.trim()) return {};
+      try {
+        const response = await miniMaxChatCompletion(
+          effectiveKey,
+          model,
+          `You are a planning assistant. Given a task description, output a structured JSON blueprint matching this schema:
+{
+  "workflow_steps": [{"title": "string", "description": "string", "kind": "string"}],
+  "tools": [{"name": "string", "permission": "string", "risk_level": "string"}],
+  "policies": [{"name": "string", "effect": "string"}],
+  "approval_gates": [{"name": "string", "trigger": "string"}],
+  "memory_schema": [{"name": "string", "type": "string"}],
+  "canvas_graph": {"nodes": [], "edges": []},
+  "runtime_config": {"mode": "openclaw", "sandbox": "nemoclaw", "runtime": "openclaw"},
+  "files_to_generate": []
+}
+Return ONLY valid JSON. No markdown fences. No explanatory text.`,
+          input.prompt,
+        );
+        return parseBlueprintJson(response);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new Error(sanitizeError(`Plan blueprint failed: ${message}`));
       }
     },
 

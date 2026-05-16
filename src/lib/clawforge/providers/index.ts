@@ -1,4 +1,5 @@
 import type { ProviderMode, ProviderConfig, ProviderStatus } from "../types";
+import type { BlueprintResponse } from "../types";
 import { createMockProvider } from "./mock";
 import { createMiniMaxProvider } from "./minimax";
 import { createNemotronProvider } from "./nemotron";
@@ -13,6 +14,7 @@ export type ReasoningProvider = {
   mode: ProviderMode;
   model: string;
   plan(input: ReasoningInput): Promise<string[]>;
+  planBlueprint(input: ReasoningInput): Promise<Partial<BlueprintResponse>>;
   classify(input: ReasoningInput): Promise<{ label: string; severity: "low" | "medium" | "high" }>;
   summarize(input: ReasoningInput): Promise<string>;
 };
@@ -145,6 +147,27 @@ export class ProviderRegistry {
       const provider = this.getProvider(fallbackMode);
       try {
         return await provider.plan(input);
+      } catch (error) {
+        errors.push(sanitizeError(provider.mode, error));
+      }
+    }
+    throw new Error(errors.join("; ") || sanitizeError(mode, new Error("No provider available")));
+  }
+
+  async planBlueprint(
+    input: ReasoningInput,
+    mode: ProviderMode = "auto",
+  ): Promise<Partial<BlueprintResponse>> {
+    const errors: string[] = [];
+    for (const fallbackMode of this.fallbackModes(mode)) {
+      const provider = this.getProvider(fallbackMode);
+      try {
+        if ("planBlueprint" in provider && typeof provider.planBlueprint === "function") {
+          return await provider.planBlueprint(input);
+        }
+        // Fallback: call plan and wrap result
+        const steps = await provider.plan(input);
+        return { workflow_steps: steps.map((title, index) => ({ id: `step_${index}`, title, description: title })) };
       } catch (error) {
         errors.push(sanitizeError(provider.mode, error));
       }

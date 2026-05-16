@@ -57,7 +57,14 @@ import type {
   ApprovalDecisionResponse,
   IncidentReportResponse,
   BlueprintResponse,
+  ToolDefinition,
+  PolicyDefinition,
+  WorkflowStep,
+  MemorySchemaItem,
+  CanvasGraph,
 } from "./types";
+import { z } from "zod";
+import { buildBlueprintWorkflowGraph } from "./workflow-graph";
 import {
   saveAgentRun,
   getAgentRun,
@@ -300,19 +307,247 @@ function cleanProviderSteps(steps: string[], fallbackSteps: string[]): string[] 
   return cleaned.length >= 3 ? cleaned : fallbackSteps;
 }
 
+// ---------------------------------------------------------------------------
+// Zod schema for BlueprintResponse validation
+// ---------------------------------------------------------------------------
+
+const ToolDefinitionSchema: z.ZodType<ToolDefinition> = z.object({
+  id: z.string(),
+  name: z.string(),
+  action: z.string(),
+  purpose: z.string(),
+  permission: z.enum(["allowed", "read_only", "approval_required", "blocked"]),
+  risk_level: z.enum(["low", "medium", "high"]),
+  enabled: z.boolean(),
+});
+
+const PolicyDefinitionSchema: z.ZodType<PolicyDefinition> = z.object({
+  id: z.string(),
+  name: z.string(),
+  action: z.string(),
+  effect: z.enum(["allow", "deny", "require_approval"]),
+  reason: z.string(),
+});
+
+const WorkflowStepSchema: z.ZodType<WorkflowStep> = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string(),
+  tool_id: z.string().optional(),
+});
+
+const MemorySchemaItemSchema: z.ZodType<MemorySchemaItem> = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.enum(["incident", "preference", "blocked_action", "approval", "context"]),
+  description: z.string(),
+});
+
+const CanvasGraphSchema: z.ZodType<CanvasGraph> = z.object({
+  nodes: z.array(z.object({
+    id: z.string(),
+    title: z.string(),
+    subtitle: z.string().optional(),
+    kind: z.enum(["input", "tool", "model", "policy", "approval", "memory", "output"]),
+    status: z.enum(["idle", "generating", "ready", "running", "waiting", "blocked", "done"]).optional(),
+    icon: z.string().optional(),
+  })),
+  edges: z.array(z.object({
+    id: z.string(),
+    sourceId: z.string(),
+    targetId: z.string(),
+    type: z.enum(["execution", "dependency"]).optional(),
+  })),
+});
+
+const BlueprintResponseSchema = z.object({
+  blueprint_id: z.string(),
+  template_id: z.enum(["incident_response", "github_triage", "inbox_approval", "phone_receptionist", "research_sandbox"]),
+  custom_goal: z.string(),
+  agent_name: z.string(),
+  description: z.string(),
+  goal: z.string(),
+  provider: z.enum(["auto", "nemotron", "minimax", "pi", "mock"]),
+  model: z.string(),
+  fallback_provider: z.union([z.enum(["minimax", "mock"]), z.null()]),
+  runtime: z.enum(["openclaw"]),
+  sandbox: z.enum(["nemoclaw"]),
+  tools: z.array(ToolDefinitionSchema),
+  policies: z.array(PolicyDefinitionSchema),
+  integration_requirements: z.array(z.object({
+    id: z.string(),
+    label: z.string(),
+    purpose: z.string(),
+    status: z.enum(["required", "optional", "connected"]),
+  })),
+  memory_schema: z.array(MemorySchemaItemSchema),
+  workflow_steps: z.array(WorkflowStepSchema),
+  config_preview: z.string(),
+  canvas_graph: CanvasGraphSchema.optional(),
+  approval_gates: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    type: z.string(),
+    description: z.string(),
+  })).optional(),
+  files_to_generate: z.array(z.string()).optional(),
+  runtime_config: z.object({
+    mode: z.enum(["openclaw", "direct"]),
+    sandbox: z.enum(["nemoclaw", "brev", "local"]),
+    runtime: z.string(),
+  }).optional(),
+});
+
+// ---------------------------------------------------------------------------
+// normalizeBlueprint
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Blueprint response normalization helpers
+// ---------------------------------------------------------------------------
+
+function normalizeWorkflowSteps(blueprintPlan: Record<string, unknown>): WorkflowStep[] {
+  const stepArrays = [
+    blueprintPlan.workflow_steps,
+    (blueprintPlan as Record<string, unknown>).steps,
+    (blueprintPlan as Record<string, unknown>).plan,
+  ];
+  for (const arr of stepArrays) {
+    if (Array.isArray(arr)) {
+      return arr
+        .map((item, index): WorkflowStep | null => {
+          if (typeof item === "string") {
+            return { id: `step_${index}`, title: item, description: item };
+          }
+          if (item && typeof item === "object" && !Array.isArray(item)) {
+            const rec = item as Record<string, unknown>;
+            const title =
+              typeof rec.title === "string"
+              || typeof rec.name === "string"
+              || typeof rec.step === "string"
+              || typeof rec.action === "string"
+              || typeof rec.description === "string"
+              || typeof rec.task === "string"
+              ? (rec.title ?? rec.name ?? rec.step ?? rec.action ?? rec.task ?? rec.description ?? `Step ${index + 1}`) as string
+              : null;
+            if (title) {
+              return {
+                id: typeof rec.id === "string" ? rec.id : `step_${index}`,
+                title,
+                description: typeof rec.description === "string" ? rec.description : title,
+                tool_id: typeof rec.tool_id === "string" ? rec.tool_id : undefined,
+              };
+            }
+          }
+          return null;
+        })
+        .filter((step): step is WorkflowStep => step !== null);
+    }
+  }
+  return [];
+}
+
+function deriveAgentName(prompt: string): string {
+  const lower = prompt.toLowerCase();
+  if (/phone|call|receptionist|voicemail|booking|calendar/.test(lower)) return "ReceptionClaw";
+  if (/github|issue|repo|pull request|pr/.test(lower)) return "RepoClaw";
+  if (/inbox|email|mail/.test(lower)) return "InboxClaw";
+  if (/research|sources?|brief/.test(lower)) return "ResearchClaw";
+  return "SentinelClaw";
+}
+
+function deriveTemplateId(prompt: string): AgentTemplateId {
+  const lower = prompt.toLowerCase();
+  if (/phone|call|receptionist|voicemail|booking|calendar/.test(lower)) return "phone_receptionist";
+  if (/github|issue|repo|pull request|pr/.test(lower)) return "github_triage";
+  if (/inbox|email|mail/.test(lower)) return "inbox_approval";
+  if (/research|sources?|brief/.test(lower)) return "research_sandbox";
+  return "incident_response";
+}
+
+export function normalizeBlueprint(
+  raw: unknown,
+  fallbackBlueprint: BlueprintResponse,
+): BlueprintResponse {
+  // Try strict Zod validation first
+  const result = BlueprintResponseSchema.safeParse(raw);
+  if (result.success) {
+    const bp = result.data;
+    // Ensure canvas_graph is always present
+    if (!bp.canvas_graph) {
+      bp.canvas_graph = buildBlueprintWorkflowGraph(bp.custom_goal || fallbackBlueprint.goal, bp as BlueprintResponse);
+    }
+    return bp as BlueprintResponse;
+  }
+
+  // Validation failed — log and fall back to template blueprint
+  console.error("[normalizeBlueprint] Zod validation failed:", result.error.flatten());
+  console.error("[normalizeBlueprint] Falling back to template blueprint.");
+
+  // Attempt partial normalization on the raw object
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const partial = raw as Record<string, unknown>;
+    // Build a normalized version using the fallback as base
+    const normalized: BlueprintResponse = {
+      ...fallbackBlueprint,
+      blueprint_id: typeof partial.blueprint_id === "string" ? partial.blueprint_id : fallbackBlueprint.blueprint_id,
+      agent_name: typeof partial.agent_name === "string" ? partial.agent_name : fallbackBlueprint.agent_name,
+      description: typeof partial.description === "string" ? partial.description : fallbackBlueprint.description,
+      goal: typeof partial.goal === "string" ? partial.goal : fallbackBlueprint.goal,
+      custom_goal: typeof partial.custom_goal === "string" ? partial.custom_goal : fallbackBlueprint.custom_goal,
+      model: typeof partial.model === "string" ? partial.model : fallbackBlueprint.model,
+      provider: (["auto", "nemotron", "minimax", "pi", "mock"].includes(partial.provider as string))
+        ? (partial.provider as ProviderMode)
+        : fallbackBlueprint.provider,
+      template_id: (["incident_response", "github_triage", "inbox_approval", "phone_receptionist", "research_sandbox"].includes(partial.template_id as string))
+        ? (partial.template_id as AgentTemplateId)
+        : fallbackBlueprint.template_id,
+      tools: Array.isArray(partial.tools) ? partial.tools as ToolDefinition[] : fallbackBlueprint.tools,
+      policies: Array.isArray(partial.policies) ? partial.policies as PolicyDefinition[] : fallbackBlueprint.policies,
+      memory_schema: Array.isArray(partial.memory_schema) ? partial.memory_schema as MemorySchemaItem[] : fallbackBlueprint.memory_schema,
+      workflow_steps: Array.isArray(partial.workflow_steps) ? partial.workflow_steps as WorkflowStep[] : fallbackBlueprint.workflow_steps,
+      canvas_graph: (!partial.canvas_graph)
+        ? buildBlueprintWorkflowGraph(
+            (typeof partial.custom_goal === "string" ? partial.custom_goal : fallbackBlueprint.custom_goal) || fallbackBlueprint.goal,
+            fallbackBlueprint,
+          )
+        : partial.canvas_graph as CanvasGraph,
+      approval_gates: Array.isArray(partial.approval_gates)
+        ? partial.approval_gates as { id: string; name: string; type: string; description: string }[]
+        : [{
+            id: "gate_human_approval",
+            name: "Human Approval Gate",
+            type: "human_approval",
+            description: "Require human approval before executing high-risk actions.",
+          }],
+      files_to_generate: Array.isArray(partial.files_to_generate) ? partial.files_to_generate as string[] : ["agent.md"],
+      runtime_config: (partial.runtime_config && typeof partial.runtime_config === "object")
+        ? partial.runtime_config as { mode: "openclaw" | "direct"; sandbox: "nemoclaw" | "brev" | "local"; runtime: string }
+        : { mode: "openclaw", sandbox: "nemoclaw", runtime: "openclaw" },
+    };
+    return normalized;
+  }
+
+  return fallbackBlueprint;
+}
+
 async function createProviderBackedBlueprint(
   provider: ProviderMode,
   prompt: string,
   workerEnv: Record<string, string | undefined> = {},
+  modelOverride?: string,
 ) {
   const blueprint = createBlueprintFromPrompt(prompt, provider);
   if (provider === "mock") return blueprint;
 
   try {
     const modelProvider: ProviderMode = provider === "auto" ? "nemotron" : provider;
+    const envOverrides = modelOverride
+      ? providerModelEnvOverride(modelProvider, modelOverride)
+      : {};
     const registry = createProviderRegistry({
       ...runtimeEnv(workerEnv),
-      ...providerModelEnvOverride(modelProvider, blueprint.model),
+      ...envOverrides,
     });
     const liveProvider = registry.getProvider(provider);
     if (liveProvider.mode === "mock") {
@@ -323,21 +558,24 @@ async function createProviderBackedBlueprint(
     }
 
     const liveModel = liveProvider.model;
-    const [steps, rawSummary, classification] = await Promise.all([
-      registry.plan({ prompt }, provider),
+    const [blueprintPlan, rawSummary, classification] = await Promise.all([
+      registry.planBlueprint({ prompt }, provider),
       registry.summarize({ prompt }, provider),
       registry.classify({ prompt }, provider),
     ]);
     const summary = cleanProviderSummary(rawSummary);
+
+    // Merge provider blueprint with fallback blueprint, with provider taking precedence
+    const providerWorkflowSteps = normalizeWorkflowSteps(blueprintPlan);
     const fallbackSteps = blueprint.workflow_steps.map((step) => step.title);
     const providerSteps =
       blueprint.template_id === "phone_receptionist"
         ? fallbackSteps
-        : steps.length >= 4 && !steps.every((step) => /^initialize\.?$/i.test(step))
-          ? cleanProviderSteps(steps, fallbackSteps)
+        : providerWorkflowSteps.length >= 4
+          ? cleanProviderSteps(providerWorkflowSteps.map((s) => s.title), fallbackSteps)
           : fallbackSteps;
 
-    return {
+    const result: BlueprintResponse = {
       ...blueprint,
       provider: liveProvider.mode,
       model: liveModel,
@@ -351,16 +589,32 @@ async function createProviderBackedBlueprint(
             : `Generated by ${liveModel}.`,
         tool_id: blueprint.workflow_steps[index]?.tool_id,
       })),
+      ...(blueprintPlan.approval_gates && Array.isArray(blueprintPlan.approval_gates)
+        ? { approval_gates: blueprintPlan.approval_gates as BlueprintResponse["approval_gates"] }
+        : {}),
+      ...(blueprintPlan.canvas_graph && typeof blueprintPlan.canvas_graph === "object"
+        ? { canvas_graph: blueprintPlan.canvas_graph as BlueprintResponse["canvas_graph"] }
+        : {}),
+      ...(blueprintPlan.runtime_config && typeof blueprintPlan.runtime_config === "object"
+        ? { runtime_config: blueprintPlan.runtime_config as BlueprintResponse["runtime_config"] }
+        : {}),
+      ...(blueprintPlan.files_to_generate && Array.isArray(blueprintPlan.files_to_generate)
+        ? { files_to_generate: blueprintPlan.files_to_generate as string[] }
+        : {}),
       config_preview: `${blueprint.config_preview}
 provider_status: live
 provider_classification: ${classification.label}
 provider_severity: ${classification.severity}`,
     };
+    return normalizeBlueprint(result, blueprint);
   } catch {
-    return {
-      ...blueprint,
-      config_preview: providerFallbackConfig(blueprint.config_preview),
-    };
+    return normalizeBlueprint(
+      {
+        ...blueprint,
+        config_preview: providerFallbackConfig(blueprint.config_preview),
+      },
+      blueprint,
+    );
   }
 }
 
@@ -490,7 +744,7 @@ export async function handleClawForgeApi(
 
   // POST /api/blueprints or /api/v1/clawforge/blueprints
   if ((apiPath === "/api/blueprints" || apiPath === "/blueprints") && request.method === "POST") {
-    const body = await readJsonBody<{ prompt?: unknown; provider?: unknown }>(request);
+    const body = await readJsonBody<{ prompt?: unknown; provider?: unknown; model?: unknown }>(request);
 
     // Check if prompt field is truly missing (undefined/null) vs empty string
     if (body.prompt === undefined || body.prompt === null) {
@@ -514,8 +768,10 @@ export async function handleClawForgeApi(
       );
     }
 
+    const modelOverride = typeof body.model === "string" && body.model.trim() ? body.model.trim() : undefined;
+
     return successResponse({
-      blueprint: await createProviderBackedBlueprint(provider, prompt, workerEnv),
+      blueprint: await createProviderBackedBlueprint(provider, prompt, workerEnv, modelOverride),
     } satisfies Pick<BlueprintCreateResponse, "blueprint">);
   }
 
