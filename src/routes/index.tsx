@@ -9,30 +9,124 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "ClawForge generates OpenClaw/NemoClaw agents powered by NVIDIA Nemotron, with MiniMax support, safety policies, memory, and live audit logs.",
+          "ClawForge generates OpenClaw agents powered by NVIDIA Nemotron, connects tools, creates memory, writes safety policies, and deploys them inside NemoClaw with live audit logs.",
       },
     ],
   }),
   component: Index,
 });
 
-/* ---------------- shared bits ---------------- */
+const examplePrompt =
+  "Create an agent that monitors system logs, detects suspicious behavior, writes an incident report, and asks before executing commands.";
 
-function Logo({ size = "md" }: { size?: "sm" | "md" }) {
-  const s = size === "sm" ? "w-5 h-5 text-[7px]" : "w-9 h-9 text-[11px]";
-  return (
-    <div className="flex items-center gap-3">
-      <div
-        className={`${s} bg-gradient-to-br from-white to-white/70 text-black flex items-center justify-center rounded-lg shadow-[0_0_24px_-4px_rgba(255,255,255,0.35)]`}
-      >
-        <span className="translate-x-[1px]">▶</span>
-      </div>
-      <span className="text-[11px] uppercase tracking-[0.32em] text-white/45 font-medium">
-        clawforge
-      </span>
-    </div>
-  );
-}
+const generationSteps = [
+  "Understanding workflow",
+  "Selecting agent type",
+  "Choosing tools",
+  "Creating memory",
+  "Writing safety policies",
+  "Preparing OpenClaw runtime",
+  "Configuring NemoClaw sandbox",
+  "Blueprint ready",
+];
+
+const liveLogs = [
+  "Agent started inside NemoClaw sandbox.",
+  "Reading system logs.",
+  "Detected repeated failed login attempts.",
+  "Classifying event with Nemotron.",
+  "Severity: High.",
+  "Generating incident report.",
+  "Attempted action: execute remediation command.",
+  "Policy check triggered.",
+  "Approval required before shell execution.",
+  "Waiting for user decision.",
+];
+
+const tools = [
+  { name: "Log Reader", detail: "Reads incoming system logs.", permission: "Allowed", risk: "Low" },
+  {
+    name: "Threat Classifier",
+    detail: "Detects suspicious patterns.",
+    permission: "Allowed",
+    risk: "Low",
+  },
+  {
+    name: "Report Writer",
+    detail: "Generates incident reports.",
+    permission: "Allowed",
+    risk: "Low",
+  },
+  {
+    name: "Shell Executor",
+    detail: "Requires approval before running commands.",
+    permission: "Approval Required",
+    risk: "High",
+  },
+  {
+    name: "Alert Sender",
+    detail: "Requires approval before notifying external channels.",
+    permission: "Approval Required",
+    risk: "Medium",
+  },
+];
+
+const policies = [
+  { rule: "Shell commands require human approval.", effect: "Approval Required" },
+  { rule: "External alerts require human approval.", effect: "Approval Required" },
+  { rule: "Raw log export is blocked.", effect: "Blocked" },
+  { rule: "Report writing is allowed.", effect: "Allowed" },
+  { rule: "Log reading is allowed.", effect: "Allowed" },
+];
+
+const features = [
+  {
+    title: "One-Prompt Agent Creation",
+    body: "Describe the workflow. ClawForge generates the agent.",
+  },
+  {
+    title: "OpenClaw Runtime",
+    body: "Deploy agents that can reason, use tools, and complete multi-step tasks.",
+  },
+  {
+    title: "Nemotron-Powered Reasoning",
+    body: "Agents use NVIDIA Nemotron to plan, classify, decide, and act.",
+  },
+  {
+    title: "MiniMax Intelligence Option",
+    body: "Route selected workflows through MiniMax token-plan models when teams want another reasoning layer.",
+  },
+  {
+    title: "NemoClaw Security Policies",
+    body: "Risky actions are blocked, paused, or routed for approval before execution.",
+  },
+  {
+    title: "Persistent Memory",
+    body: "Agents remember prior decisions, user preferences, past incidents, and blocked actions.",
+  },
+  {
+    title: "Live Audit Logs",
+    body: "Every tool call, policy check, memory update, and approval request is visible in real time.",
+  },
+];
+
+const safetyCards = [
+  {
+    label: "Allowed",
+    body: "Read logs, inspect issues, summarize files, search documents.",
+    tone: "emerald",
+  },
+  {
+    label: "Approval Required",
+    body: "Send alerts, post comments, execute commands, create tickets.",
+    tone: "amber",
+  },
+  {
+    label: "Blocked",
+    body: "Export secrets, delete files, disable logs, bypass policies.",
+    tone: "rose",
+  },
+];
 
 function Reveal({
   children,
@@ -59,6 +153,22 @@ function Reveal({
   );
 }
 
+function Logo({ size = "md" }: { size?: "sm" | "md" }) {
+  const s = size === "sm" ? "w-5 h-5 text-[7px]" : "w-9 h-9 text-[11px]";
+  return (
+    <div className="flex items-center gap-3">
+      <div
+        className={`${s} bg-gradient-to-br from-white to-white/70 text-black flex items-center justify-center rounded-lg shadow-[0_0_24px_-4px_rgba(255,255,255,0.35)]`}
+      >
+        <span className="translate-x-[1px]">▶</span>
+      </div>
+      <span className="text-[11px] uppercase tracking-[0.32em] text-white/45 font-medium">
+        clawforge
+      </span>
+    </div>
+  );
+}
+
 function Section({
   eyebrow,
   title,
@@ -71,7 +181,7 @@ function Section({
   id?: string;
 }) {
   return (
-    <section id={id} className="border-t border-white/[0.07] px-6 md:px-12 lg:px-16 py-28">
+    <section id={id} className="border-t border-white/[0.07] px-6 md:px-12 lg:px-16 py-24">
       <div className="max-w-6xl mx-auto">
         <Reveal>
           {eyebrow && (
@@ -92,194 +202,6 @@ function Section({
     </section>
   );
 }
-
-/* ---------------- chat demo ---------------- */
-
-const chatScript: { from: "user" | "ai" | "staff"; text: string }[] = [
-  { from: "user", text: "hi — do you have any availability this week?" },
-  { from: "ai", text: "yes! tue 2pm or thu 10am both open. which works?" },
-  { from: "user", text: "thu 10am please. also do you accept hsa?" },
-  { from: "ai", text: "booked thu 10am ✓ confirmation sent. yes, we accept hsa." },
-  { from: "staff", text: "new booking · thu 10am · hsa flagged for billing" },
-];
-
-function ChatDemo() {
-  const [shown, setShown] = useState(1);
-
-  useEffect(() => {
-    const t = setInterval(() => {
-      setShown((s) => (s >= chatScript.length ? 1 : s + 1));
-    }, 1800);
-    return () => clearInterval(t);
-  }, []);
-
-  return (
-    <div className="w-full h-full flex flex-col bg-gradient-to-b from-[#0b0d12] to-[#06070a] border border-white/10 rounded-2xl overflow-hidden shadow-[0_30px_80px_-30px_rgba(0,0,0,0.8)]">
-      <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.07] text-[11px] uppercase tracking-[0.22em] text-white/45">
-        <div className="flex items-center gap-2">
-          <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
-          scheduling employee · live
-        </div>
-        <div>sms</div>
-      </div>
-
-      <div className="flex-1 p-5 space-y-3 overflow-hidden">
-        {chatScript.slice(0, shown).map((m, i) => (
-          <div
-            key={i}
-            className={`flex ${
-              m.from === "user" ? "justify-start" : "justify-end"
-            } animate-fade-in`}
-          >
-            <div
-              className={[
-                "max-w-[80%] text-sm px-3.5 py-2.5 rounded-2xl leading-snug border",
-                m.from === "user" && "bg-white/[0.04] border-white/10 text-white/85 rounded-bl-md",
-                m.from === "ai" && "bg-white/[0.07] border-white/15 text-white/95 rounded-br-md",
-                m.from === "staff" &&
-                  "bg-emerald-500/10 border-emerald-500/30 text-emerald-100 text-xs rounded-xl",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-            >
-              <div className="text-[10px] uppercase tracking-wider opacity-50 mb-0.5">
-                {m.from === "user" ? "customer" : m.from === "ai" ? "clawforge" : "staff alert"}
-              </div>
-              {m.text}
-            </div>
-          </div>
-        ))}
-
-        {shown < chatScript.length && (
-          <div className="flex justify-end animate-fade-in">
-            <div className="bg-white/[0.04] border border-white/10 px-3 py-2 rounded-2xl flex gap-1">
-              <span className="w-1.5 h-1.5 bg-white/60 rounded-full animate-bounce [animation-delay:-0.3s]" />
-              <span className="w-1.5 h-1.5 bg-white/60 rounded-full animate-bounce [animation-delay:-0.15s]" />
-              <span className="w-1.5 h-1.5 bg-white/60 rounded-full animate-bounce" />
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="px-5 py-3 border-t border-white/[0.07] text-[11px] text-white/35 lowercase flex justify-between">
-        <span>booked in calendar · billing notified</span>
-        <span>human in the loop ✓</span>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- prompt-to-config ---------------- */
-
-function BuildDiagram() {
-  const generated = [
-    "workflows",
-    "memory",
-    "knowledge",
-    "escalation rules",
-    "channels",
-    "approvals",
-  ];
-
-  return (
-    <div className="grid lg:grid-cols-[1fr_auto_1fr] gap-6 items-center">
-      <div className="border border-white/10 rounded-2xl bg-gradient-to-b from-white/[0.04] to-white/[0.01] p-6 shadow-[0_20px_60px_-30px_rgba(0,0,0,0.7)]">
-        <div className="text-[11px] uppercase tracking-[0.28em] text-white/40 mb-3">
-          you describe
-        </div>
-        <div className="font-mono text-sm text-white/85 leading-relaxed">
-          <span className="text-white/40">$</span> create an ai employee that books appointments,
-          answers pricing questions, and follows up with leads who didn't reply.
-        </div>
-      </div>
-
-      <div className="flex items-center justify-center text-white/30 text-2xl">
-        <span className="hidden lg:block">→</span>
-        <span className="lg:hidden">↓</span>
-      </div>
-
-      <div className="border border-white/15 rounded-2xl bg-gradient-to-b from-white/[0.06] to-white/[0.02] p-6 shadow-[0_20px_60px_-30px_rgba(80,120,255,0.25)]">
-        <div className="text-[11px] uppercase tracking-[0.28em] text-white/65 mb-3 flex items-center gap-2">
-          <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
-          clawforge generates
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          {generated.map((g, i) => (
-            <div
-              key={g}
-              className="text-xs text-white/75 border border-white/10 px-3 py-2 rounded-xl bg-black/40 animate-fade-in"
-              style={{ animationDelay: `${i * 80}ms`, animationFillMode: "both" }}
-            >
-              ✓ {g}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- supervision ---------------- */
-
-function SupervisionDiagram() {
-  const channels = ["whatsapp", "sms", "web chat", "email"];
-  const teammates = ["scheduler", "support", "follow-ups"];
-  const staff = ["dashboard", "approvals", "alerts", "audit logs"];
-
-  return (
-    <div className="border border-white/10 rounded-2xl p-6 md:p-10 bg-gradient-to-b from-white/[0.025] to-white/[0.005] shadow-[0_30px_80px_-40px_rgba(0,0,0,0.8)]">
-      <div className="grid grid-cols-3 gap-6 items-center text-center">
-        <div className="space-y-2">
-          <div className="text-[10px] uppercase tracking-[0.28em] text-white/40">customers</div>
-          <div className="space-y-1.5">
-            {channels.map((c) => (
-              <div
-                key={c}
-                className="text-xs text-white/70 border border-white/10 py-2 rounded-xl bg-black/40"
-              >
-                {c}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <div className="text-[10px] uppercase tracking-[0.28em] text-white/65">ai employees</div>
-          <div className="border border-white/20 rounded-2xl bg-gradient-to-b from-white/[0.08] to-white/[0.02] p-3 space-y-1.5 relative">
-            <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-2 h-2 bg-white rounded-full animate-ping" />
-            {teammates.map((t) => (
-              <div
-                key={t}
-                className="text-xs text-white border border-white/15 bg-white/[0.06] py-2 rounded-xl"
-              >
-                {t}
-              </div>
-            ))}
-          </div>
-          <div className="text-[10px] text-white/35 lowercase">persistent · context-aware</div>
-        </div>
-
-        <div className="space-y-2">
-          <div className="text-[10px] uppercase tracking-[0.28em] text-emerald-300/70">
-            your team
-          </div>
-          <div className="space-y-1.5">
-            {staff.map((s) => (
-              <div
-                key={s}
-                className="text-xs text-emerald-100 border border-emerald-500/30 bg-emerald-500/10 py-2 rounded-xl"
-              >
-                {s}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- hero visual ---------------- */
 
 function HeroVisual() {
   const nodes = [
@@ -313,9 +235,6 @@ function HeroVisual() {
         }}
       />
       <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[60%] aspect-square rounded-full blur-[120px] bg-indigo-500/25 animate-pulse" />
-      <div className="absolute bottom-0 left-0 w-[40%] aspect-square rounded-full blur-[120px] bg-blue-600/20" />
-      <div className="absolute top-0 right-0 w-[35%] aspect-square rounded-full blur-[120px] bg-cyan-500/10" />
-
       <svg
         className="absolute inset-0 w-full h-full"
         viewBox="0 0 100 100"
@@ -357,401 +276,468 @@ function HeroVisual() {
         ))}
       </svg>
 
-      <div className="absolute top-6 right-6 flex items-center gap-2 text-[10px] uppercase tracking-[0.28em] text-white/65 border border-white/10 bg-black/40 backdrop-blur px-3 py-1.5 rounded-full">
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-        live · 12 employees
-      </div>
-      <div className="absolute bottom-6 left-6 right-6 flex justify-between text-[10px] uppercase tracking-[0.28em] text-white/40">
-        <span>customers</span>
-        <span>· clawforge ·</span>
-        <span>your team</span>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- human in the loop ---------------- */
-
-function HumanLoopDiagram() {
-  const steps = [
-    { label: "customer", sub: "messages, calls, or books" },
-    { label: "ai employee", sub: "drafts the response" },
-    { label: "your team", sub: "approves · edits · escalates" },
-    { label: "action sent", sub: "calendar · crm · sms · email" },
-  ];
-  return (
-    <div className="border border-white/10 rounded-2xl p-6 md:p-10 bg-gradient-to-b from-white/[0.025] to-white/[0.005] shadow-[0_30px_80px_-40px_rgba(0,0,0,0.8)]">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {steps.map((s, i) => (
-          <Reveal key={s.label} delay={i * 120}>
-            <div className="relative border border-white/10 bg-black/40 p-5 rounded-xl h-full hover:border-white/25 transition">
-              <div className="text-[10px] uppercase tracking-[0.28em] text-white/30 mb-3">
-                step {i + 1}
-              </div>
-              <div className="text-base font-semibold lowercase text-white/95">{s.label}</div>
-              <div className="text-xs text-white/50 lowercase mt-1">{s.sub}</div>
-              {i < steps.length - 1 && (
-                <div className="hidden md:flex absolute top-1/2 -right-3 -translate-y-1/2 text-white/30 text-xl">
-                  →
-                </div>
-              )}
-            </div>
-          </Reveal>
-        ))}
-      </div>
-      <div className="mt-6 grid md:grid-cols-2 gap-3 text-xs">
-        <div className="border border-emerald-500/30 bg-emerald-500/[0.06] px-4 py-3 rounded-xl text-emerald-100/85 lowercase flex items-center gap-3">
+      <div className="absolute inset-x-6 top-6 flex justify-end">
+        <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.28em] text-white/65 border border-white/10 bg-black/40 backdrop-blur px-3 py-1.5 rounded-full">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          low-risk · auto-handled (faqs, bookings, reminders)
+          sandbox live
         </div>
-        <div className="border border-white/15 bg-white/[0.03] px-4 py-3 rounded-xl text-white/80 lowercase flex items-center gap-3">
-          <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-          high-stakes · paused for you (refunds, contracts, edge cases)
+      </div>
+
+      <div className="absolute left-6 right-6 bottom-6 grid gap-2 md:grid-cols-3">
+        {["OpenClaw runtime", "NemoClaw policy", "Nemotron reasoning"].map((item) => (
+          <div
+            key={item}
+            className="border border-white/10 bg-black/35 backdrop-blur rounded-xl px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-white/50"
+          >
+            {item}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PromptCard() {
+  return (
+    <div className="border border-white/10 bg-black/45 backdrop-blur rounded-2xl p-4 md:p-5 shadow-[0_30px_80px_-40px_rgba(0,0,0,0.8)]">
+      <div className="text-[10px] uppercase tracking-[0.26em] text-white/40 mb-3">
+        describe the autonomous agent you want to create
+      </div>
+      <div className="font-mono text-sm leading-relaxed text-white/85 border border-white/10 rounded-xl bg-white/[0.035] p-4">
+        {examplePrompt}
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {["security incident response", "github triage", "inbox assistant", "research agent"].map(
+          (prompt) => (
+            <span
+              key={prompt}
+              className="border border-white/10 rounded-full px-3 py-1.5 text-[11px] lowercase text-white/60"
+            >
+              {prompt}
+            </span>
+          ),
+        )}
+      </div>
+    </div>
+  );
+}
+
+function GenerationPanel() {
+  return (
+    <div className="border border-white/10 rounded-2xl overflow-hidden bg-gradient-to-b from-white/[0.04] to-white/[0.01]">
+      <div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-3">
+        <div className="text-[11px] uppercase tracking-[0.24em] text-white/45">
+          generate agent blueprint
+        </div>
+        <div className="text-[11px] text-emerald-300/80 lowercase">ready</div>
+      </div>
+      <div className="p-5 grid gap-2">
+        {generationSteps.map((step, i) => (
+          <div
+            key={step}
+            className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white/75 animate-fade-in"
+            style={{ animationDelay: `${i * 70}ms`, animationFillMode: "both" }}
+          >
+            <span className="grid h-5 w-5 place-items-center rounded-full bg-emerald-400/15 text-[11px] text-emerald-200">
+              ✓
+            </span>
+            {step}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BlueprintPreview() {
+  return (
+    <div className="grid lg:grid-cols-[0.9fr_1.1fr] gap-6">
+      <div className="border border-white/10 rounded-2xl bg-black/35 p-6">
+        <div className="text-[11px] uppercase tracking-[0.28em] text-white/40 mb-4">
+          your secure agent blueprint is ready
+        </div>
+        <h3 className="text-3xl font-semibold tracking-tight lowercase">SentinelClaw</h3>
+        <p className="mt-4 text-sm text-white/65 lowercase leading-relaxed">
+          SentinelClaw monitors system logs, detects suspicious behavior, classifies incidents,
+          writes reports, and requests approval before executing risky actions.
+        </p>
+        <div className="mt-6 grid grid-cols-2 gap-2 text-xs">
+          {[
+            ["Model", "NVIDIA Nemotron"],
+            ["Option", "MiniMax-ready"],
+            ["Runtime", "OpenClaw"],
+            ["Sandbox", "NemoClaw"],
+            ["Memory", "Active"],
+          ].map(([label, value]) => (
+            <div key={label} className="border border-white/10 rounded-xl bg-white/[0.03] p-3">
+              <div className="uppercase tracking-[0.2em] text-white/35 text-[10px]">{label}</div>
+              <div className="mt-1 text-white/80">{value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="grid gap-2">
+        {tools.map((tool, i) => (
+          <div
+            key={tool.name}
+            className="border border-white/10 rounded-xl bg-white/[0.025] p-4 animate-fade-in"
+            style={{ animationDelay: `${i * 80}ms`, animationFillMode: "both" }}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="font-semibold lowercase text-white/95">{tool.name}</div>
+                <div className="text-xs text-white/55 lowercase mt-1">{tool.detail}</div>
+              </div>
+              <div className="flex gap-2 text-[10px] uppercase tracking-[0.14em]">
+                <span className="rounded-full border border-white/10 px-2.5 py-1 text-white/55">
+                  {tool.permission}
+                </span>
+                <span className="rounded-full border border-white/10 px-2.5 py-1 text-white/55">
+                  {tool.risk}
+                </span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SafetyCards() {
+  const toneClass = {
+    emerald: "border-emerald-500/30 bg-emerald-500/[0.07] text-emerald-100",
+    amber: "border-amber-400/30 bg-amber-400/[0.07] text-amber-100",
+    rose: "border-rose-400/30 bg-rose-400/[0.07] text-rose-100",
+  };
+
+  return (
+    <div className="grid md:grid-cols-3 gap-3">
+      {safetyCards.map((card) => (
+        <div key={card.label} className={`rounded-2xl border p-6 ${toneClass[card.tone]}`}>
+          <div className="text-lg font-semibold lowercase">{card.label}</div>
+          <p className="mt-3 text-sm leading-relaxed opacity-75 lowercase">{card.body}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LiveLogPreview() {
+  const [shown, setShown] = useState(4);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setShown((current) => (current >= liveLogs.length ? 4 : current + 1));
+    }, 1100);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <div className="border border-white/10 rounded-2xl overflow-hidden bg-[#06070a] shadow-[0_30px_80px_-40px_rgba(0,0,0,0.8)]">
+      <div className="flex items-center justify-between border-b border-white/[0.07] px-5 py-3">
+        <div className="text-[11px] uppercase tracking-[0.24em] text-white/45">
+          live agent activity
+        </div>
+        <div className="flex items-center gap-2 text-[11px] text-emerald-300/75 lowercase">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          streaming
+        </div>
+      </div>
+      <div className="p-5 font-mono text-xs leading-relaxed">
+        {liveLogs.slice(0, shown).map((line, i) => (
+          <div
+            key={`${line}-${i}`}
+            className="grid grid-cols-[58px_1fr] gap-3 border-b border-white/[0.05] py-2 last:border-0 animate-fade-in"
+          >
+            <span className="text-white/30">00:{String(i * 3 + 1).padStart(2, "0")}</span>
+            <span
+              className={
+                line.includes("Approval") || line.includes("Policy")
+                  ? "text-amber-200"
+                  : line.includes("Severity")
+                    ? "text-rose-200"
+                    : "text-white/75"
+              }
+            >
+              {line}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PolicyTable() {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-white/10">
+      {policies.map((policy) => (
+        <div
+          key={policy.rule}
+          className="grid gap-2 border-b border-white/[0.07] bg-black/35 p-4 text-sm last:border-0 md:grid-cols-[1fr_180px]"
+        >
+          <div className="text-white/75 lowercase">{policy.rule}</div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-white/45">
+            {policy.effect}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DashboardPreview() {
+  return (
+    <div className="grid gap-4 lg:grid-cols-[0.8fr_1.2fr_0.9fr]">
+      <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
+        <div className="text-[11px] uppercase tracking-[0.24em] text-white/40">agent chat</div>
+        <div className="mt-5 space-y-3 text-sm lowercase">
+          <div className="rounded-2xl rounded-bl-md border border-white/10 bg-white/[0.04] p-3 text-white/70">
+            what are you doing?
+          </div>
+          <div className="rounded-2xl rounded-br-md border border-white/15 bg-white/[0.07] p-3 text-white/85">
+            reading logs, classifying the incident, and waiting for approval before remediation.
+          </div>
+        </div>
+      </div>
+      <LiveLogPreview />
+      <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
+        <div className="text-[11px] uppercase tracking-[0.24em] text-white/40">policy + memory</div>
+        <div className="mt-5 grid gap-3">
+          {[
+            "Policy Mode: Enforced",
+            "Memory: Active",
+            "Blocked: raw log export",
+            "Pending: shell approval",
+          ].map((item) => (
+            <div
+              key={item}
+              className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm text-white/70"
+            >
+              {item}
+            </div>
+          ))}
+        </div>
+        <div className="mt-5 rounded-xl border border-amber-400/30 bg-amber-400/[0.07] p-4 text-sm text-amber-100">
+          <div className="font-semibold lowercase">Approval Required</div>
+          <p className="mt-2 text-xs leading-relaxed opacity-80">
+            The agent wants to execute `block_ip 185.92.XX.XX`. NemoClaw policy requires human
+            approval before this can continue.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-black">
+              Approve Action
+            </button>
+            <button className="rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold text-white">
+              Deny Action
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-/* ---------------- integrations ---------------- */
-
-function IntegrationsGrid() {
-  const tools = [
-    { name: "twilio", cat: "phone & sms", featured: true },
-    { name: "whatsapp", cat: "messaging", featured: true },
-    { name: "gmail", cat: "email" },
-    { name: "outlook", cat: "email" },
-    { name: "google calendar", cat: "calendar" },
-    { name: "slack", cat: "team chat" },
-    { name: "notion", cat: "docs" },
-    { name: "airtable", cat: "data" },
-    { name: "google sheets", cat: "data" },
-    { name: "hubspot", cat: "crm" },
-    { name: "salesforce", cat: "crm" },
-    { name: "stripe", cat: "payments" },
-    { name: "mailchimp", cat: "outreach" },
-    { name: "zoom", cat: "meetings" },
-    { name: "linear", cat: "tasks" },
-    { name: "drive", cat: "storage" },
+function FinalReport() {
+  const rows = [
+    ["Severity", "High"],
+    ["Detected Behavior", "Repeated failed login attempts"],
+    ["Likely Threat", "Brute-force login attempt"],
+    [
+      "Recommended Action",
+      "Review source IP, monitor additional attempts, and block only after approval",
+    ],
+    ["Policy Result", "Shell command paused for approval"],
+    ["Final Decision", "User denied command execution"],
+    ["Memory Update", "Future shell actions for unknown IPs require explicit approval"],
   ];
 
   return (
-    <div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-px bg-white/10 border border-white/10 rounded-2xl overflow-hidden">
-        {tools.map((t, i) => (
-          <div
-            key={t.name}
-            className="p-5 bg-black hover:bg-white/[0.04] transition group animate-fade-in"
-            style={{ animationDelay: `${i * 35}ms`, animationFillMode: "both" }}
-          >
-            <div className="flex items-center gap-2 mb-1">
-              <div
-                className={`w-1.5 h-1.5 rounded-full ${
-                  t.featured ? "bg-white" : "bg-white/30 group-hover:bg-white/60"
-                }`}
-              />
-              <div className="font-semibold lowercase text-sm">{t.name}</div>
-            </div>
-            <div className="text-[11px] uppercase tracking-wider text-white/40">{t.cat}</div>
+    <div className="rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.04] to-transparent p-6">
+      <div className="text-[11px] uppercase tracking-[0.24em] text-white/40">
+        incident report generated
+      </div>
+      <p className="mt-4 max-w-3xl text-sm leading-relaxed text-white/65 lowercase">
+        SentinelClaw detected suspicious login behavior, classified the event as high severity,
+        generated an incident report, and safely paused before executing any remediation command.
+      </p>
+      <div className="mt-6 grid gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10">
+        {rows.map(([label, value]) => (
+          <div key={label} className="grid gap-2 bg-black p-4 text-sm md:grid-cols-[200px_1fr]">
+            <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">{label}</div>
+            <div className="text-white/75">{value}</div>
           </div>
         ))}
-        <div className="p-5 bg-black flex flex-col justify-center">
-          <div className="text-2xl font-semibold text-white/95">+ 250</div>
-          <div className="text-[11px] uppercase tracking-wider text-white/40 mt-1">
-            via composio
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-6 flex flex-wrap items-center gap-2 text-[11px] text-white/55 lowercase">
-        <span>powered by</span>
-        <span className="border border-white/10 px-3 py-1.5 rounded-full text-white/65">
-          twilio · phones &amp; sms
-        </span>
-        <span className="border border-white/10 px-3 py-1.5 rounded-full text-white/65">
-          composio · 250+ tools
-        </span>
-        <span className="border border-white/10 px-3 py-1.5 rounded-full text-white/65">
-          mcp · open standard
-        </span>
       </div>
     </div>
   );
 }
-
-/* ---------------- page ---------------- */
 
 function Index() {
-  const employees = [
-    {
-      name: "scheduler",
-      desc: "books appointments, sends reminders, and reschedules without back-and-forth.",
-    },
-    {
-      name: "support rep",
-      desc: "answers pricing, hours, and faqs across sms, web chat, and email — 24/7.",
-    },
-    {
-      name: "intake coordinator",
-      desc: "collects what you need from every new lead and routes them to the right place.",
-    },
-    {
-      name: "follow-up agent",
-      desc: "chases unresponsive leads, quotes, and invoices on your cadence.",
-    },
-    {
-      name: "knowledge desk",
-      desc: "searches your docs, sops, and spreadsheets the moment someone asks.",
-    },
-    {
-      name: "ops assistant",
-      desc: "coordinates volunteers, contractors, or staff schedules in plain english.",
-    },
-  ];
-
-  const builtFor = [
-    "small businesses",
-    "agencies",
-    "clinics",
-    "nonprofits",
-    "local services",
-    "operations teams",
-    "solo founders",
-    "community orgs",
-    "growing startups",
-  ];
-
   return (
     <main className="min-h-screen bg-black text-white">
-      {/* HERO */}
-      <div className="grid lg:grid-cols-2 min-h-screen">
-        <section className="relative flex flex-col justify-between p-8 lg:p-14 animate-fade-in order-2 lg:order-1">
+      <div className="grid min-h-screen lg:grid-cols-2">
+        <section className="relative order-2 flex flex-col justify-between p-8 animate-fade-in lg:order-1 lg:p-14">
           <Logo />
 
-          <div className="max-w-md">
-            <div className="text-[11px] uppercase tracking-[0.32em] text-white/45 mb-5">
-              lovable for ai employees
+          <div className="max-w-xl">
+            <div className="mb-5 text-[11px] uppercase tracking-[0.32em] text-white/45">
+              describe an agent. generate it. sandbox it. run it.
             </div>
-            <h1 className="text-5xl lg:text-7xl font-semibold tracking-tight leading-[0.95] lowercase">
-              hi. we're clawforge.
+            <h1 className="text-5xl font-semibold leading-[0.95] tracking-tight lowercase lg:text-7xl">
+              Build secure autonomous agents from one prompt.
             </h1>
-            <p className="mt-6 text-base text-white/65 leading-relaxed lowercase max-w-sm">
-              build ai employees for your business in plain english. they automate intake, support,
-              scheduling, follow-ups, and the operational work that drowns small teams.
+            <p className="mt-6 max-w-lg text-base leading-relaxed text-white/65">
+              ClawForge generates OpenClaw agents powered by NVIDIA Nemotron, connects tools,
+              creates memory, writes safety policies, and deploys them inside NemoClaw with live
+              audit logs.
             </p>
 
             <div className="mt-8 flex flex-wrap gap-3">
               <a
-                href="#start"
-                className="bg-white text-black px-5 py-3 text-sm font-medium lowercase rounded-xl hover:bg-white/90 transition shadow-[0_10px_30px_-10px_rgba(255,255,255,0.45)] inline-block"
+                href="#builder"
+                className="inline-block rounded-xl bg-white px-5 py-3 text-sm font-medium lowercase text-black shadow-[0_10px_30px_-10px_rgba(255,255,255,0.45)] transition hover:bg-white/90"
               >
-                start building ai employees
+                Build an Agent
               </a>
               <a
-                href="#demo"
-                className="border border-white/20 text-white px-5 py-3 text-sm font-medium lowercase rounded-xl hover:bg-white/[0.05] transition inline-block"
+                href="#dashboard"
+                className="inline-block rounded-xl border border-white/20 px-5 py-3 text-sm font-medium lowercase text-white transition hover:bg-white/[0.05]"
               >
-                see how it works
+                Watch Demo
               </a>
             </div>
 
             <div className="mt-8 text-[11px] uppercase tracking-[0.28em] text-white/35">
-              powered by clawforge
+              the fastest way to build and safely deploy autonomous agents
             </div>
           </div>
 
-          <footer className="text-xs text-white/40 lowercase">
-            © clawforge · ai employees, human-supervised
+          <footer className="text-xs lowercase text-white/40">
+            © clawforge · one prompt · full control
           </footer>
         </section>
 
-        <section className="relative min-h-[55vh] lg:min-h-screen overflow-hidden order-1 lg:order-2 bg-[#04060f]">
+        <section className="relative order-1 min-h-[55vh] overflow-hidden bg-[#04060f] lg:order-2 lg:min-h-screen">
           <HeroVisual />
         </section>
       </div>
 
-      {/* PROBLEM */}
-      <Section eyebrow="the problem" title="too much work. not enough hands. no budget to hire.">
-        <div className="grid md:grid-cols-3 gap-3">
+      <section id="builder" className="border-t border-white/[0.07] px-6 py-12 md:px-12 lg:px-16">
+        <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+          <PromptCard />
+          <GenerationPanel />
+        </div>
+      </section>
+
+      <Section id="how" eyebrow="how it works" title="from prompt to protected agent.">
+        <div className="grid gap-3 md:grid-cols-4">
           {[
-            { stat: "1", label: "small team" },
-            { stat: "∞", label: "incoming work" },
-            { stat: "0", label: "budget for another hire" },
-          ].map((s, i) => (
-            <Reveal key={s.label} delay={i * 100}>
-              <div className="border border-white/10 p-6 rounded-2xl bg-gradient-to-b from-white/[0.025] to-transparent hover:border-white/25 transition h-full">
-                <div className="text-5xl font-semibold text-white/95">{s.stat}</div>
-                <div className="text-sm text-white/55 lowercase mt-2">{s.label}</div>
+            ["Describe", "Tell ClawForge what you want your agent to do."],
+            ["Generate", "ClawForge creates the tools, memory, policies, and workflow steps."],
+            [
+              "Deploy",
+              "The agent runs with OpenClaw, reasons with Nemotron, and operates inside NemoClaw.",
+            ],
+            ["Control", "Live logs, approval gates, and policy checks keep the agent accountable."],
+          ].map(([title, body], i) => (
+            <Reveal key={title} delay={i * 100}>
+              <div className="h-full rounded-2xl border border-white/10 bg-white/[0.025] p-6">
+                <div className="text-[11px] uppercase tracking-[0.25em] text-white/35">
+                  step {i + 1}
+                </div>
+                <div className="mt-4 text-lg font-semibold lowercase">{title}</div>
+                <p className="mt-3 text-sm leading-relaxed text-white/60 lowercase">{body}</p>
               </div>
             </Reveal>
           ))}
         </div>
-        <p className="mt-8 text-white/65 lowercase max-w-3xl leading-relaxed">
-          clawforge gives small teams the operational capacity of a much larger one — without the
-          payroll, the recruiting, or the engineering overhead.
-        </p>
       </Section>
 
-      {/* DEMO */}
-      <Section id="demo" eyebrow="live demo" title="meet your scheduling employee.">
-        <div className="grid lg:grid-cols-[1.1fr_1fr] gap-8 items-stretch">
-          <div className="h-[520px]">
-            <ChatDemo />
-          </div>
-          <div className="space-y-6 self-center">
-            <p className="text-white/70 lowercase leading-relaxed">
-              a real conversation. a customer asks about availability, books an appointment, and
-              asks a billing question — all answered in seconds. your team gets a clean handoff when
-              it matters.
-            </p>
-            <ul className="space-y-2 text-sm">
-              {[
-                "answers across sms, whatsapp, web, and email",
-                "follows your scripts and brand voice — every time",
-                "writes to your calendar, crm, and tools directly",
-                "escalates to a human when stakes are high",
-              ].map((x, i) => (
-                <Reveal key={x} delay={i * 100}>
-                  <li className="border border-white/10 px-4 py-3 rounded-xl bg-white/[0.02] lowercase text-white/80">
-                    ✓ {x}
-                  </li>
-                </Reveal>
-              ))}
-            </ul>
-          </div>
-        </div>
-      </Section>
-
-      {/* HOW */}
-      <Section id="how" eyebrow="how it works" title="describe the role. in plain english.">
-        <BuildDiagram />
-        <p className="mt-8 text-white/60 lowercase max-w-3xl leading-relaxed">
-          clawforge automatically generates the workflows, memory, knowledge retrieval, escalation
-          rules, communication channels, and approval systems your ai employee needs to start
-          working.
-        </p>
-      </Section>
-
-      {/* ARCHITECTURE */}
-      <Section eyebrow="under the hood" title="ai employees that stay under your control.">
-        <SupervisionDiagram />
-      </Section>
-
-      {/* HUMAN IN THE LOOP */}
-      <Section eyebrow="human in the loop" title="every important decision goes through a person.">
-        <HumanLoopDiagram />
-      </Section>
-
-      {/* INTEGRATIONS */}
-      <Section
-        eyebrow="connected"
-        title="phones, inboxes, calendars, crms — wired in from day one."
-      >
-        <IntegrationsGrid />
-      </Section>
-
-      {/* EMPLOYEES */}
-      <Section eyebrow="examples" title="the team you can build today.">
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-px bg-white/10 border border-white/10 rounded-2xl overflow-hidden">
-          {employees.map((e, i) => (
+      <Section id="features" eyebrow="features" title="everything your agent needs to run safely.">
+        <div className="grid gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:grid-cols-2 lg:grid-cols-3">
+          {features.map((feature, i) => (
             <div
-              key={e.name}
-              className="bg-black p-6 hover:bg-white/[0.03] transition group animate-fade-in"
+              key={feature.title}
+              className="bg-black p-6 transition hover:bg-white/[0.03] animate-fade-in"
               style={{ animationDelay: `${i * 60}ms`, animationFillMode: "both" }}
             >
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-1.5 h-1.5 rounded-full bg-white/50 group-hover:bg-white" />
-                <div className="font-semibold lowercase">{e.name}</div>
-              </div>
-              <div className="text-sm text-white/60 lowercase leading-relaxed">{e.desc}</div>
+              <div className="font-semibold lowercase text-white/95">{feature.title}</div>
+              <p className="mt-3 text-sm leading-relaxed text-white/60 lowercase">{feature.body}</p>
             </div>
           ))}
         </div>
       </Section>
 
-      {/* NEMOCLAW */}
-      <Section eyebrow="powered by clawforge" title="a runtime built for persistent ai workers.">
-        <div className="grid md:grid-cols-2 gap-3">
-          {[
-            {
-              t: "memory",
-              d: "remembers customers, context, and past decisions across every channel.",
-            },
-            {
-              t: "workflows",
-              d: "follows multi-step operational processes, not just one-off chats.",
-            },
-            { t: "tools", d: "calls phones, calendars, crms, and 250+ apps via composio and mcp." },
-            {
-              t: "guardrails",
-              d: "stays inside your rules, escalates the rest, and logs everything.",
-            },
-          ].map((c, i) => (
-            <Reveal key={c.t} delay={i * 100}>
-              <div className="border border-white/10 rounded-2xl p-6 bg-gradient-to-b from-white/[0.03] to-transparent hover:border-white/25 transition h-full">
-                <div className="text-sm font-semibold lowercase text-white/95">{c.t}</div>
-                <div className="text-sm text-white/60 lowercase leading-relaxed mt-2">{c.d}</div>
-              </div>
-            </Reveal>
-          ))}
-        </div>
-      </Section>
-
-      {/* BUILT FOR */}
-      <Section eyebrow="built for" title="small teams that need to do more with less.">
-        <div className="flex flex-wrap gap-2">
-          {builtFor.map((b) => (
-            <span
-              key={b}
-              className="border border-white/15 px-4 py-2 text-sm text-white/75 lowercase rounded-full hover:border-white/40 hover:text-white transition"
-            >
-              {b}
-            </span>
-          ))}
-        </div>
-      </Section>
-
-      {/* CTA */}
-      <section
-        id="start"
-        className="border-t border-white/[0.07] px-6 md:px-12 lg:px-16 py-32 relative overflow-hidden"
+      <Section
+        id="blueprint"
+        eyebrow="blueprint review"
+        title="your secure agent blueprint is ready."
       >
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[80%] aspect-square rounded-full blur-[140px] bg-indigo-500/10" />
+        <BlueprintPreview />
+      </Section>
+
+      <Section id="safety" eyebrow="safety" title="autonomy with guardrails.">
+        <div className="grid gap-8">
+          <p className="max-w-3xl text-white/65 lowercase leading-relaxed">
+            ClawForge does not just help agents act. It helps them act safely. Every generated agent
+            includes policy rules that define what it can do, what requires approval, and what is
+            completely blocked.
+          </p>
+          <SafetyCards />
+          <PolicyTable />
         </div>
-        <div className="max-w-5xl mx-auto relative">
+      </Section>
+
+      <Section id="dashboard" eyebrow="live dashboard" title="see every decision as it happens.">
+        <DashboardPreview />
+      </Section>
+
+      <Section id="report" eyebrow="final output" title="incident report generated.">
+        <FinalReport />
+      </Section>
+
+      <section className="relative overflow-hidden border-t border-white/[0.07] px-6 py-28 md:px-12 lg:px-16">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute left-1/2 top-1/2 aspect-square w-[80%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-indigo-500/10 blur-[140px]" />
+        </div>
+        <div className="relative mx-auto max-w-5xl">
           <Reveal>
-            <div className="text-[11px] text-white/45 lowercase mb-4 tracking-[0.3em]">
-              your team needs more capacity
+            <div className="mb-4 text-[11px] lowercase tracking-[0.3em] text-white/45">
+              fastest path to safe autonomy
             </div>
-            <h2 className="text-4xl lg:text-6xl font-semibold tracking-tight lowercase leading-[1.05] max-w-3xl">
-              automate the work. keep the humans for what matters.
+            <h2 className="max-w-3xl text-4xl font-semibold leading-[1.05] tracking-tight lowercase lg:text-6xl">
+              ClawForge is not just an agent. It is the fastest way to build and safely deploy
+              autonomous agents.
             </h2>
-            <p className="mt-6 text-white/65 lowercase max-w-2xl leading-relaxed">
-              build one ai employee for one workflow. expand when you're ready. human-supervised
-              from day one — and priced for the budgets real small teams actually have.
+            <p className="mt-6 max-w-2xl text-white/65 lowercase leading-relaxed">
+              In our demo, ClawForge creates a cybersecurity incident response agent that monitors
+              logs, detects suspicious activity, writes a report, and pauses before executing risky
+              commands.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <a
-                href="#"
-                className="bg-white text-black px-6 py-3 text-sm font-medium lowercase rounded-xl hover:bg-white/90 transition shadow-[0_10px_30px_-10px_rgba(255,255,255,0.45)] inline-block"
+                href="#builder"
+                className="inline-block rounded-xl bg-white px-6 py-3 text-sm font-medium lowercase text-black shadow-[0_10px_30px_-10px_rgba(255,255,255,0.45)] transition hover:bg-white/90"
               >
-                start building with clawforge
+                Build an Agent
               </a>
               <a
-                href="#"
-                className="border border-white/20 text-white px-6 py-3 text-sm font-medium lowercase rounded-xl hover:bg-white/[0.05] transition inline-block"
+                href="#dashboard"
+                className="inline-block rounded-xl border border-white/20 px-6 py-3 text-sm font-medium lowercase text-white transition hover:bg-white/[0.05]"
               >
-                talk to the team →
+                Watch Demo
               </a>
             </div>
           </Reveal>
         </div>
       </section>
 
-      <footer className="border-t border-white/[0.07] px-8 lg:px-16 py-8 text-xs text-white/40 lowercase flex flex-wrap justify-between gap-4">
+      <footer className="flex flex-wrap justify-between gap-4 border-t border-white/[0.07] px-8 py-8 text-xs lowercase text-white/40 lg:px-16">
         <Logo size="sm" />
-        <span>ai employees for the teams doing the most with the least · powered by clawforge</span>
+        <span>from prompt to protected agent · OpenClaw · NemoClaw · Nemotron</span>
       </footer>
     </main>
   );
