@@ -32,8 +32,8 @@ export const Route = createFileRoute("/")({
 function Logo() {
   return (
     <div className="flex items-center gap-3" aria-label="ClawForge">
-      <div className="grid h-8 w-8 place-items-center bg-white text-[10px] font-black text-black">
-        CF
+      <div className="grid h-8 w-8 place-items-center">
+        <div className="h-0 w-0 border-y-[9px] border-l-[15px] border-y-transparent border-l-white" />
       </div>
       <span className="text-[11px] font-semibold uppercase tracking-[0.32em] text-white/50">
         clawforge
