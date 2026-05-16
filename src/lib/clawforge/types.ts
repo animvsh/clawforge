@@ -204,6 +204,7 @@ export type ProviderConfig = {
     nemotron?: string; // NVIDIA_API_KEY
     minimax_api_key?: string; // MINIMAX_API_KEY
     minimax_plan_key?: string; // MINIMAX_PLAN_KEY
+    pi_coding_api_key?: string; // PI_CODING_API_KEY
   };
   fallback_chain: ProviderMode[];
 };
