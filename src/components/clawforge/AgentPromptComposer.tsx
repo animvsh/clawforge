@@ -11,6 +11,7 @@ interface AgentPromptComposerProps {
   showPlanToggle?: boolean;
   onAttach?: () => void;
   placeholder?: string;
+  animatedPlaceholder?: boolean;
 }
 
 const DEFAULT_SUGGESTIONS = [
@@ -31,6 +32,7 @@ export function AgentPromptComposer({
   showPlanToggle,
   onAttach,
   placeholder = "Describe your agent…",
+  animatedPlaceholder = true,
 }: AgentPromptComposerProps) {
   const [typingText, setTypingText] = useState("");
   const [suggestionIndex, setSuggestionIndex] = useState(0);
@@ -38,8 +40,9 @@ export function AgentPromptComposer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Animated typing effect — only starts after a delay to show "Describe your project..." first
+  const shouldAnimate = animatedPlaceholder && !value && suggestions.length > 0;
   useEffect(() => {
-    if (value) {
+    if (!shouldAnimate) {
       setIsTyping(false);
       setTypingText("");
       return;
@@ -62,16 +65,16 @@ export function AgentPromptComposer({
     }, 40 + Math.random() * 30);
 
     return () => clearTimeout(timeout);
-  }, [typingText, suggestionIndex, value, suggestions]);
+  }, [typingText, suggestionIndex, value, suggestions, shouldAnimate]);
 
   // Start typing animation after initial delay
   useEffect(() => {
-    if (value) return;
+    if (!shouldAnimate) return;
     const delayTimer = window.setTimeout(() => {
       setIsTyping(true);
     }, 1200);
     return () => clearTimeout(delayTimer);
-  }, [suggestions, value]);
+  }, [suggestions, value, shouldAnimate]);
 
   function handleSubmit() {
     if (!value.trim() || disabled) return;

@@ -744,6 +744,7 @@ function WorkspacePage() {
             onAttach={undefined}
             placeholder="Ask about your agent…"
             suggestions={[]}
+            animatedPlaceholder={false}
           />
         </div>
       </div>
