@@ -181,11 +181,57 @@ fi
 log "Building ClawForge"
 npm run build
 
+log "Writing NemoClaw instance runtime manifest"
+mkdir -p .runtime/nemoclaw
+cat > .runtime/nemoclaw/instance.json <<JSON
+{
+  "ok": true,
+  "agent_name": "${CLAWFORGE_AGENT_NAME:-ClawForge Agent}",
+  "blueprint_id": "${CLAWFORGE_BLUEPRINT_ID:-}",
+  "runtime": "NemoClaw",
+  "policy_mode": "enforced",
+  "chat_web_ui": "http://0.0.0.0:${CLAWFORGE_WEB_PORT:-5173}",
+  "health_url": "http://127.0.0.1:${CLAWFORGE_WEB_PORT:-5173}/api/health",
+  "integration_manifest": "${CLAWFORGE_INTEGRATION_MANIFEST_PATH:-}",
+  "created_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+}
+JSON
+chmod 600 .runtime/nemoclaw/instance.json
+
+if [[ "${START_CLAWFORGE_WEB:-1}" == "1" ]]; then
+  port="${CLAWFORGE_WEB_PORT:-5173}"
+  log "Starting ClawForge chat web UI on 0.0.0.0:${port}"
+  if [[ -f .runtime/clawforge-web.pid ]]; then
+    old_pid="$(cat .runtime/clawforge-web.pid || true)"
+    if [[ -n "${old_pid}" ]] && kill -0 "${old_pid}" >/dev/null 2>&1; then
+      log "ClawForge web UI already running with pid ${old_pid}."
+    else
+      rm -f .runtime/clawforge-web.pid
+    fi
+  fi
+
+  if [[ ! -f .runtime/clawforge-web.pid ]]; then
+    nohup npm run dev -- --host 0.0.0.0 --port "${port}" > .runtime/clawforge-web.log 2>&1 &
+    echo "$!" > .runtime/clawforge-web.pid
+    sleep 5
+  fi
+
+  if curl -fsS "http://127.0.0.1:${port}/api/health" >/tmp/clawforge-health.json; then
+    log "ClawForge chat web UI is healthy."
+    cat /tmp/clawforge-health.json
+    rm -f /tmp/clawforge-health.json
+  else
+    warn "ClawForge web UI did not pass health check yet. Inspect .runtime/clawforge-web.log on the Brev VM."
+  fi
+else
+  log "Skipping web UI start because START_CLAWFORGE_WEB=0."
+fi
+
 cat <<'NEXT'
 
 [clawforge-brev] Setup complete.
 
-Run ClawForge on Brev:
+If the setup did not auto-start it, run ClawForge on Brev:
   npm run dev -- --host 0.0.0.0 --port 5173
 
 Preview the production build on Brev:

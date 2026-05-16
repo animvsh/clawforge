@@ -229,10 +229,24 @@ async function writeStartupScript(
   const secretNames = manifest.secret_names.join(",");
   const script = `#!/usr/bin/env bash
 set -euo pipefail
+set +x
+export CLAWFORGE_REPO_URL="\${CLAWFORGE_REPO_URL:-https://github.com/animvsh/clawforge.git}"
+export CLAWFORGE_ROOT="\${CLAWFORGE_ROOT:-/home/ubuntu/workspace/clawforge}"
 export CLAWFORGE_INTEGRATION_MANIFEST_B64=${shellQuote(manifestB64)}
 export CLAWFORGE_REQUIRED_SECRET_NAMES=${shellQuote(secretNames)}
 export CLAWFORGE_AGENT_NAME=${shellQuote(manifest.agent.name)}
 export CLAWFORGE_BLUEPRINT_ID=${shellQuote(manifest.agent.blueprint_id ?? "")}
+if ! command -v git >/dev/null 2>&1; then
+  sudo apt-get update
+  sudo apt-get install -y git
+fi
+mkdir -p "$(dirname "\${CLAWFORGE_ROOT}")"
+if [[ ! -d "\${CLAWFORGE_ROOT}/.git" ]]; then
+  git clone "\${CLAWFORGE_REPO_URL}" "\${CLAWFORGE_ROOT}"
+else
+  git -C "\${CLAWFORGE_ROOT}" pull --ff-only || true
+fi
+cd "\${CLAWFORGE_ROOT}"
 ./scripts/brev/setup-clawforge.sh
 `;
 
@@ -385,16 +399,55 @@ export async function getBrevStatus(): Promise<BrevStatus> {
   };
 }
 
-export function openHandsConnection(): OpenHandsConnection {
-  const workspaceUrl = readEnv("OPENHANDS_WORKSPACE_URL") || readEnv("NEMOCLAW_OPENHANDS_URL");
-  const runtimeApiUrl = readEnv("OPENHANDS_RUNTIME_API_URL") || readEnv("RUNTIME_API_URL");
+function envOrRuntime(env: Record<string, string | undefined>, name: string): string {
+  return env[name] ?? readEnv(name);
+}
+
+export function openHandsConnection(
+  env: Record<string, string | undefined> = {},
+): OpenHandsConnection {
+  const workspaceUrl =
+    envOrRuntime(env, "OPENHANDS_WORKSPACE_URL") || envOrRuntime(env, "NEMOCLAW_OPENHANDS_URL");
+  const runtimeApiUrl =
+    envOrRuntime(env, "OPENHANDS_RUNTIME_API_URL") || envOrRuntime(env, "RUNTIME_API_URL");
   return {
     mode: workspaceUrl ? "remote" : runtimeApiUrl ? "remote" : "simulated",
     workspaceUrl: workspaceUrl || null,
     runtimeApiUrl: runtimeApiUrl || null,
-    serverImage: readEnv("OPENHANDS_SERVER_IMAGE") || DEFAULT_SERVER_IMAGE,
+    serverImage: envOrRuntime(env, "OPENHANDS_SERVER_IMAGE") || DEFAULT_SERVER_IMAGE,
     conversationId: `clawforge_${DEMO_AGENT_ID}`,
   };
+}
+
+async function proxyRemoteRuntimeChat(
+  openHands: OpenHandsConnection,
+  message: string,
+  provider: ProviderMode,
+): Promise<OpenHandsChatResponse | null> {
+  if (!openHands.runtimeApiUrl) return null;
+  try {
+    const endpoint = new URL("/api/clawforge/remote-chat", openHands.runtimeApiUrl);
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message,
+        provider,
+        conversation_id: openHands.conversationId,
+      }),
+    });
+    const data = (await response.json()) as {
+      ok?: boolean;
+      chat?: OpenHandsChatResponse;
+      error?: { message?: string };
+    };
+    if (!response.ok || !data.ok || !data.chat) {
+      throw new Error(data.error?.message || "Remote NemoClaw runtime did not accept the chat.");
+    }
+    return data.chat;
+  } catch {
+    return null;
+  }
 }
 
 export async function createBrevLaunchPlan(
@@ -611,8 +664,27 @@ export async function chatWithOpenHands(
   env: Record<string, string | undefined> = {},
   provider: ProviderMode = "auto",
 ): Promise<OpenHandsChatResponse> {
-  const openHands = openHandsConnection();
+  const openHands = openHandsConnection(env);
   const normalized = message.trim() || "Inspect the NemoClaw sandbox.";
+  if (env.CLAWFORGE_ALLOW_REMOTE_OPENHANDS !== "0") {
+    const remote = await proxyRemoteRuntimeChat(openHands, normalized, provider);
+    if (remote) {
+      return {
+        ...remote,
+        events: [
+          runtimeEvent(
+            "tool.called",
+            "Forwarded chat to the deployed NemoClaw runtime.",
+            "success",
+            {
+              runtime_api_url: openHands.runtimeApiUrl,
+            },
+          ),
+          ...remote.events,
+        ],
+      };
+    }
+  }
   const isReceptionistRequest =
     /\b(phone|call|calls|receptionist|sms|text|calendar|schedule|appointment|booking)\b/i.test(
       normalized,

@@ -613,6 +613,36 @@ export async function handleClawForgeApi(
     });
   }
 
+  if (
+    (apiPath === "/api/clawforge/remote-chat" || apiPath === "/clawforge/remote-chat") &&
+    request.method === "POST"
+  ) {
+    const body = await readJsonBody<{ message?: unknown; provider?: unknown; model?: unknown }>(
+      request,
+    );
+    const message = typeof body.message === "string" ? body.message : "";
+    const provider = normalizeProvider(body.provider);
+    if (provider === null) {
+      return errorResponse(
+        "Invalid provider value. Must be one of: auto, nemotron, minimax, pi, mock.",
+        400,
+        "INVALID_REQUEST",
+        "provider",
+      );
+    }
+    return successResponse({
+      chat: await chatWithOpenHands(
+        message,
+        {
+          ...runtimeEnv(workerEnv),
+          ...providerModelEnvOverride(provider, body.model),
+          CLAWFORGE_ALLOW_REMOTE_OPENHANDS: "0",
+        },
+        provider,
+      ),
+    });
+  }
+
   const predeployEventsMatch = path.match(/^\/api\/clawforge\/predeploy-runs\/([^/]+)\/events$/);
   if (predeployEventsMatch && request.method === "GET") {
     const [, runId] = predeployEventsMatch;
@@ -821,67 +851,67 @@ export async function handleClawForgeApi(
   }
 
   // ============================================================
-// Memory Gateway — /api/memory/*
-//
-// All memory operations are scope-isolated. user_id is derived
-// from the server session and never accepted from the client.
-// ============================================================
+  // Memory Gateway — /api/memory/*
+  //
+  // All memory operations are scope-isolated. user_id is derived
+  // from the server session and never accepted from the client.
+  // ============================================================
 
-// GET /api/memory/health — no auth required
-if (apiPath === "/api/memory/health" && request.method === "GET") {
-  return handleMemoryHealth();
-}
+  // GET /api/memory/health — no auth required
+  if (apiPath === "/api/memory/health" && request.method === "GET") {
+    return handleMemoryHealth();
+  }
 
-// POST /api/memory/search
-if (apiPath === "/api/memory/search" && request.method === "POST") {
-  const body = await readJsonBody<{
-    query?: unknown;
-    project_id?: unknown;
-    agent_id?: unknown;
-    type?: unknown;
-    limit?: unknown;
-  }>(request);
-  return handleMemorySearch(body);
-}
+  // POST /api/memory/search
+  if (apiPath === "/api/memory/search" && request.method === "POST") {
+    const body = await readJsonBody<{
+      query?: unknown;
+      project_id?: unknown;
+      agent_id?: unknown;
+      type?: unknown;
+      limit?: unknown;
+    }>(request);
+    return handleMemorySearch(body);
+  }
 
-// POST /api/memory/add
-if (apiPath === "/api/memory/add" && request.method === "POST") {
-  const body = await readJsonBody<{
-    project_id?: unknown;
-    agent_id?: unknown;
-    run_id?: unknown;
-    workspace_id?: unknown;
-    content?: unknown;
-    type?: unknown;
-  }>(request);
-  return handleMemoryAdd(body);
-}
+  // POST /api/memory/add
+  if (apiPath === "/api/memory/add" && request.method === "POST") {
+    const body = await readJsonBody<{
+      project_id?: unknown;
+      agent_id?: unknown;
+      run_id?: unknown;
+      workspace_id?: unknown;
+      content?: unknown;
+      type?: unknown;
+    }>(request);
+    return handleMemoryAdd(body);
+  }
 
-// POST /api/memory/update
-if (apiPath === "/api/memory/update" && request.method === "POST") {
-  const body = await readJsonBody<{
-    id?: unknown;
-    content?: unknown;
-    metadata?: unknown;
-  }>(request);
-  return handleMemoryUpdate(body);
-}
+  // POST /api/memory/update
+  if (apiPath === "/api/memory/update" && request.method === "POST") {
+    const body = await readJsonBody<{
+      id?: unknown;
+      content?: unknown;
+      metadata?: unknown;
+    }>(request);
+    return handleMemoryUpdate(body);
+  }
 
-// POST /api/memory/delete
-if (apiPath === "/api/memory/delete" && request.method === "POST") {
-  const body = await readJsonBody<{
-    id?: unknown;
-    project_id?: unknown;
-  }>(request);
-  return handleMemoryDelete(body);
-}
+  // POST /api/memory/delete
+  if (apiPath === "/api/memory/delete" && request.method === "POST") {
+    const body = await readJsonBody<{
+      id?: unknown;
+      project_id?: unknown;
+    }>(request);
+    return handleMemoryDelete(body);
+  }
 
-// GET /api/memory/list
-if (apiPath === "/api/memory/list" && request.method === "GET") {
-  return handleMemoryList(url.searchParams);
-}
+  // GET /api/memory/list
+  if (apiPath === "/api/memory/list" && request.method === "GET") {
+    return handleMemoryList(url.searchParams);
+  }
 
-return undefined;
+  return undefined;
 }
 
 // Re-export types for external consumption
