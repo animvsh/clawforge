@@ -1,15 +1,7 @@
 import type { BlueprintResponse } from "@/lib/clawforge/types";
 import { useState } from "react";
 
-const deploymentSteps = [
-  "NemoClaw sandbox created",
-  "Nemotron route selected",
-  "Policy pack loaded",
-  "Tool permissions applied",
-  "Memory boundary initialized",
-  "Live audit stream enabled",
-  "Agent runtime started",
-];
+const deploymentSteps = ["Sandbox", "Model", "Policy", "Tools", "Memory", "Audit", "Run"];
 
 function StatusPill({ value }: { value: string }) {
   return (
@@ -52,19 +44,17 @@ export function BlueprintReview({
 
   return (
     <div className="grid gap-5">
-      <div className="grid gap-px overflow-hidden border border-white/12 bg-white/10 lg:grid-cols-[0.9fr_1.1fr]">
+      <div className="grid gap-px border border-white/12 bg-white/10 lg:grid-cols-[0.82fr_1.18fr]">
         <div className="bg-black p-6">
-          <div className="text-[11px] uppercase tracking-[0.24em] text-white/38">
-            generated blueprint
-          </div>
+          <div className="text-[11px] uppercase tracking-[0.24em] text-white/38">blueprint</div>
           <h3 className="mt-5 text-4xl font-semibold tracking-tight text-white">
             {blueprint.agent_name}
           </h3>
-          <p className="mt-4 max-w-xl text-sm leading-relaxed text-white/56">
-            A NemoClaw incident response agent with policy gates, memory, and live audit.
+          <p className="mt-4 max-w-sm text-sm leading-relaxed text-white/52">
+            Policy-gated incident response inside NemoClaw.
           </p>
 
-          <div className="mt-6 grid grid-cols-2 gap-px overflow-hidden border border-white/12 bg-white/10 text-sm">
+          <div className="mt-6 grid grid-cols-2 gap-px border border-white/12 bg-white/10 text-sm">
             {[
               ["Workflow", "Incident response"],
               ["Runtime", "NemoClaw"],
@@ -98,11 +88,11 @@ export function BlueprintReview({
 
         <div className="bg-black">
           <div className="border-b border-white/10 px-5 py-3 text-[11px] uppercase tracking-[0.24em] text-white/38">
-            tool permission map
+            tools
           </div>
           <div className="grid gap-px bg-white/10">
             {blueprint.tools.map((tool) => (
-              <div key={tool.id} className="grid gap-3 bg-black p-4 md:grid-cols-[1fr_auto]">
+              <div key={tool.id} className="grid gap-3 bg-black px-5 py-3 md:grid-cols-[1fr_auto]">
                 <div className="min-w-0">
                   <div className="font-semibold text-white/92">{tool.name}</div>
                   <div className="mt-1 text-xs uppercase tracking-[0.14em] text-white/36">
@@ -120,7 +110,7 @@ export function BlueprintReview({
       </div>
 
       {deploying && (
-        <div className="grid gap-px overflow-hidden border border-emerald-300/20 bg-emerald-300/20 md:grid-cols-7">
+        <div className="grid gap-px border border-emerald-300/20 bg-emerald-300/20 md:grid-cols-7">
           {deploymentSteps.map((step) => (
             <div key={step} className="bg-black px-3 py-4 text-xs text-emerald-100/78">
               ✓ {step}
@@ -177,9 +167,14 @@ export function BlueprintReview({
         </div>
       </div>
 
-      <pre className="max-h-72 overflow-auto border border-white/12 bg-[#050505] p-5 text-xs leading-relaxed text-white/62">
-        {blueprint.config_preview}
-      </pre>
+      <details className="border border-white/12 bg-[#050505]">
+        <summary className="cursor-pointer px-5 py-4 text-[11px] uppercase tracking-[0.24em] text-white/38">
+          config preview
+        </summary>
+        <pre className="max-h-72 overflow-auto border-t border-white/10 p-5 text-xs leading-relaxed text-white/62">
+          {blueprint.config_preview}
+        </pre>
+      </details>
     </div>
   );
 }

@@ -68,8 +68,8 @@ function Hero() {
   return (
     <section className="grid min-h-screen bg-black lg:grid-cols-[34%_66%]">
       <div className="order-2 flex min-h-[68vh] flex-col border-r border-white/10 px-7 py-8 md:px-10 lg:order-1 lg:min-h-screen lg:px-14">
-        <Logo />
-        <div className="mt-8 max-w-sm">
+        <div className="flex items-start justify-between gap-5">
+          <Logo />
           <AuthPanel />
         </div>
 
@@ -80,9 +80,8 @@ function Hero() {
           <h1 className="text-5xl font-semibold leading-[0.96] tracking-tight text-white md:text-6xl xl:text-[5.25rem]">
             Build safe NemoClaw agents.
           </h1>
-          <p className="mt-7 text-base leading-relaxed text-white/58 md:text-lg">
-            ClawForge turns one prompt into a running agent with tools, memory, approval gates,
-            policy enforcement, privacy guardrails, and live audit logs.
+          <p className="mt-7 max-w-md text-base leading-relaxed text-white/58 md:text-lg">
+            One prompt becomes a sandboxed agent with policies, memory, approvals, and live audit.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <a
@@ -111,7 +110,7 @@ function Hero() {
         <div className="absolute right-5 top-5 border border-white/18 bg-black/50 px-4 py-2 text-[11px] uppercase tracking-[0.28em] text-white/60">
           sandbox live
         </div>
-        <div className="absolute bottom-5 left-5 right-5 grid gap-px overflow-hidden border border-white/15 bg-white/10 text-xs text-white/72 md:grid-cols-3">
+        <div className="absolute bottom-5 left-5 right-5 grid gap-px border border-white/15 bg-white/10 text-xs text-white/72 md:grid-cols-3">
           {["OpenClaw runtime", "NemoClaw policy", "Nemotron reasoning"].map((item) => (
             <div key={item} className="bg-black/72 px-4 py-3 uppercase tracking-[0.2em]">
               {item}
@@ -134,21 +133,21 @@ function EmptyState({ title, body }: { title: string; body: string }) {
 
 function HowItWorks() {
   const steps = [
-    ["Describe", "Tell ClawForge what your NemoClaw agent should do."],
-    ["Generate", "Create the sandbox profile, tools, memory rules, and policy pack."],
-    ["Deploy", "Run SentinelClaw with Nemotron reasoning and NemoClaw enforcement."],
-    ["Control", "Watch audit logs, approve risky actions, and save decisions to memory."],
+    ["Describe", "Plain English workflow."],
+    ["Generate", "Sandbox, tools, memory, policies."],
+    ["Deploy", "NemoClaw runtime."],
+    ["Control", "Logs, approval, report."],
   ];
 
   return (
     <Section id="how" eyebrow="flow" title="From prompt to protected agent.">
       <div className="grid gap-px overflow-hidden border border-white/12 bg-white/10 md:grid-cols-4">
         {steps.map(([title, body], index) => (
-          <div key={title} className="min-h-44 bg-black p-5">
+          <div key={title} className="bg-black p-5">
             <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">
               0{index + 1}
             </div>
-            <h3 className="mt-8 text-xl font-semibold text-white">{title}</h3>
+            <h3 className="mt-6 text-xl font-semibold text-white">{title}</h3>
             <p className="mt-3 text-sm leading-relaxed text-white/55">{body}</p>
           </div>
         ))}
