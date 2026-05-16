@@ -762,30 +762,30 @@ export function getMem0Client(): Mem0Client {
 // Allow resetting for testing
 export function resetMem0Client(): void {
   _instance = null;
-  // Note: we intentionally do NOT null _capabilities or _capabilitiesLoadAttempted here
-  // because tests set capabilities via __testSetCapabilities BEFORE createClient() is called.
-  // The full reset happens via resetCapabilitiesCache() which is called by createClient().
 }
 
 // Test-only: clear all capability state
 export function __testResetAllCapabilities(): void {
   _capabilities = null;
-  _capabilitiesLoadAttempted = false; // Must reset both to force fresh discovery
-}
-
-export function resetCapabilitiesCache(): void {
-  // Only reset load-attempted if _capabilities is null (no discovery run yet)
-  // If _capabilities is set (discovery ran successfully), preserve the flag
-  // This allows setMockCapabilities() to work without being overwritten
-  if (!_capabilities) {
-    _capabilitiesLoadAttempted = false;
-  }
+  _capabilitiesLoadAttempted = false;
 }
 
 // Test-only: override discovered capabilities directly (used by test suite)
 export function __testSetCapabilities(caps: ServerCapabilities): void {
   _capabilities = caps;
   _capabilitiesLoadAttempted = true;
+}
+
+export function resetCapabilitiesCache(): void {
+  // Full reset: clear cached capabilities AND the load-attempted flag.
+  // This ensures discoverCapabilities() runs fresh on the next call.
+  _capabilities = null;
+  _capabilitiesLoadAttempted = false;
+}
+
+// Test-only: check if capabilities have been set
+export function __testAreCapabilitiesSet(): boolean {
+  return _capabilities !== null && _capabilitiesLoadAttempted;
 }
 
 // Export constructor for testing / DI

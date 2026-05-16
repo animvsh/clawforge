@@ -12,6 +12,7 @@ import {
   resetCapabilitiesCache,
   __testSetCapabilities,
   __testResetAllCapabilities,
+  __testAreCapabilitiesSet,
 } from "./mem0-client";
 import type { ServerCapabilities } from "./mem0-client";
 
@@ -160,7 +161,9 @@ function setMockCapabilities(caps: ServerCapabilities) {
 
 function createClient(): Mem0ClientImpl {
   resetMem0Client();
-  resetCapabilitiesCache();
+  // NOTE: Do NOT call resetCapabilitiesCache() here.
+  // The instance cache (_instance._cachedCapabilities) is already cleared by resetMem0Client().
+  // The module-level cache (_capabilities) should be managed by beforeEach()/setMockCapabilities().
   return new Mem0ClientImpl();
 }
 
