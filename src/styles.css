@@ -152,3 +152,47 @@
     letter-spacing: -0.01em;
   }
 }
+
+@keyframes composer-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes composer-glow {
+  0%,
+  100% {
+    border-color: color-mix(in oklch, white 14%, transparent);
+    box-shadow: 0 20px 80px rgb(0 0 0 / 45%), 0 0 0 rgb(255 255 255 / 0%);
+  }
+
+  50% {
+    border-color: color-mix(in oklch, white 28%, transparent);
+    box-shadow: 0 24px 90px rgb(0 0 0 / 52%), 0 0 34px rgb(255 255 255 / 9%);
+  }
+}
+
+.hero-composer {
+  animation:
+    composer-float 7s ease-in-out infinite,
+    composer-glow 4.8s ease-in-out infinite;
+}
+
+.hero-composer:focus-within {
+  animation-play-state: paused;
+  border-color: rgb(255 255 255 / 34%);
+  box-shadow:
+    0 24px 92px rgb(0 0 0 / 55%),
+    0 0 42px rgb(255 255 255 / 12%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-composer {
+    animation: none;
+  }
+}

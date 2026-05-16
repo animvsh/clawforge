@@ -67,27 +67,27 @@ function Hero({ onBuild }: { onBuild: (prompt: string) => void }) {
   }
 
   return (
-    <section className="grid min-h-screen bg-black lg:grid-cols-[34%_66%]">
-      <div className="order-1 flex min-h-[58vh] flex-col border-b border-white/10 px-6 py-6 md:px-10 lg:min-h-screen lg:border-b-0 lg:border-r lg:px-14 lg:py-8">
+    <section className="grid min-h-[100dvh] bg-black lg:grid-cols-[37%_63%]">
+      <div className="order-1 flex min-h-[100dvh] flex-col border-b border-white/10 px-6 py-6 md:px-10 lg:border-b-0 lg:border-r lg:px-14 lg:py-7">
         <div className="flex items-start justify-between gap-5">
           <ClawForgeLogo />
           <AuthPanel />
         </div>
 
-        <div className="mt-auto max-w-xl pb-8 pt-20 sm:pt-24 lg:pb-8">
-          <div className="mb-6 text-[10px] uppercase tracking-[0.3em] text-white/35 sm:text-[11px]">
+        <div className="flex flex-1 flex-col justify-center py-8 lg:py-6">
+          <div className="mb-5 text-[10px] uppercase tracking-[0.3em] text-white/35 sm:text-[11px]">
             describe · review · run
           </div>
-          <h1 className="max-w-[11ch] text-[3.35rem] font-semibold leading-[0.96] tracking-tight text-white sm:text-6xl xl:text-[5.25rem]">
+          <h1 className="max-w-[11ch] text-[clamp(3.15rem,5.2vw,4.7rem)] font-semibold leading-[0.96] tracking-tight text-white">
             Build safe agents from one prompt.
           </h1>
-          <p className="mt-6 max-w-md text-base leading-relaxed text-white/58 md:text-lg">
+          <p className="mt-5 max-w-md text-base leading-relaxed text-white/58 lg:text-[1.02rem]">
             Tell ClawForge what you want done. It builds the agent, adds guardrails, and shows you
             every step.
           </p>
           <form
             onSubmit={submit}
-            className="mt-8 overflow-hidden rounded-[28px] border border-white/14 bg-[#20201e] shadow-[0_20px_80px_rgba(0,0,0,0.45)]"
+            className="hero-composer mt-7 overflow-hidden rounded-[28px] border border-white/14 bg-[#20201e] shadow-[0_20px_80px_rgba(0,0,0,0.45)]"
           >
             <label className="sr-only" htmlFor="hero-agent-prompt">
               Describe the agent you want
@@ -97,7 +97,7 @@ function Hero({ onBuild }: { onBuild: (prompt: string) => void }) {
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               rows={3}
-              className="min-h-28 w-full resize-none border-0 bg-transparent px-6 pt-6 text-base leading-relaxed text-white outline-none placeholder:text-white/28"
+              className="min-h-[104px] w-full resize-none border-0 bg-transparent px-6 pt-6 text-base leading-relaxed text-white outline-none placeholder:text-white/28"
               placeholder="Describe the agent you want..."
             />
             <div className="flex items-center justify-between gap-3 px-4 pb-4">
@@ -124,7 +124,7 @@ function Hero({ onBuild }: { onBuild: (prompt: string) => void }) {
         </div>
       </div>
 
-      <div className="relative order-2 hidden min-h-[34vh] overflow-hidden sm:block lg:min-h-screen">
+      <div className="relative order-2 hidden min-h-[34vh] overflow-hidden sm:block lg:min-h-[100dvh]">
         <img
           src={heroImage}
           alt=""
