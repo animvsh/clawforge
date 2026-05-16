@@ -76,14 +76,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       {
         name: "description",
         content:
-          "ClawForge builds and deploys NemoClaw-secured autonomous agent instances with OpenClaw compatibility, Nemotron reasoning, and MiniMax support.",
+          "Build NemoClaw agents that are safe enough to run, with policy enforcement, approvals, memory, and live audit logs.",
       },
       { name: "author", content: "ClawForge" },
       { property: "og:title", content: "ClawForge" },
       {
         property: "og:description",
         content:
-          "Build NemoClaw-secured agent instances from one prompt with live policies, memory, and audit logs.",
+          "Describe a NemoClaw agent, review its sandbox and policy blueprint, deploy it, and watch safety enforcement live.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },

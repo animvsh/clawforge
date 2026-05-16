@@ -14,11 +14,11 @@ import type {
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "ClawForge — secure autonomous agents from one prompt" },
+      { title: "ClawForge — Build NemoClaw agents that are safe enough to run" },
       {
         name: "description",
         content:
-          "ClawForge turns one prompt into a NemoClaw-secured autonomous agent instance with tools, memory, policies, and live audit logs.",
+          "ClawForge turns one prompt into a NemoClaw blueprint, sandboxed agent, policy enforcement flow, memory boundary, and final report.",
       },
     ],
   }),
@@ -140,15 +140,21 @@ function FinalCta() {
     <section className="border-t border-white/[0.07] px-6 py-16 md:px-12 lg:px-16">
       <div className="mx-auto max-w-6xl">
         <div className="max-w-3xl">
-          <div className="text-[11px] lowercase tracking-[0.3em] text-white/35">demo line</div>
+          <div className="text-[11px] lowercase tracking-[0.3em] text-white/35">
+            prompt to safe completion
+          </div>
           <h2 className="mt-4 text-3xl font-semibold leading-[1.08] tracking-tight lowercase lg:text-5xl">
-            describe it. sandbox it. run it.
+            prompt. blueprint. sandbox. enforce.
           </h2>
+          <p className="mt-5 max-w-xl text-sm leading-relaxed text-white/52 md:text-base">
+            ClawForge keeps the path direct: describe a NemoClaw agent, inspect its policy pack,
+            deploy it inside a sandbox, and finish with memory plus an audit-ready report.
+          </p>
           <a
             href="#builder"
             className="mt-7 inline-block bg-white px-6 py-3 text-sm font-semibold lowercase text-black transition hover:bg-white/90"
           >
-            build an agent
+            build nemoclaw agent
           </a>
         </div>
       </div>
@@ -177,14 +183,14 @@ function Index() {
 
           <div className="mt-auto max-w-xl pb-8 pt-16 lg:pb-12">
             <div className="mb-8 text-[11px] lowercase tracking-[0.34em] text-white/34">
-              describe an agent. sandbox it. run it.
+              prompt -> blueprint -> sandbox -> policy -> memory
             </div>
             <h1 className="text-6xl font-semibold leading-[0.93] tracking-tight lowercase md:text-7xl lg:text-[5.6rem] xl:text-[6.2rem]">
-              build agents. ship safely.
+              build NemoClaw agents that are safe enough to run.
             </h1>
             <p className="mt-7 max-w-md text-base leading-relaxed text-white/54 md:text-lg">
-              ClawForge turns one prompt into a NemoClaw-secured autonomous agent instance with
-              tools, memory, policies, and live audit logs.
+              ClawForge turns one prompt into a NemoClaw blueprint, sandboxed agent, live policy
+              enforcement, approval gates, memory boundaries, and a final safety report.
             </p>
 
             <div className="mt-8 flex flex-wrap gap-3">
@@ -192,13 +198,13 @@ function Index() {
                 href="#builder"
                 className="inline-block bg-white px-7 py-3.5 text-sm font-semibold lowercase text-black transition hover:bg-white/90"
               >
-                Build an Agent
+                Build NemoClaw Agent
               </a>
               <a
                 href="#dashboard"
                 className="inline-block border border-white/20 px-7 py-3.5 text-sm font-semibold lowercase text-white transition hover:bg-white/[0.05]"
               >
-                Watch Demo
+                Watch Safety Demo
               </a>
             </div>
           </div>
@@ -213,10 +219,10 @@ function Index() {
         <div className="mx-auto max-w-6xl">
           <Reveal>
             <div className="mb-4 text-[11px] lowercase tracking-[0.3em] text-white/35">
-              start here
+              start with a NemoClaw prompt
             </div>
             <h2 className="max-w-2xl text-3xl font-semibold leading-[1.08] tracking-tight lowercase lg:text-4xl">
-              describe the workflow.
+              describe the agent you want to control.
             </h2>
           </Reveal>
           <Reveal delay={120} className="mt-10">
@@ -240,16 +246,16 @@ function Index() {
         ) : (
           <EmptyPanel
             title="waiting for blueprint"
-            body="Generate an agent above and the review panel will appear here."
+            body="Generate a NemoClaw blueprint above and the sandbox, tools, policy pack, and memory rules will appear here."
           />
         )}
       </Section>
 
-      <Section id="dashboard" eyebrow="run" title="watch it work.">
+      <Section id="dashboard" eyebrow="run safely" title="watch NemoClaw enforce the run.">
         <LiveDashboard agentId={agentId} onReport={setReport} />
       </Section>
 
-      <Section id="report" eyebrow="output" title="read the report.">
+      <Section id="report" eyebrow="safe completion" title="read the final report.">
         {report ? <IncidentReport report={report} /> : <ReportPlaceholder />}
       </Section>
 
@@ -257,7 +263,7 @@ function Index() {
 
       <footer className="flex flex-wrap justify-between gap-4 border-t border-white/[0.07] px-8 py-8 text-xs lowercase text-white/40 lg:px-16">
         <Logo size="sm" />
-        <span>from prompt to protected agent · OpenClaw · NemoClaw · Nemotron</span>
+        <span>prompt -> NemoClaw blueprint -> sandboxed agent -> safe completion</span>
       </footer>
     </main>
   );
