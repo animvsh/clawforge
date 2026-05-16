@@ -30,6 +30,8 @@ const generationSteps = [
   "Blueprint ready",
 ];
 
+const heroStats = ["OpenClaw", "NemoClaw", "Nemotron", "MiniMax-ready"];
+
 const liveLogs = [
   "Agent started inside NemoClaw sandbox.",
   "Reading system logs.",
@@ -91,10 +93,6 @@ const features = [
   {
     title: "Nemotron-Powered Reasoning",
     body: "Agents use NVIDIA Nemotron to plan, classify, decide, and act.",
-  },
-  {
-    title: "MiniMax Intelligence Option",
-    body: "Route selected workflows through MiniMax token-plan models when teams want another reasoning layer.",
   },
   {
     title: "NemoClaw Security Policies",
@@ -181,7 +179,7 @@ function Section({
   id?: string;
 }) {
   return (
-    <section id={id} className="border-t border-white/[0.07] px-6 md:px-12 lg:px-16 py-24">
+    <section id={id} className="border-t border-white/[0.07] px-6 md:px-12 lg:px-16 py-20">
       <div className="max-w-6xl mx-auto">
         <Reveal>
           {eyebrow && (
@@ -189,12 +187,12 @@ function Section({
               {eyebrow}
             </div>
           )}
-          <h2 className="text-3xl lg:text-5xl font-semibold tracking-tight lowercase leading-[1.05] max-w-3xl">
+          <h2 className="text-3xl lg:text-4xl font-semibold tracking-tight lowercase leading-[1.08] max-w-2xl">
             {title}
           </h2>
         </Reveal>
         {children && (
-          <Reveal delay={120} className="mt-12">
+          <Reveal delay={120} className="mt-10">
             {children}
           </Reveal>
         )}
@@ -234,9 +232,9 @@ function HeroVisual() {
             "radial-gradient(ellipse at 50% 40%, rgba(80,110,230,0.28) 0%, #0a1230 38%, #04060f 82%)",
         }}
       />
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[60%] aspect-square rounded-full blur-[120px] bg-indigo-500/25 animate-pulse" />
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[54%] aspect-square rounded-full blur-[130px] bg-indigo-500/20" />
       <svg
-        className="absolute inset-0 w-full h-full"
+        className="absolute inset-0 h-full w-full opacity-75"
         viewBox="0 0 100 100"
         preserveAspectRatio="none"
         aria-hidden
@@ -249,7 +247,7 @@ function HeroVisual() {
             x2={nodes[b].x}
             y2={nodes[b].y}
             stroke="white"
-            strokeOpacity="0.2"
+            strokeOpacity="0.14"
             strokeWidth="0.15"
             vectorEffect="non-scaling-stroke"
           />
@@ -276,22 +274,11 @@ function HeroVisual() {
         ))}
       </svg>
 
-      <div className="absolute inset-x-6 top-6 flex justify-end">
+      <div className="absolute right-6 top-6 hidden md:block">
         <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.28em] text-white/65 border border-white/10 bg-black/40 backdrop-blur px-3 py-1.5 rounded-full">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
           sandbox live
         </div>
-      </div>
-
-      <div className="absolute left-6 right-6 bottom-6 grid gap-2 md:grid-cols-3">
-        {["OpenClaw runtime", "NemoClaw policy", "Nemotron reasoning"].map((item) => (
-          <div
-            key={item}
-            className="border border-white/10 bg-black/35 backdrop-blur rounded-xl px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-white/50"
-          >
-            {item}
-          </div>
-        ))}
       </div>
     </div>
   );
@@ -299,24 +286,12 @@ function HeroVisual() {
 
 function PromptCard() {
   return (
-    <div className="border border-white/10 bg-black/45 backdrop-blur rounded-2xl p-4 md:p-5 shadow-[0_30px_80px_-40px_rgba(0,0,0,0.8)]">
+    <div className="border border-white/10 bg-black/45 backdrop-blur rounded-2xl p-5 md:p-6 shadow-[0_30px_80px_-40px_rgba(0,0,0,0.8)]">
       <div className="text-[10px] uppercase tracking-[0.26em] text-white/40 mb-3">
-        describe the autonomous agent you want to create
+        describe your agent
       </div>
       <div className="font-mono text-sm leading-relaxed text-white/85 border border-white/10 rounded-xl bg-white/[0.035] p-4">
         {examplePrompt}
-      </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        {["security incident response", "github triage", "inbox assistant", "research agent"].map(
-          (prompt) => (
-            <span
-              key={prompt}
-              className="border border-white/10 rounded-full px-3 py-1.5 text-[11px] lowercase text-white/60"
-            >
-              {prompt}
-            </span>
-          ),
-        )}
       </div>
     </div>
   );
@@ -332,7 +307,7 @@ function GenerationPanel() {
         <div className="text-[11px] text-emerald-300/80 lowercase">ready</div>
       </div>
       <div className="p-5 grid gap-2">
-        {generationSteps.map((step, i) => (
+        {generationSteps.slice(0, 5).map((step, i) => (
           <div
             key={step}
             className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white/75 animate-fade-in"
@@ -578,15 +553,15 @@ function FinalReport() {
 function Index() {
   return (
     <main className="min-h-screen bg-black text-white">
-      <div className="grid min-h-screen lg:grid-cols-2">
-        <section className="relative order-2 flex flex-col justify-between p-8 animate-fade-in lg:order-1 lg:p-14">
+      <div className="grid min-h-[92vh] lg:grid-cols-[0.9fr_1.1fr]">
+        <section className="relative order-2 flex flex-col p-8 animate-fade-in lg:order-1 lg:p-14">
           <Logo />
 
-          <div className="max-w-xl">
-            <div className="mb-5 text-[11px] uppercase tracking-[0.32em] text-white/45">
-              describe an agent. generate it. sandbox it. run it.
+          <div className="my-auto max-w-xl py-16 lg:py-10">
+            <div className="mb-5 text-[11px] uppercase tracking-[0.22em] text-white/45">
+              Describe an agent. Sandbox it. Run it.
             </div>
-            <h1 className="text-5xl font-semibold leading-[0.95] tracking-tight lowercase lg:text-7xl">
+            <h1 className="text-5xl font-semibold leading-[1.02] tracking-tight lowercase lg:text-6xl xl:text-[4.4rem]">
               Build secure autonomous agents from one prompt.
             </h1>
             <p className="mt-6 max-w-lg text-base leading-relaxed text-white/65">
@@ -610,23 +585,21 @@ function Index() {
               </a>
             </div>
 
-            <div className="mt-8 text-[11px] uppercase tracking-[0.28em] text-white/35">
-              the fastest way to build and safely deploy autonomous agents
+            <div className="mt-10 flex flex-wrap gap-x-5 gap-y-2 text-[11px] uppercase tracking-[0.16em] text-white/35">
+              {heroStats.map((stat) => (
+                <span key={stat}>{stat}</span>
+              ))}
             </div>
           </div>
-
-          <footer className="text-xs lowercase text-white/40">
-            © clawforge · one prompt · full control
-          </footer>
         </section>
 
-        <section className="relative order-1 min-h-[55vh] overflow-hidden bg-[#04060f] lg:order-2 lg:min-h-screen">
+        <section className="relative order-1 min-h-[44vh] overflow-hidden bg-[#04060f] lg:order-2 lg:min-h-[92vh]">
           <HeroVisual />
         </section>
       </div>
 
-      <section id="builder" className="border-t border-white/[0.07] px-6 py-12 md:px-12 lg:px-16">
-        <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+      <section id="builder" className="border-t border-white/[0.07] px-6 py-16 md:px-12 lg:px-16">
+        <div className="mx-auto grid max-w-5xl gap-5 lg:grid-cols-[1fr_0.9fr]">
           <PromptCard />
           <GenerationPanel />
         </div>
@@ -699,7 +672,7 @@ function Index() {
         <FinalReport />
       </Section>
 
-      <section className="relative overflow-hidden border-t border-white/[0.07] px-6 py-28 md:px-12 lg:px-16">
+      <section className="relative overflow-hidden border-t border-white/[0.07] px-6 py-24 md:px-12 lg:px-16">
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute left-1/2 top-1/2 aspect-square w-[80%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-indigo-500/10 blur-[140px]" />
         </div>
@@ -708,7 +681,7 @@ function Index() {
             <div className="mb-4 text-[11px] lowercase tracking-[0.3em] text-white/45">
               fastest path to safe autonomy
             </div>
-            <h2 className="max-w-3xl text-4xl font-semibold leading-[1.05] tracking-tight lowercase lg:text-6xl">
+            <h2 className="max-w-3xl text-4xl font-semibold leading-[1.07] tracking-tight lowercase lg:text-5xl">
               ClawForge is not just an agent. It is the fastest way to build and safely deploy
               autonomous agents.
             </h2>
