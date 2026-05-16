@@ -253,7 +253,7 @@ export CLAWFORGE_BLUEPRINT_ID=${shellQuote(manifest.agent.blueprint_id ?? "")}
   return { arg: script, path: null, inline: true };
 }
 
-async function runCommand(
+export async function runCommand(
   command: string,
   args: string[],
   timeoutMs = 8_000,

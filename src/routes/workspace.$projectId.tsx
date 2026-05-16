@@ -1,3 +1,8 @@
+import {
+  buildBlueprintWorkflowGraph,
+  buildOptimisticWorkflowGraph,
+} from "@/lib/clawforge/workflow-graph";
+import type { WorkflowGraph } from "@/lib/clawforge/workflow-graph";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import {
   ArrowUp,
@@ -13,6 +18,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ClawForgeLogo } from "@/components/clawforge/ClawForgeFrame";
 import { AuthPanel } from "@/components/clawforge/AuthPanel";
+import { WorkflowCanvas } from "@/components/clawforge/WorkflowCanvas";
 import { saveLaunchInstance } from "@/lib/clawforge/instances";
 import { type ClawForgeProject, getProject, updateProject } from "@/lib/clawforge/projects";
 import type {
@@ -45,18 +51,6 @@ const buildSteps = [
   "Configuring memory rules",
   "Preparing deployment",
 ];
-
-const workflowNodes = [
-  ["system_logs", "System Logs", "Input inside sandbox", "input"],
-  ["log_reader", "Log Reader", "Allowed tool", "tool"],
-  ["pattern_detector", "Pattern Detector", "Find suspicious behavior", "agent"],
-  ["nemotron", "NVIDIA Nemotron", "Classify severity", "model"],
-  ["report_writer", "Report Writer", "Write local report", "tool"],
-  ["policy_check", "NemoClaw Policy", "Check risky action", "policy"],
-  ["approval", "Human Approval", "Pause before action", "approval"],
-  ["memory", "Memory Update", "Save user decision", "memory"],
-  ["report", "Final Report", "Complete safely", "output"],
-] as const;
 
 const generatedFiles = [
   ["agent.md", "Agent instructions and operating rules"],
@@ -94,11 +88,11 @@ type BrevLaunchState = {
   };
 };
 
-function nodeState(
+function computeNodeStatus(
   index: number,
   activeIndex: number,
   status: ClawForgeProject["status"],
-): NodeState {
+): "idle" | "generating" | "ready" | "running" | "waiting" | "blocked" | "done" {
   if (status === "waiting_for_approval" && index === 6) return "waiting";
   if (status === "completed") return "done";
   if (status === "running") {
@@ -112,17 +106,6 @@ function nodeState(
     if (index === activeIndex) return "generating";
   }
   return "idle";
-}
-
-function stateClass(state: NodeState) {
-  if (state === "done") return "border-emerald-300/35 bg-emerald-300/[0.06] text-emerald-100";
-  if (state === "running")
-    return "border-blue-300/45 bg-blue-300/[0.07] text-blue-100 shadow-[0_0_40px_rgba(59,130,246,0.12)]";
-  if (state === "waiting") return "border-amber-300/55 bg-amber-300/[0.08] text-amber-100";
-  if (state === "blocked") return "border-red-300/45 bg-red-300/[0.08] text-red-100";
-  if (state === "generating") return "border-white/32 bg-white/[0.05] text-white";
-  if (state === "ready") return "border-white/18 bg-white/[0.025] text-white/74";
-  return "border-white/10 bg-black text-white/42";
 }
 
 function WorkspacePage() {
@@ -141,6 +124,7 @@ function WorkspacePage() {
   const [instanceChatId, setInstanceChatId] = useState<string | null>(null);
   const [panel, setPanel] = useState<"files" | "policies" | "memory">("files");
   const [error, setError] = useState<string | null>(null);
+  const [workflowGraph, setWorkflowGraph] = useState<WorkflowGraph>({ nodes: [], edges: [] });
 
   const currentStatus = project?.status ?? "draft";
   const projectName = blueprint?.agent_name ?? project?.name ?? "NemoClaw Instance";
@@ -181,6 +165,7 @@ function WorkspacePage() {
         const data = await response.json();
         if (!response.ok || !data.ok) throw new Error(data.error?.message || "Blueprint failed.");
         setBlueprint(data.blueprint);
+        setWorkflowGraph(buildBlueprintWorkflowGraph(nextProject.prompt, data.blueprint));
         setProject(
           updateProject(nextProject.id, {
             name: data.blueprint.agent_name,
@@ -201,6 +186,7 @@ function WorkspacePage() {
     const stored = getProject(projectId);
     if (!stored) return;
     setProject(stored);
+    setWorkflowGraph(buildOptimisticWorkflowGraph(stored.prompt));
     if (!stored.blueprintId || stored.status === "draft") {
       void loadBlueprint(stored);
     } else {
@@ -212,12 +198,23 @@ function WorkspacePage() {
     if (currentStatus !== "generating" && currentStatus !== "running") return;
     const timer = window.setInterval(
       () => {
-        setActiveIndex((current) => Math.min(current + 1, workflowNodes.length - 1));
+        setActiveIndex((current) => Math.min(current + 1, 50));
       },
       currentStatus === "running" ? 850 : 420,
     );
     return () => window.clearInterval(timer);
   }, [currentStatus]);
+
+  // Sync node statuses from project status and activeIndex
+  useEffect(() => {
+    setWorkflowGraph((current) => ({
+      ...current,
+      nodes: current.nodes.map((node, index) => ({
+        ...node,
+        status: computeNodeStatus(index, activeIndex, currentStatus) as any,
+      })),
+    }));
+  }, [activeIndex, currentStatus]);
 
   useEffect(() => {
     if (!agentId) return;
@@ -835,23 +832,17 @@ function WorkspacePage() {
                 {error && <div className="text-sm text-red-200">{error}</div>}
               </div>
 
-              <div className="grid gap-3 md:grid-cols-3">
-                {workflowNodes.map(([id, title, body, kind], index) => {
-                  const state = nodeState(index, activeIndex, currentStatus);
-                  return (
-                    <div key={id} className={`relative border p-4 transition ${stateClass(state)}`}>
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-[10px] uppercase tracking-[0.18em] text-white/34">
-                          {kind}
-                        </div>
-                        <div className="text-[10px] uppercase tracking-[0.16em]">{state}</div>
-                      </div>
-                      <h3 className="mt-6 text-lg font-semibold">{title}</h3>
-                      <p className="mt-2 text-sm leading-relaxed text-white/46">{body}</p>
-                    </div>
-                  );
-                })}
-              </div>
+              {workflowGraph.nodes.length === 0 ? (
+                <div className="flex h-64 items-center justify-center text-sm text-white/42">
+                  Initializing workflow...
+                </div>
+              ) : (
+                <WorkflowCanvas
+                  graph={workflowGraph}
+                  activeNodeId={workflowGraph.nodes[activeIndex]?.id}
+                  className="h-full"
+                />
+              )}
 
               <div className="mt-5 grid gap-px border border-white/12 bg-white/10 lg:grid-cols-2">
                 <div className="bg-black p-5">

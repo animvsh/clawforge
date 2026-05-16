@@ -1054,6 +1054,10 @@ export function getApprovalStatus(): "pending" | "approved" | "denied" {
   return legacyApprovalStatus;
 }
 
+export function getPendingApproval(): import("./types").ApprovalRequest | null {
+  return legacyPendingApproval;
+}
+
 // =============================================================================
 // ANU-63: New Runtime State Machine + Tool Router
 // States: "created" → "running" → "completed" | "stopped" | "error"

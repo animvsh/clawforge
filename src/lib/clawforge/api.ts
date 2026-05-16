@@ -15,7 +15,6 @@ import {
   getRuntimeReport,
   getRuntimeState,
   getApprovalStatus,
-  getPendingApproval,
   hydrateRuntimeForAgentId,
   isActiveRuntimeAgent,
   resolveApproval,
