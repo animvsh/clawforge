@@ -5,7 +5,6 @@ import { BlueprintReview } from "@/components/clawforge/BlueprintReview";
 import { IncidentReport } from "@/components/clawforge/IncidentReport";
 import { LiveDashboard } from "@/components/clawforge/LiveDashboard";
 import heroImage from "@/assets/hero.png";
-import { useReveal } from "@/hooks/use-reveal";
 import type {
   BlueprintResponse,
   IncidentReport as IncidentReportModel,
@@ -14,52 +13,24 @@ import type {
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "ClawForge — secure autonomous agents from one prompt" },
+      { title: "ClawForge — secure NemoClaw agents from one prompt" },
       {
         name: "description",
         content:
-          "ClawForge turns one prompt into a NemoClaw-secured autonomous agent instance with tools, memory, policies, and live audit logs.",
+          "ClawForge turns one prompt into a running NemoClaw agent with policies, memory, approvals, and live audit logs.",
       },
     ],
   }),
   component: Index,
 });
 
-function Reveal({
-  children,
-  delay = 0,
-  className = "",
-}: {
-  children: React.ReactNode;
-  delay?: number;
-  className?: string;
-}) {
-  const { ref, shown } = useReveal();
-  return (
-    <div
-      ref={ref}
-      style={{ transitionDelay: `${delay}ms` }}
-      className={[
-        "transition-all duration-700 ease-out will-change-transform",
-        shown ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6",
-        className,
-      ].join(" ")}
-    >
-      {children}
-    </div>
-  );
-}
-
-function Logo({ size = "md" }: { size?: "sm" | "md" }) {
-  const s = size === "sm" ? "h-5 w-5 text-[7px]" : "h-9 w-9 text-[11px]";
+function Logo() {
   return (
     <div className="flex items-center gap-3" aria-label="ClawForge">
-      <div
-        className={`${s} flex items-center justify-center bg-white text-black shadow-[0_0_24px_-4px_rgba(255,255,255,0.35)]`}
-      >
-        <span className="translate-x-[1px]">▶</span>
+      <div className="grid h-8 w-8 place-items-center bg-white text-[10px] font-black text-black">
+        CF
       </div>
-      <span className="text-[11px] font-medium uppercase tracking-[0.32em] text-white/45">
+      <span className="text-[11px] font-semibold uppercase tracking-[0.32em] text-white/50">
         clawforge
       </span>
     </div>
@@ -67,92 +38,118 @@ function Logo({ size = "md" }: { size?: "sm" | "md" }) {
 }
 
 function Section({
+  id,
   eyebrow,
   title,
   children,
-  id,
 }: {
-  eyebrow?: string;
+  id: string;
+  eyebrow: string;
   title: string;
-  children?: React.ReactNode;
-  id?: string;
+  children: React.ReactNode;
 }) {
   return (
-    <section id={id} className="border-t border-white/[0.07] px-6 py-14 md:px-12 lg:px-16">
-      <div className="mx-auto max-w-6xl">
-        <Reveal>
-          {eyebrow && (
-            <div className="mb-4 text-[11px] lowercase tracking-[0.3em] text-white/35">
-              {eyebrow}
-            </div>
-          )}
-          <h2 className="max-w-2xl text-3xl font-semibold leading-[1.08] tracking-tight lowercase lg:text-4xl">
+    <section id={id} className="border-t border-white/10 px-5 py-12 md:px-10 lg:px-14">
+      <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[320px_1fr]">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.28em] text-white/38">{eyebrow}</div>
+          <h2 className="mt-4 max-w-sm text-3xl font-semibold leading-[1.02] tracking-tight md:text-4xl">
             {title}
           </h2>
-        </Reveal>
-        {children && (
-          <Reveal delay={120} className="mt-10">
-            {children}
-          </Reveal>
-        )}
+        </div>
+        <div>{children}</div>
       </div>
     </section>
   );
 }
 
-function HeroVisual() {
+function Hero() {
   return (
-    <div className="absolute inset-0 overflow-hidden bg-[#161815]">
-      <img
-        src={heroImage}
-        alt=""
-        className="h-full w-full scale-105 object-cover object-[62%_50%] opacity-64 blur-[1.5px] saturate-[0.78]"
-      />
-      <div className="absolute inset-0 bg-black/42" />
-      <div className="absolute inset-y-0 left-0 w-36 bg-gradient-to-r from-black/85 to-transparent" />
-    </div>
-  );
-}
+    <section className="grid min-h-screen bg-black lg:grid-cols-[34%_66%]">
+      <div className="order-2 flex min-h-[68vh] flex-col border-r border-white/10 px-7 py-8 md:px-10 lg:order-1 lg:min-h-screen lg:px-14">
+        <Logo />
 
-function EmptyPanel({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="border border-white/10 bg-white/[0.02] p-7">
-      <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">{title}</div>
-      <p className="mt-3 max-w-xl text-sm leading-relaxed text-white/55 lowercase">{body}</p>
-    </div>
-  );
-}
+        <div className="mt-auto max-w-xl pb-8 pt-16">
+          <div className="mb-8 text-[11px] uppercase tracking-[0.34em] text-white/35">
+            prompt · sandbox · audit
+          </div>
+          <h1 className="text-5xl font-semibold leading-[0.96] tracking-tight text-white md:text-6xl xl:text-[5.25rem]">
+            Build safe NemoClaw agents.
+          </h1>
+          <p className="mt-7 text-base leading-relaxed text-white/58 md:text-lg">
+            ClawForge turns one prompt into a running agent with tools, memory, approval gates,
+            policy enforcement, privacy guardrails, and live audit logs.
+          </p>
+          <div className="mt-8 flex flex-wrap gap-3">
+            <a
+              href="#builder"
+              className="bg-white px-6 py-3 text-sm font-semibold text-black transition hover:bg-white/90"
+            >
+              Build NemoClaw Agent
+            </a>
+            <a
+              href="#dashboard"
+              className="border border-white/25 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/8"
+            >
+              Watch Safety Demo
+            </a>
+          </div>
+        </div>
+      </div>
 
-function ReportPlaceholder() {
-  return (
-    <div className="border border-white/10 bg-white/[0.02] p-7">
-      <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">report waiting</div>
-      <p className="mt-3 max-w-xl text-sm leading-relaxed text-white/55 lowercase">
-        Generate and deploy SentinelClaw, then deny or approve the pending shell action to complete
-        the report.
-      </p>
-    </div>
-  );
-}
-
-function FinalCta() {
-  return (
-    <section className="border-t border-white/[0.07] px-6 py-16 md:px-12 lg:px-16">
-      <div className="mx-auto max-w-6xl">
-        <div className="max-w-3xl">
-          <div className="text-[11px] lowercase tracking-[0.3em] text-white/35">demo line</div>
-          <h2 className="mt-4 text-3xl font-semibold leading-[1.08] tracking-tight lowercase lg:text-5xl">
-            describe it. sandbox it. run it.
-          </h2>
-          <a
-            href="#builder"
-            className="mt-7 inline-block bg-white px-6 py-3 text-sm font-semibold lowercase text-black transition hover:bg-white/90"
-          >
-            build an agent
-          </a>
+      <div className="relative order-1 min-h-[44vh] overflow-hidden lg:order-2 lg:min-h-screen">
+        <img
+          src={heroImage}
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover opacity-55 saturate-[0.7]"
+        />
+        <div className="absolute inset-0 bg-black/45" />
+        <div className="absolute right-5 top-5 border border-white/18 bg-black/50 px-4 py-2 text-[11px] uppercase tracking-[0.28em] text-white/60">
+          sandbox live
+        </div>
+        <div className="absolute bottom-5 left-5 right-5 grid gap-px overflow-hidden border border-white/15 bg-white/10 text-xs text-white/72 md:grid-cols-3">
+          {["OpenClaw runtime", "NemoClaw policy", "Nemotron reasoning"].map((item) => (
+            <div key={item} className="bg-black/72 px-4 py-3 uppercase tracking-[0.2em]">
+              {item}
+            </div>
+          ))}
         </div>
       </div>
     </section>
+  );
+}
+
+function EmptyState({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="border border-white/12 bg-white/[0.025] p-6">
+      <div className="text-[11px] uppercase tracking-[0.24em] text-white/38">{title}</div>
+      <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/56">{body}</p>
+    </div>
+  );
+}
+
+function HowItWorks() {
+  const steps = [
+    ["Describe", "Tell ClawForge what your NemoClaw agent should do."],
+    ["Generate", "Create the sandbox profile, tools, memory rules, and policy pack."],
+    ["Deploy", "Run SentinelClaw with Nemotron reasoning and NemoClaw enforcement."],
+    ["Control", "Watch audit logs, approve risky actions, and save decisions to memory."],
+  ];
+
+  return (
+    <Section id="how" eyebrow="flow" title="From prompt to protected agent.">
+      <div className="grid gap-px overflow-hidden border border-white/12 bg-white/10 md:grid-cols-4">
+        {steps.map(([title, body], index) => (
+          <div key={title} className="min-h-44 bg-black p-5">
+            <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">
+              0{index + 1}
+            </div>
+            <h3 className="mt-8 text-xl font-semibold text-white">{title}</h3>
+            <p className="mt-3 text-sm leading-relaxed text-white/55">{body}</p>
+          </div>
+        ))}
+      </div>
+    </Section>
   );
 }
 
@@ -171,93 +168,69 @@ function Index() {
 
   return (
     <main className="min-h-screen bg-black text-white">
-      <div className="grid min-h-screen lg:grid-cols-[34%_66%]">
-        <section className="relative order-2 flex min-h-[64vh] animate-fade-in flex-col border-r border-white/[0.06] bg-black p-8 lg:order-1 lg:min-h-screen lg:p-14">
-          <Logo />
+      <Hero />
+      <HowItWorks />
 
-          <div className="mt-auto max-w-xl pb-8 pt-16 lg:pb-12">
-            <div className="mb-8 text-[11px] lowercase tracking-[0.34em] text-white/34">
-              describe an agent. sandbox it. run it.
-            </div>
-            <h1 className="text-6xl font-semibold leading-[0.93] tracking-tight lowercase md:text-7xl lg:text-[5.6rem] xl:text-[6.2rem]">
-              build agents. ship safely.
-            </h1>
-            <p className="mt-7 max-w-md text-base leading-relaxed text-white/54 md:text-lg">
-              ClawForge turns one prompt into a NemoClaw-secured autonomous agent instance with
-              tools, memory, policies, and live audit logs.
-            </p>
+      <Section id="builder" eyebrow="builder" title="Describe your NemoClaw agent.">
+        <AgentBuilder
+          onBlueprint={(nextBlueprint) => {
+            setBlueprint(nextBlueprint);
+            setAgentId(undefined);
+            setReport(null);
+            window.setTimeout(() => {
+              document.getElementById("blueprint")?.scrollIntoView({ behavior: "smooth" });
+            }, 80);
+          }}
+        />
+      </Section>
 
-            <div className="mt-8 flex flex-wrap gap-3">
-              <a
-                href="#builder"
-                className="inline-block bg-white px-7 py-3.5 text-sm font-semibold lowercase text-black transition hover:bg-white/90"
-              >
-                Build an Agent
-              </a>
-              <a
-                href="#dashboard"
-                className="inline-block border border-white/20 px-7 py-3.5 text-sm font-semibold lowercase text-white transition hover:bg-white/[0.05]"
-              >
-                Watch Demo
-              </a>
-            </div>
-          </div>
-        </section>
-
-        <section className="relative order-1 min-h-[42vh] overflow-hidden lg:order-2 lg:min-h-screen">
-          <HeroVisual />
-        </section>
-      </div>
-
-      <section id="builder" className="border-t border-white/[0.07] px-6 py-14 md:px-12 lg:px-16">
-        <div className="mx-auto max-w-6xl">
-          <Reveal>
-            <div className="mb-4 text-[11px] lowercase tracking-[0.3em] text-white/35">
-              start here
-            </div>
-            <h2 className="max-w-2xl text-3xl font-semibold leading-[1.08] tracking-tight lowercase lg:text-4xl">
-              describe the workflow.
-            </h2>
-          </Reveal>
-          <Reveal delay={120} className="mt-10">
-            <AgentBuilder
-              onBlueprint={(nextBlueprint) => {
-                setBlueprint(nextBlueprint);
-                setAgentId(undefined);
-                setReport(null);
-              }}
-            />
-          </Reveal>
-        </div>
-      </section>
-
-      <Section id="blueprint" eyebrow="review" title="check the blueprint.">
+      <Section id="blueprint" eyebrow="review" title="Inspect the sandbox plan.">
         {blueprint ? (
           <BlueprintReview
             blueprint={blueprint}
-            onDeployed={(nextAgentId) => setAgentId(nextAgentId)}
+            onDeployed={(nextAgentId) => {
+              setAgentId(nextAgentId);
+              window.setTimeout(() => {
+                document.getElementById("dashboard")?.scrollIntoView({ behavior: "smooth" });
+              }, 120);
+            }}
           />
         ) : (
-          <EmptyPanel
-            title="waiting for blueprint"
-            body="Generate an agent above and the review panel will appear here."
+          <EmptyState
+            title="blueprint waiting"
+            body="Generate the SentinelClaw demo blueprint above to review tools, policies, memory rules, and the NemoClaw deployment profile."
           />
         )}
       </Section>
 
-      <Section id="dashboard" eyebrow="run" title="watch it work.">
-        <LiveDashboard agentId={agentId} onReport={setReport} />
+      <Section id="dashboard" eyebrow="runtime" title="Watch NemoClaw enforce control.">
+        <LiveDashboard
+          agentId={agentId}
+          onReport={(nextReport) => {
+            setReport(nextReport);
+            window.setTimeout(() => {
+              document.getElementById("report")?.scrollIntoView({ behavior: "smooth" });
+            }, 120);
+          }}
+        />
       </Section>
 
-      <Section id="report" eyebrow="output" title="read the report.">
-        {report ? <IncidentReport report={report} /> : <ReportPlaceholder />}
+      <Section id="report" eyebrow="output" title="Finish with a useful report.">
+        {report ? (
+          <IncidentReport report={report} />
+        ) : (
+          <EmptyState
+            title="report waiting"
+            body="Deploy the agent, let it reach the shell approval gate, then approve or deny the command to generate the final incident report."
+          />
+        )}
       </Section>
 
-      <FinalCta />
-
-      <footer className="flex flex-wrap justify-between gap-4 border-t border-white/[0.07] px-8 py-8 text-xs lowercase text-white/40 lg:px-16">
-        <Logo size="sm" />
-        <span>from prompt to protected agent · OpenClaw · NemoClaw · Nemotron</span>
+      <footer className="border-t border-white/10 px-5 py-8 text-sm text-white/42 md:px-10 lg:px-14">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
+          <Logo />
+          <span>The secure agent factory for NemoClaw.</span>
+        </div>
       </footer>
     </main>
   );
