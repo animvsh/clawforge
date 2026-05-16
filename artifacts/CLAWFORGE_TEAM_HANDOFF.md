@@ -43,12 +43,12 @@ Development readiness:
 - `ANU-50` is the final QA/deploy gate and should run after all P0 lanes, including Brev and sandbox hardening.
 - `ANU-55` Supabase accounts is optional P1 and must not block the public NemoClaw demo.
 
-V2 owner split:
+Four-person owner split:
 
-- Adithya / frontend: `ANU-41`, `ANU-42`, `ANU-43`, plus P1 `ANU-51`, `ANU-52`.
-- pmgandhi / backend: `ANU-44`, `ANU-45`, `ANU-46`, `ANU-47`, `ANU-57`, `ANU-58`, `ANU-59`, `ANU-60`, `ANU-61`, `ANU-62`, `ANU-63`, plus P1 `ANU-53`, `ANU-55`.
-- Edwin / dashboard, report, QA: `ANU-48`, `ANU-49`, `ANU-50`, `ANU-64`, `ANU-65`, plus P1 `ANU-54`.
-- Deployment/Brev owner: `ANU-56`.
+- Animesh / product, safety, final coordination: `ANU-36`, `ANU-41`, `ANU-50`, `ANU-53`.
+- Adithya / frontend experience: `ANU-42`, `ANU-43`, `ANU-48`, plus P1 `ANU-51`, `ANU-52`.
+- pmgandhi / backend, runtime, providers, policy: `ANU-37`, `ANU-38`, `ANU-39`, `ANU-44`, `ANU-45`, `ANU-46`, `ANU-47`, `ANU-55`, `ANU-57`, `ANU-58`, `ANU-59`, `ANU-60`, `ANU-61`, `ANU-62`, `ANU-63`.
+- Edwin / memory, report, deployment, QA: `ANU-31`, `ANU-40`, `ANU-49`, `ANU-54`, `ANU-56`, `ANU-64`, `ANU-65`.
 
 Advanced runtime scope:
 
