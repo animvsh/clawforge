@@ -39,11 +39,7 @@ export async function getMemory(id: string): Promise<StoredMemory | null> {
     return _memory.get(id) ?? null;
   }
 
-  const { data, error } = await client
-    .from("memory")
-    .select()
-    .eq("id", id)
-    .single();
+  const { data, error } = await client.from("memory").select().eq("id", id).single();
 
   if (error) return null;
   return data as StoredMemory;

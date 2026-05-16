@@ -28,9 +28,7 @@ function isDuplicate(title: string, description: string): boolean {
   // Check if we have a very similar ticket recently (within window)
   return recentTickets.some(
     (t) =>
-      t.title === title &&
-      t.description === description &&
-      now - t.timestamp < DUPLICATE_WINDOW_MS,
+      t.title === title && t.description === description && now - t.timestamp < DUPLICATE_WINDOW_MS,
   );
 }
 
@@ -57,14 +55,14 @@ export class TicketCreatorTool implements ToolBroker {
 
     const finalTitle = title || "Security Incident Report";
     const finalDescription =
-      description ||
-      "An incident was detected by SentinelClaw agent that requires human review.";
+      description || "An incident was detected by SentinelClaw agent that requires human review.";
 
     // Check for duplicate tickets
     if (isDuplicate(finalTitle, finalDescription)) {
       return {
         success: false,
-        error: "Duplicate ticket detected. A ticket with identical title and description was created within the last 30 seconds. Please wait before creating a similar ticket.",
+        error:
+          "Duplicate ticket detected. A ticket with identical title and description was created within the last 30 seconds. Please wait before creating a similar ticket.",
       };
     }
 

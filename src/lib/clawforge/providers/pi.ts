@@ -14,13 +14,11 @@ function sanitizeError(message: string, context = ""): string {
     .replace(/\bkey-[a-zA-Z0-9]{16,}\b/gi, "[redacted-key]")
     .replace(/\bsecret-[a-zA-Z0-9]{16,}\b/gi, "[redacted-secret]")
     .replace(/C:\\[^\\]*/gi, "[internal-path]")
-    .replace(/\/home\/[^\/]+/gi, "[internal-path]")
+    .replace(/\/home\/[^/]+/gi, "[internal-path]")
     .trim();
 }
 
-export function createPiProvider(
-  env: Record<string, string | undefined> = {},
-): ReasoningProvider {
+export function createPiProvider(env: Record<string, string | undefined> = {}): ReasoningProvider {
   const apiKey = env.PI_CODING_API_KEY;
   const endpoint = env.PI_CODING_ENDPOINT || "https://api.pi.com/v1";
   const model = env.PI_CODING_MODEL || "pi-3-mini";
@@ -44,7 +42,7 @@ export function createPiProvider(
           method: "POST",
           signal: controller.signal,
           headers: {
-            "Authorization": `Bearer ${apiKey}`,
+            Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -52,7 +50,8 @@ export function createPiProvider(
             messages: [
               {
                 role: "system",
-                content: "You are a security planning assistant. Given a task, output a numbered list of steps. Only output the numbered list, no other text.",
+                content:
+                  "You are a security planning assistant. Given a task, output a numbered list of steps. Only output the numbered list, no other text.",
               },
               {
                 role: "user",
@@ -66,10 +65,14 @@ export function createPiProvider(
 
         if (!response.ok) {
           const errorText = await response.text().catch(() => "Unknown error");
-          throw new Error(`Pi plan request failed (${response.status}): ${sanitizeError(errorText)}`);
+          throw new Error(
+            `Pi plan request failed (${response.status}): ${sanitizeError(errorText)}`,
+          );
         }
 
-        const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+        const data = (await response.json()) as {
+          choices?: Array<{ message?: { content?: string } }>;
+        };
         const content = data?.choices?.[0]?.message?.content ?? "";
 
         // Parse numbered list from response
@@ -90,7 +93,8 @@ export function createPiProvider(
 
         if (steps.length === 0) {
           // No steps parsed from response - use input as basis for fallback
-          const truncated = input.prompt.length > 50 ? input.prompt.slice(0, 50) + "..." : input.prompt;
+          const truncated =
+            input.prompt.length > 50 ? input.prompt.slice(0, 50) + "..." : input.prompt;
           return [`Analyze: ${truncated}`, "Execute investigation", "Report findings"];
         }
         return steps;
@@ -100,12 +104,15 @@ export function createPiProvider(
       }
     },
 
-    async classify(input: { prompt: string; context?: Record<string, unknown> }): Promise<{ label: string; severity: "low" | "medium" | "high" }> {
+    async classify(input: {
+      prompt: string;
+      context?: Record<string, unknown>;
+    }): Promise<{ label: string; severity: "low" | "medium" | "high" }> {
       try {
         const response = await fetch(`${endpoint}/classify`, {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${apiKey}`,
+            Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -117,10 +124,15 @@ export function createPiProvider(
 
         if (!response.ok) {
           const errorText = await response.text().catch(() => "Unknown error");
-          throw new Error(`Pi classify request failed (${response.status}): ${sanitizeError(errorText)}`);
+          throw new Error(
+            `Pi classify request failed (${response.status}): ${sanitizeError(errorText)}`,
+          );
         }
 
-        const data = await response.json() as { label?: string; severity?: "low" | "medium" | "high" };
+        const data = (await response.json()) as {
+          label?: string;
+          severity?: "low" | "medium" | "high";
+        };
         return {
           label: data?.label ?? "Unknown",
           severity: data?.severity ?? "medium",
@@ -136,7 +148,7 @@ export function createPiProvider(
         const response = await fetch(`${endpoint}/summarize`, {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${apiKey}`,
+            Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -148,10 +160,12 @@ export function createPiProvider(
 
         if (!response.ok) {
           const errorText = await response.text().catch(() => "Unknown error");
-          throw new Error(`Pi summarize request failed (${response.status}): ${sanitizeError(errorText)}`);
+          throw new Error(
+            `Pi summarize request failed (${response.status}): ${sanitizeError(errorText)}`,
+          );
         }
 
-        const data = await response.json() as { summary?: string };
+        const data = (await response.json()) as { summary?: string };
         const summary = data?.summary?.trim();
         return summary ? summary : "Summary unavailable.";
       } catch (error) {

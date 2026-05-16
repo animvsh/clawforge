@@ -200,7 +200,7 @@ describe("ProviderRegistry", () => {
 
     it("invalid provider mode in config - setMode accepts but getProvider resolves", () => {
       const registry = new ProviderRegistry({});
-      // @ts-ignore - testing runtime behavior
+      // @ts-expect-error - testing runtime behavior
       registry.setMode("invalid_mode");
       const config = registry.getConfig();
       expect(config.mode).toBe("invalid_mode");

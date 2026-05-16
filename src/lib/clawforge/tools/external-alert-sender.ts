@@ -56,7 +56,7 @@ export class ExternalAlertSenderTool implements ToolBroker {
 
     // Check for message - must be non-empty after trimming
     const message = params.message;
-    if (!message || (typeof message !== "string") || message.trim().length === 0) {
+    if (!message || typeof message !== "string" || message.trim().length === 0) {
       errors.push("message is required for external alerts and cannot be empty");
     }
 

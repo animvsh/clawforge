@@ -6,6 +6,7 @@ import {
   getRuntimeState,
   getApprovalStatus,
   resolveApproval,
+  resetLegacyRuntime,
   startRuntime,
   stopRuntime,
 } from "./runtime";
@@ -72,7 +73,12 @@ function successResponse<T>(data: T, init?: ResponseInit): Response {
   return json({ ok: true, ...data }, init);
 }
 
-function errorResponse(message: string, status = 400, code: ApiErrorCode = "INVALID_REQUEST", field?: string): Response {
+function errorResponse(
+  message: string,
+  status = 400,
+  code: ApiErrorCode = "INVALID_REQUEST",
+  field?: string,
+): Response {
   return json({ ok: false, error: apiError(code, message, status, field) }, { status });
 }
 
@@ -204,7 +210,12 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
     // Validate provider - return 400 for invalid values, not auto-default
     const provider = normalizeProvider(body.provider);
     if (provider === null) {
-      return errorResponse("Invalid provider value. Must be one of: nemotron, minimax, mock, auto.", 400, "INVALID_REQUEST", "provider");
+      return errorResponse(
+        "Invalid provider value. Must be one of: nemotron, minimax, mock, auto.",
+        400,
+        "INVALID_REQUEST",
+        "provider",
+      );
     }
 
     return successResponse({
@@ -213,7 +224,10 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
   }
 
   // POST /api/agents/deploy or /api/v1/clawforge/agents/deploy
-  if ((apiPath === "/api/agents/deploy" || apiPath === "/agents/deploy") && request.method === "POST") {
+  if (
+    (apiPath === "/api/agents/deploy" || apiPath === "/agents/deploy") &&
+    request.method === "POST"
+  ) {
     const body = await readJsonBody<{ blueprint_id?: unknown }>(request);
     const blueprintId = typeof body.blueprint_id === "string" ? body.blueprint_id : "";
 
@@ -225,6 +239,7 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
       return errorResponse("Known demo blueprint_id is required.", 400, "INVALID_REQUEST");
     }
 
+    resetLegacyRuntime();
     startRuntime();
     return successResponse(
       {
@@ -244,7 +259,9 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
   // Legacy: /api/agents/([^/]+)/([^/]+)(?:/([^/]+))? -> groups: [full, agentId, action, nested]
   // New:     (/api/v1/clawforge)?/agents/([^/]+)/([^/]+)(?:/([^/]+))? -> groups: [full, prefix, agentId, action, nested]
   const legacyAgentMatch = path.match(/^\/api\/agents\/([^/]+)\/([^/]+)(?:\/([^/]+))?$/);
-  const newAgentMatch = path.match(/^(\/api\/v1\/clawforge)?\/agents\/([^/]+)\/([^/]+)(?:\/([^/]+))?$/);
+  const newAgentMatch = path.match(
+    /^(\/api\/v1\/clawforge)?\/agents\/([^/]+)\/([^/]+)(?:\/([^/]+))?$/,
+  );
 
   if (legacyAgentMatch || newAgentMatch) {
     const match = legacyAgentMatch || newAgentMatch;
@@ -278,7 +295,11 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
       try {
         return successResponse(stopRuntime());
       } catch (e) {
-        return errorResponse(`Failed to stop agent: ${e instanceof Error ? e.message : String(e)}`, 409, "CONFLICT");
+        return errorResponse(
+          `Failed to stop agent: ${e instanceof Error ? e.message : String(e)}`,
+          409,
+          "CONFLICT",
+        );
       }
     }
 
@@ -332,14 +353,26 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
     const body = await readJsonBody<{ decision?: unknown }>(request);
 
     // Validate decision value - must be exactly "approved" or "denied"
-    if (typeof body.decision !== "string" || (body.decision !== "approved" && body.decision !== "denied")) {
-      return errorResponse("Invalid decision value. Must be 'approved' or 'denied'.", 400, "INVALID_REQUEST", "decision");
+    if (
+      typeof body.decision !== "string" ||
+      (body.decision !== "approved" && body.decision !== "denied")
+    ) {
+      return errorResponse(
+        "Invalid decision value. Must be 'approved' or 'denied'.",
+        400,
+        "INVALID_REQUEST",
+        "decision",
+      );
     }
 
     // Check if approval is already resolved (idempotency)
     const existingStatus = getApprovalStatus();
     if (existingStatus !== "pending") {
-      return errorResponse(`Approval already resolved (current status: ${existingStatus}).`, 409, "CONFLICT");
+      return errorResponse(
+        `Approval already resolved (current status: ${existingStatus}).`,
+        409,
+        "CONFLICT",
+      );
     }
 
     const decision = body.decision as "approved" | "denied";

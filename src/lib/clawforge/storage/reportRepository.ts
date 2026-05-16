@@ -52,11 +52,7 @@ export async function getReport(id: string): Promise<StoredReport | null> {
     return _reports.get(id) ?? null;
   }
 
-  const { data, error } = await client
-    .from("reports")
-    .select()
-    .eq("id", id)
-    .single();
+  const { data, error } = await client.from("reports").select().eq("id", id).single();
 
   if (error) return null;
   return data as StoredReport;

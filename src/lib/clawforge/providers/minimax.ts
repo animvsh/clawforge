@@ -43,7 +43,7 @@ async function miniMaxChatCompletion(
     throw new Error(`MiniMax API error ${response.status}: ${sanitizeError(errorBody)}`);
   }
 
-  const data = await response.json() as {
+  const data = (await response.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
     error?: { message?: string };
   };
@@ -97,7 +97,10 @@ export function createMiniMaxProvider(
           }
         } catch {
           // Fallback: try to extract lines from non-JSON response
-          return response.split("\n").map((s) => s.replace(/^\d+[.)]\s*/, "").trim()).filter(Boolean);
+          return response
+            .split("\n")
+            .map((s) => s.replace(/^\d+[.)]\s*/, "").trim())
+            .filter(Boolean);
         }
         throw new Error("Invalid response format: expected JSON array");
       } catch (err) {
@@ -106,7 +109,9 @@ export function createMiniMaxProvider(
       }
     },
 
-    async classify(input: ReasoningInput): Promise<{ label: string; severity: "low" | "medium" | "high" }> {
+    async classify(
+      input: ReasoningInput,
+    ): Promise<{ label: string; severity: "low" | "medium" | "high" }> {
       try {
         const response = await miniMaxChatCompletion(
           effectiveKey,

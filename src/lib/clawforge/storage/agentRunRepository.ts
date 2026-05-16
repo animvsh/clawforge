@@ -49,11 +49,7 @@ export async function getAgentRun(id: string): Promise<AgentRun | null> {
     return _runs.get(id) ?? null;
   }
 
-  const { data, error } = await client
-    .from("agent_runs")
-    .select()
-    .eq("id", id)
-    .single();
+  const { data, error } = await client.from("agent_runs").select().eq("id", id).single();
 
   if (error) return null;
   return data as AgentRun;

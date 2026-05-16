@@ -67,12 +67,19 @@ export class ReportWriterTool implements ToolBroker {
 
     // ReportWriterTool requires at least some content to write
     // Check that at least one meaningful field is provided
-    const hasTitle = params.title && typeof params.title === "string" && params.title.trim().length > 0;
-    const hasBehavior = params.behavior && typeof params.behavior === "string" && params.behavior.trim().length > 0;
-    const hasContent = params.recommended_action && typeof params.recommended_action === "string" && params.recommended_action.trim().length > 0;
+    const hasTitle =
+      params.title && typeof params.title === "string" && params.title.trim().length > 0;
+    const hasBehavior =
+      params.behavior && typeof params.behavior === "string" && params.behavior.trim().length > 0;
+    const hasContent =
+      params.recommended_action &&
+      typeof params.recommended_action === "string" &&
+      params.recommended_action.trim().length > 0;
 
     if (!hasTitle && !hasBehavior && !hasContent) {
-      errors.push("At least one of 'title', 'behavior', or 'recommended_action' must be provided with non-empty content");
+      errors.push(
+        "At least one of 'title', 'behavior', or 'recommended_action' must be provided with non-empty content",
+      );
     }
 
     return { valid: errors.length === 0, errors: errors.length > 0 ? errors : undefined };
@@ -83,7 +90,8 @@ export class ReportWriterTool implements ToolBroker {
       id: "tool_report_writer",
       name: "Report Writer",
       action: "report.write",
-      description: "Creates a structured incident report with severity, evidence, and recommendations.",
+      description:
+        "Creates a structured incident report with severity, evidence, and recommendations.",
       permission: "allowed",
       risk_level: "low",
       enabled: true,

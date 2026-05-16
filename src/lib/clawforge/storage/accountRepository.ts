@@ -41,11 +41,7 @@ export async function getAccount(id: string): Promise<Account | null> {
     return _memory.get(id) ?? null;
   }
 
-  const { data, error } = await client
-    .from("accounts")
-    .select()
-    .eq("id", id)
-    .single();
+  const { data, error } = await client.from("accounts").select().eq("id", id).single();
 
   if (error) return null;
   return data as Account;

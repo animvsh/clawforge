@@ -69,24 +69,24 @@ export class ShellExecutorTool implements ToolBroker {
     if (params.command) {
       const cmd = String(params.command).toLowerCase();
       const dangerousPatterns = [
-        /^rm\s+-rf\s+(\/|.*\/\*)/,  // rm -rf / or rm -rf /*
-        /^rm\s+-r\s+(\/|.*\/\*)/,    // rm -r / or rm -r /*
-        /^rm\s+-f\s+(\/|.*),         // rm -f /
-        /^fork\s*\(/,                // fork bomb
-        /:\(\)\{:\|\:&\};:/,         // fork bomb variant
-        /shutdown\s+/i,             // shutdown commands
-        /reboot\s+/i,               // reboot
-        /init\s+6/i,               // init 6 (reboot)
-        /init\s+0/i,               // init 0 (halt)
-        /^mkfs\s*/i,               // mkfs (format)
-        /^dd\s+if=/i,              // dd (disk destroy)
-        /^mv\s+\/\s+/,             // mv / to unknown
-        /^chmod\s+-r\s+777\s+\//,  // chmod -R 777 /
-        /^wget\s+.*\|\s*sh/i,      // wget | sh (remote exec)
-        /^curl\s+.*\|\s*sh/i,      // curl | sh
-        /^python.*-c.*exec/i,      // python exec
-        /^perl.*-e.*exec/i,        // perl exec
-        /^bash\s+-c/i,             // bash -c (indirect execution)
+        /^rm\s+-rf\s+(\/|.*\/\*)/, // rm -rf / or rm -rf /*
+        /^rm\s+-r\s+(\/|.*\/\*)/, // rm -r / or rm -r /*
+        /^rm\s+-f\s+(\/|.*\/\*)/, // rm -f / or rm -f /*
+        /^fork\s*\(/, // fork bomb
+        /:\(\)\{:\|:&\};:/, // fork bomb variant
+        /shutdown\s+/i, // shutdown commands
+        /reboot\s+/i, // reboot
+        /init\s+6/i, // init 6 (reboot)
+        /init\s+0/i, // init 0 (halt)
+        /^mkfs\s*/i, // mkfs (format)
+        /^dd\s+if=/i, // dd (disk destroy)
+        /^mv\s+\/\s+/, // mv / to unknown
+        /^chmod\s+-r\s+777\s+\//, // chmod -R 777 /
+        /^wget\s+.*\|\s*sh/i, // wget | sh (remote exec)
+        /^curl\s+.*\|\s*sh/i, // curl | sh
+        /^python.*-c.*exec/i, // python exec
+        /^perl.*-e.*exec/i, // perl exec
+        /^bash\s+-c/i, // bash -c (indirect execution)
       ];
 
       for (const pattern of dangerousPatterns) {

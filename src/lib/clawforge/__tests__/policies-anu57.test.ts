@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { evaluateEnvelope, generateSentinelClawManifest, checkPolicy, clearPolicyEventLog } from "../policies";
+import {
+  evaluateEnvelope,
+  generateSentinelClawManifest,
+  checkPolicy,
+  clearPolicyEventLog,
+} from "../policies";
 import type { ActionEnvelope, AgentCapabilityManifest, Capability } from "../types";
 
 // Helpers
@@ -54,7 +59,9 @@ describe("ANU-57: ActionEnvelope structure", () => {
 
   describe("missing params (null vs undefined)", () => {
     it("params can be undefined - TypeScript types allow it via Record<string, unknown>", () => {
-      const envelope = createValidEnvelope({ params: undefined as unknown as Record<string, unknown> });
+      const envelope = createValidEnvelope({
+        params: undefined as unknown as Record<string, unknown>,
+      });
       expect(envelope.params).toBeUndefined();
       const result = evaluateEnvelope(envelope);
       expect(result.effect).toBe("allow");
@@ -71,7 +78,9 @@ describe("ANU-57: ActionEnvelope structure", () => {
 
   describe("missing context", () => {
     it("context can be undefined - TypeScript allows it via optional field in ActionEnvelope", () => {
-      const envelope = createValidEnvelope({ context: undefined as unknown as ActionEnvelope["context"] });
+      const envelope = createValidEnvelope({
+        context: undefined as unknown as ActionEnvelope["context"],
+      });
       expect(envelope.context).toBeUndefined();
       const result = evaluateEnvelope(envelope);
       expect(result.effect).toBe("allow");
@@ -81,7 +90,7 @@ describe("ANU-57: ActionEnvelope structure", () => {
   describe("missing capabilities", () => {
     it("capabilities can be undefined at type level but causes runtime error", () => {
       const envelope = createValidEnvelope();
-      // @ts-ignore - testing runtime behavior
+      // @ts-expect-error - testing runtime behavior
       delete envelope.capabilities;
       expect(() => evaluateEnvelope(envelope as ActionEnvelope)).toThrow(TypeError);
     });
@@ -89,7 +98,10 @@ describe("ANU-57: ActionEnvelope structure", () => {
 
   describe("envelope with extra unknown fields", () => {
     it("extra fields are ignored by evaluateEnvelope", () => {
-      const envelope = createValidEnvelope() as ActionEnvelope & { secret_key?: string; api_password?: string };
+      const envelope = createValidEnvelope() as ActionEnvelope & {
+        secret_key?: string;
+        api_password?: string;
+      };
       envelope.secret_key = "super_secret_123";
       envelope.api_password = "password123";
       const result = evaluateEnvelope(envelope);
@@ -200,7 +212,10 @@ describe("ANU-57: evaluateEnvelope()", () => {
         target: "invalid_target_type" as Capability["target"],
         permission: "allowed",
       });
-      const envelope = createValidEnvelope({ action: "test.invalid_target", capabilities: manifest });
+      const envelope = createValidEnvelope({
+        action: "test.invalid_target",
+        capabilities: manifest,
+      });
       // No validation on target at runtime - it just checks permission
       const result = evaluateEnvelope(envelope);
       expect(result.effect).toBe("allow");
@@ -289,7 +304,7 @@ describe("ANU-57: generateSentinelClawManifest()", () => {
 
   describe("missing agent_id", () => {
     it("uses default agent_id when undefined", () => {
-      // @ts-ignore - testing runtime behavior with undefined
+      // @ts-expect-error - testing runtime behavior with undefined
       const manifest = generateSentinelClawManifest(undefined, "1.0.0");
       expect(manifest.agent_id).toBe("agent_sentinelclaw_demo");
     });

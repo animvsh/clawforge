@@ -89,7 +89,13 @@ export function checkPolicyWithEvent(
   agentId?: string,
 ): { decision: PolicyDecision; event: PolicyEvent } {
   const decision = checkPolicy(action, policies);
-  const event = createPolicyEvent(action, decision.effect, decision.policy_id, decision.reason, agentId);
+  const event = createPolicyEvent(
+    action,
+    decision.effect,
+    decision.policy_id,
+    decision.reason,
+    agentId,
+  );
   return { decision, event };
 }
 

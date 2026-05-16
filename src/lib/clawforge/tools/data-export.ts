@@ -15,7 +15,7 @@ export class DataExportTool implements ToolBroker {
     // This tool is BLOCKED at broker level - it should NEVER execute
     throw new Error(
       "DataExportTool is blocked and cannot execute. " +
-      "This tool has been disabled at the broker level for security reasons."
+        "This tool has been disabled at the broker level for security reasons.",
     );
   }
 

@@ -21,7 +21,7 @@ export class ThreatClassifierTool implements ToolBroker {
       success: true,
       data: {
         classification,
-       mitre_mapping: classification.mitre_tactic,
+        mitre_mapping: classification.mitre_tactic,
         severity: classification.severity,
         confidence: classification.confidence,
         indicators: classification.indicators,
@@ -77,10 +77,9 @@ export class ThreatClassifierTool implements ToolBroker {
           "Multiple failed authentication attempts",
           "Pattern indicates automated attack",
         ],
-        recommended_action:
-          ip?.includes("185.92")
-            ? "Block IP immediately, alert security team, review access logs."
-            : "Monitor and apply additional scrutiny.",
+        recommended_action: ip?.includes("185.92")
+          ? "Block IP immediately, alert security team, review access logs."
+          : "Monitor and apply additional scrutiny.",
       };
     }
 

@@ -78,13 +78,13 @@ NEMOCLAW_PROVIDER=routed nemoclaw onboard --non-interactive
 
 Ports to document in Brev tunnels or local port forwards:
 
-| Service | Port | Exposure |
-| --- | --- | --- |
-| ClawForge Vite dev app | `5173` | Tunnel or forward for demos |
-| ClawForge production preview | `4173` | Tunnel or forward after `npm run start` |
-| NemoClaw/OpenClaw dashboard | `18789+` | Forward only when needed; token is sensitive |
-| NemoClaw model router | `4000` | Host-side/private only |
-| Optional local NIM | `8000` | Forward for API testing only; avoid public tunnel |
+| Service                      | Port     | Exposure                                          |
+| ---------------------------- | -------- | ------------------------------------------------- |
+| ClawForge Vite dev app       | `5173`   | Tunnel or forward for demos                       |
+| ClawForge production preview | `4173`   | Tunnel or forward after `npm run start`           |
+| NemoClaw/OpenClaw dashboard  | `18789+` | Forward only when needed; token is sensitive      |
+| NemoClaw model router        | `4000`   | Host-side/private only                            |
+| Optional local NIM           | `8000`   | Forward for API testing only; avoid public tunnel |
 
 Brev port-forward example:
 
