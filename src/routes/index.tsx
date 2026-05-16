@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AuthPanel } from "@/components/clawforge/AuthPanel";
 import { ClawForgeLogo } from "@/components/clawforge/ClawForgeFrame";
 import heroImage from "@/assets/hero.png";
+import { useClawForgeAuth } from "@/lib/clawforge/auth";
 import { createProject } from "@/lib/clawforge/projects";
 
 const incidentPrompt =
@@ -42,11 +43,17 @@ export const Route = createFileRoute("/")({
 function Index() {
   const navigate = useNavigate();
   const [prompt, setPrompt] = useState(incidentPrompt);
+  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const auth = useClawForgeAuth();
 
   function createWorkspace(nextPrompt: string) {
     const cleanPrompt = nextPrompt.trim();
     if (!cleanPrompt) return;
+    if (!auth.isAuthenticated) {
+      setPendingPrompt(cleanPrompt);
+      return;
+    }
     setSubmitting(true);
     const project = createProject(cleanPrompt);
     window.setTimeout(() => {
@@ -55,6 +62,13 @@ function Index() {
         params: { projectId: project.id },
       });
     }, 260);
+  }
+
+  function continuePendingBuild() {
+    if (!pendingPrompt || !auth.isAuthenticated) return;
+    const nextPrompt = pendingPrompt;
+    setPendingPrompt(null);
+    createWorkspace(nextPrompt);
   }
 
   return (
@@ -121,7 +135,7 @@ function Index() {
                   <button
                     type="submit"
                     className="grid h-11 w-11 place-items-center rounded-full bg-white text-black transition hover:bg-white/88 disabled:cursor-not-allowed disabled:opacity-45"
-                    disabled={!prompt.trim() || submitting}
+                    disabled={!prompt.trim() || submitting || auth.loading}
                     aria-label="Build NemoClaw instance"
                   >
                     <ArrowUp className="h-5 w-5" aria-hidden="true" />
@@ -164,6 +178,11 @@ function Index() {
           </div>
         </div>
       </section>
+      <AuthPanel
+        forceOpen={Boolean(pendingPrompt) && !auth.isAuthenticated}
+        locked
+        onAuthenticated={continuePendingBuild}
+      />
     </main>
   );
 }

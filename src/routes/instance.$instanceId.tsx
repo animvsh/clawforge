@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowUp, Check, Copy, Server, Shield, Sparkles } from "lucid
 import { useEffect, useMemo, useState } from "react";
 import { AuthPanel } from "@/components/clawforge/AuthPanel";
 import { ClawForgeLogo } from "@/components/clawforge/ClawForgeFrame";
+import { useClawForgeAuth } from "@/lib/clawforge/auth";
 import { getInstance, type ClawForgeInstance } from "@/lib/clawforge/instances";
 import type { ProviderMode, RuntimeEvent } from "@/lib/clawforge/types";
 
@@ -62,6 +63,7 @@ function statusCopy(instance: ClawForgeInstance) {
 
 function InstanceChatPage() {
   const { instanceId } = Route.useParams();
+  const auth = useClawForgeAuth();
   const [loaded, setLoaded] = useState(false);
   const [instance, setInstance] = useState<ClawForgeInstance | null>(null);
   const [message, setMessage] = useState("");
@@ -73,6 +75,7 @@ function InstanceChatPage() {
   const [chat, setChat] = useState<Array<[string, string]>>([]);
 
   useEffect(() => {
+    if (!auth.isAuthenticated) return;
     const stored = getInstance(instanceId);
     setInstance(stored);
     if (stored) {
@@ -96,7 +99,7 @@ function InstanceChatPage() {
       ]);
     }
     setLoaded(true);
-  }, [instanceId]);
+  }, [auth.isAuthenticated, instanceId]);
 
   const shareUrl = useMemo(() => {
     if (typeof window === "undefined") return `/instance/${instanceId}`;
@@ -191,6 +194,14 @@ function InstanceChatPage() {
     await navigator.clipboard.writeText(shareUrl);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1400);
+  }
+
+  if (!auth.isAuthenticated) {
+    return (
+      <main className="min-h-screen bg-black text-white">
+        <AuthPanel forceOpen locked />
+      </main>
+    );
   }
 
   if (!loaded) {

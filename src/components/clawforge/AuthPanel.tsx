@@ -1,8 +1,19 @@
 import { isSupabaseConfigured, supabase, type SupabaseSession } from "@/lib/supabase/client";
 import { X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import {
+  clearDemoEmail,
+  DEMO_EMAIL_KEY,
+  setDemoEmail as saveDemoEmail,
+} from "@/lib/clawforge/auth";
 
-export function AuthPanel() {
+type AuthPanelProps = {
+  forceOpen?: boolean;
+  locked?: boolean;
+  onAuthenticated?: () => void;
+};
+
+export function AuthPanel({ forceOpen = false, locked = false, onAuthenticated }: AuthPanelProps) {
   const [session, setSession] = useState<SupabaseSession | null>(null);
   const [demoEmail, setDemoEmail] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -25,11 +36,11 @@ export function AuthPanel() {
   useEffect(() => {
     const urlDemoEmail = new URLSearchParams(window.location.search).get("demo_email");
     if (urlDemoEmail) {
-      window.localStorage.setItem("clawforge_demo_email", urlDemoEmail);
+      saveDemoEmail(urlDemoEmail);
       setDemoEmail(urlDemoEmail);
     }
 
-    const savedDemoEmail = window.localStorage.getItem("clawforge_demo_email");
+    const savedDemoEmail = window.localStorage.getItem(DEMO_EMAIL_KEY);
     if (savedDemoEmail) setDemoEmail(savedDemoEmail);
 
     if (!supabase) return;
@@ -56,15 +67,20 @@ export function AuthPanel() {
   }, [ensureProfile]);
 
   useEffect(() => {
-    if (!open) return;
+    if (session?.user || demoEmail) onAuthenticated?.();
+  }, [demoEmail, onAuthenticated, session?.user]);
+
+  useEffect(() => {
+    if (!open && !forceOpen) return;
 
     function closeOnEscape(event: KeyboardEvent) {
+      if (locked) return;
       if (event.key === "Escape") setOpen(false);
     }
 
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [open]);
+  }, [forceOpen, locked, open]);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -107,7 +123,7 @@ export function AuthPanel() {
 
   async function signOut() {
     if (supabase) await supabase.auth.signOut();
-    window.localStorage.removeItem("clawforge_demo_email");
+    clearDemoEmail();
     setSession(null);
     setDemoEmail(null);
     setOpen(false);
@@ -115,7 +131,7 @@ export function AuthPanel() {
 
   function continueAsDemo() {
     const nextEmail = email.trim() || "demo@clawforge.local";
-    window.localStorage.setItem("clawforge_demo_email", nextEmail);
+    saveDemoEmail(nextEmail);
     setDemoEmail(nextEmail);
     setMessage("");
     setOpen(false);
@@ -142,7 +158,7 @@ export function AuthPanel() {
     );
   }
 
-  if (!open) {
+  if (!open && !forceOpen) {
     return (
       <button
         type="button"
@@ -159,7 +175,9 @@ export function AuthPanel() {
       <button
         type="button"
         className="absolute inset-0 cursor-default"
-        onClick={() => setOpen(false)}
+        onClick={() => {
+          if (!locked) setOpen(false);
+        }}
         aria-label="Close sign in"
       />
 
@@ -173,7 +191,9 @@ export function AuthPanel() {
           </div>
           <button
             type="button"
-            onClick={() => setOpen(false)}
+            onClick={() => {
+              if (!locked) setOpen(false);
+            }}
             className="grid h-9 w-9 place-items-center rounded-full text-white/50 transition hover:bg-white/8 hover:text-white"
             aria-label="Close"
           >
@@ -279,10 +299,15 @@ export function AuthPanel() {
 
           <button
             type="button"
-            onClick={() => setOpen(false)}
-            className="mt-4 w-full text-center text-sm text-white/38 transition hover:text-white/70"
+            onClick={() => {
+              if (!locked) setOpen(false);
+            }}
+            className={`mt-4 w-full text-center text-sm transition ${
+              locked ? "cursor-not-allowed text-white/18" : "text-white/38 hover:text-white/70"
+            }`}
+            disabled={locked}
           >
-            Close
+            {locked ? "Sign in or create an account to continue" : "Close"}
           </button>
 
           <p className="mt-5 text-center text-xs leading-relaxed text-white/34">

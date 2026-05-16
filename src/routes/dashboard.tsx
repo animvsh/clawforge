@@ -1,7 +1,9 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { ArrowRight, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { AuthPanel } from "@/components/clawforge/AuthPanel";
 import { ClawForgeFrame, PageShell } from "@/components/clawforge/ClawForgeFrame";
+import { useClawForgeAuth } from "@/lib/clawforge/auth";
 import {
   type ClawForgeProject,
   createProject,
@@ -31,10 +33,12 @@ function statusLabel(status: ClawForgeProject["status"]) {
 
 function DashboardPage() {
   const [projects, setProjects] = useState<ClawForgeProject[]>([]);
+  const auth = useClawForgeAuth();
 
   useEffect(() => {
+    if (!auth.isAuthenticated) return;
     setProjects(ensureDemoProjects());
-  }, []);
+  }, [auth.isAuthenticated]);
 
   const stats = useMemo(
     () => [
@@ -45,6 +49,14 @@ function DashboardPage() {
     ],
     [projects.length],
   );
+
+  if (!auth.isAuthenticated) {
+    return (
+      <main className="min-h-screen bg-black text-white">
+        <AuthPanel forceOpen locked />
+      </main>
+    );
+  }
 
   function createQuickProject() {
     createProject(quickPrompt);

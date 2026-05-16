@@ -13,6 +13,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ClawForgeLogo } from "@/components/clawforge/ClawForgeFrame";
 import { AuthPanel } from "@/components/clawforge/AuthPanel";
+import { useClawForgeAuth } from "@/lib/clawforge/auth";
 import { saveLaunchInstance } from "@/lib/clawforge/instances";
 import { type ClawForgeProject, getProject, updateProject } from "@/lib/clawforge/projects";
 import type {
@@ -127,6 +128,7 @@ function stateClass(state: NodeState) {
 
 function WorkspacePage() {
   const { projectId } = Route.useParams();
+  const auth = useClawForgeAuth();
   const [project, setProject] = useState<ClawForgeProject | null>(null);
   const [blueprint, setBlueprint] = useState<BlueprintResponse | null>(null);
   const [agentId, setAgentId] = useState<string | null>(null);
@@ -198,6 +200,7 @@ function WorkspacePage() {
   );
 
   useEffect(() => {
+    if (!auth.isAuthenticated) return;
     const stored = getProject(projectId);
     if (!stored) return;
     setProject(stored);
@@ -206,7 +209,7 @@ function WorkspacePage() {
     } else {
       void loadBlueprint(stored);
     }
-  }, [loadBlueprint, projectId]);
+  }, [auth.isAuthenticated, loadBlueprint, projectId]);
 
   useEffect(() => {
     if (currentStatus !== "generating" && currentStatus !== "running") return;
@@ -660,6 +663,14 @@ function WorkspacePage() {
         ]);
       }
     }
+  }
+
+  if (!auth.isAuthenticated) {
+    return (
+      <main className="min-h-screen bg-black text-white">
+        <AuthPanel forceOpen locked />
+      </main>
+    );
   }
 
   if (!project) {
