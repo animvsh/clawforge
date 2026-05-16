@@ -705,14 +705,16 @@ function WorkspacePage() {
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {chat.map(([role, content], i) => (
-            <div key={i} className="flex flex-col gap-3">
+            <div key={i} className={`flex flex-col gap-3 mt-4 first:mt-0 ${role === "user" ? "items-end" : "items-start"}`}>
               {role === "user" && content && (
-                <div className="self-end rounded-xl rounded-br-md border border-white/10 bg-[#1e1e1e] px-4 py-3 text-sm text-white/80 max-w-[85%]">
+                <div className="rounded-2xl rounded-br-md border border-white/15 bg-[#252525] px-4 py-3 text-sm text-white/90 max-w-[85%] shadow-sm">
+                  <div className="mb-1 text-[10px] uppercase tracking-wider text-white/30">You</div>
                   {content}
                 </div>
               )}
               {(role === "assistant" || role === "agent") && content && (
-                <div className="self-start rounded-xl rounded-bl-md border border-white/10 bg-[#161616] px-4 py-3 text-sm text-white/60 max-w-[85%]">
+                <div className="rounded-2xl rounded-bl-md border border-white/10 bg-[#161616] px-4 py-3 text-sm text-white/60 max-w-[85%]">
+                  <div className="mb-1 text-[10px] uppercase tracking-wider text-white/30">NemoClaw</div>
                   {content}
                 </div>
               )}
