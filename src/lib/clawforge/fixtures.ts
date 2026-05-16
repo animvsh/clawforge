@@ -218,10 +218,15 @@ export const demoApproval: ApprovalRequest = {
   agent_id: DEMO_AGENT_ID,
   action: "shell.execute",
   command: "block_ip 185.92.XX.XX",
+  preview: "Would run `block_ip 185.92.XX.XX` against a suspicious source IP.",
+  destination: "NemoClaw sandbox shell broker",
   reason: "The IP produced repeated failed login attempts and may indicate a brute-force attack.",
   policy_id: "policy_shell_approval",
+  risk_label: "high",
+  timeout_seconds: 300,
   status: "pending",
   created_at: timestamp,
+  expires_at: "2026-05-16T00:05:00.000Z",
 };
 
 export const demoMemory: MemoryItem[] = [
@@ -235,8 +240,8 @@ export const demoMemory: MemoryItem[] = [
   {
     id: "memory_denied_shell",
     agent_id: DEMO_AGENT_ID,
-    type: "approval",
-    content: "User denied shell execution for an unknown source IP.",
+    type: "preference",
+    content: "Prior preference: unknown source IP shell actions require human approval.",
     created_at: timestamp,
   },
   {
@@ -315,11 +320,27 @@ export const demoReport: IncidentReport = {
   title: "Suspicious Login Activity",
   severity: "high",
   detected_behavior: "Repeated failed login attempts",
+  classification: "Credential access attempt with brute-force indicators",
+  model_used: "NVIDIA Nemotron via ClawForge mock demo path",
+  runtime: "OpenClaw runtime inside NemoClaw sandbox",
+  sandbox: "NemoClaw",
+  provider: "nvidia/nemotron",
+  policy_triggered: "policy_shell_approval",
+  action_attempted: "block_ip 185.92.XX.XX",
+  user_decision: "User denied command execution.",
+  final_action: "SentinelClaw continued with report-only workflow.",
+  memory_update:
+    "User denied shell execution for unknown suspicious IPs. Future remediation commands against unknown IPs require explicit approval.",
+  safety_result:
+    "No restricted shell command executed without a human approval artifact.",
+  audit_summary: "Append-only audit records captured policy, approval, memory, and report events.",
   likely_threat: "Brute-force login attempt",
   mitre_mapping: "Credential Access",
   evidence: [
     "47 failed SSH login attempts in 2 minutes.",
     "Source IP: 185.92.XX.XX.",
+    "Second suspicious source detected: 91.201.XX.XX.",
+    "Memory retrieved before automatic remediation.",
     "No approved remediation command was executed.",
   ],
   recommended_action:

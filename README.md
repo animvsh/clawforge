@@ -30,9 +30,40 @@ The app supports mock-mode endpoints so frontend, backend, memory/report, and de
 - `GET /api/agents/agent_sentinelclaw_demo/logs/stream`
 - `GET /api/agents/agent_sentinelclaw_demo/memory`
 - `GET /api/agents/agent_sentinelclaw_demo/report`
+- `GET /api/agents/agent_sentinelclaw_demo/audit`
+- `GET /api/agents/agent_sentinelclaw_demo/approvals`
 - `POST /api/approvals/approval_shell_block_ip/decision`
+- `GET /api/security/health`
+- `POST /api/demo/reset`
 
 See `artifacts/CLAWFORGE_API_EXAMPLES.md` for curl examples.
+
+## Durable Runtime And Safety
+
+Local and Brev demo runs persist runtime state to `.runtime/clawforge-runtime.json`. The file stores
+agent status, ordered audit records, memory items, approval requests, approval artifacts, and the
+final report. The `.runtime/` directory is ignored by Git so demo state and generated artifacts do
+not get committed.
+
+The demo reset path is:
+
+```sh
+curl -X POST http://localhost:5173/api/demo/reset
+```
+
+Sandbox hardening can be checked with:
+
+```sh
+curl http://localhost:5173/api/security/health
+```
+
+The health check covers routed inference configuration, deny-by-default network/data export policy,
+forbidden path scanning, secret redaction, audit logging, and elevated-mode configuration. Elevated
+autonomous work stays disabled unless `CLAWFORGE_ELEVATED_MODE=1` and
+`CLAWFORGE_ALLOW_ELEVATED_AUTONOMY=approved` are both set and hardening checks pass.
+
+Runtime logs and audit metadata redact authorization headers, provider keys, tokens, and configured
+secret values before they are stored or returned by the API.
 
 ## Team Workstreams
 

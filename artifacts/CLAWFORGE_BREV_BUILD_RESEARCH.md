@@ -108,7 +108,7 @@ docker run --rm --runtime=nvidia --gpus all ubuntu nvidia-smi
 cat <<'NEXT'
 Next:
   npm run dev -- --host 0.0.0.0
-  NEMOCLAW_PROVIDER=routed NVIDIA_API_KEY=$NVIDIA_API_KEY nemoclaw onboard --non-interactive
+  NEMOCLAW_PROVIDER=routed nemoclaw onboard --non-interactive
 NEXT
 ```
 
@@ -121,7 +121,7 @@ NemoClaw should run inside the Brev VM and manage an OpenShell sandbox.
 Use this as the robust path:
 
 ```sh
-NEMOCLAW_PROVIDER=routed NVIDIA_API_KEY=$NVIDIA_API_KEY nemoclaw onboard --non-interactive
+NEMOCLAW_PROVIDER=routed nemoclaw onboard --non-interactive
 ```
 
 Important implementation notes:

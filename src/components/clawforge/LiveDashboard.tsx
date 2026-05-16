@@ -1,5 +1,24 @@
-import type { IncidentReport, MemoryItem, RuntimeEvent } from "@/lib/clawforge/types";
+import { MemoryTimeline } from "./MemoryTimeline";
+import type {
+  ApprovalArtifact,
+  ApprovalRequest,
+  AuditRecord,
+  IncidentReport,
+  MemoryItem,
+  RuntimeEvent,
+  SandboxHardeningStatus,
+} from "@/lib/clawforge/types";
 import { useEffect, useState } from "react";
+
+const approvalDetails = [
+  ["Requested Action", "shell.execute"],
+  ["Command", "block_ip 185.92.XX.XX"],
+  ["Preview", "Would run block_ip against suspicious source 185.92.XX.XX"],
+  ["Destination", "NemoClaw sandbox shell broker"],
+  ["Risk Level", "High"],
+  ["Timeout", "5 minutes"],
+  ["Policy ID", "policy_shell_approval"],
+];
 
 export function LiveDashboard({
   agentId,
@@ -9,7 +28,11 @@ export function LiveDashboard({
   onReport?: (report: IncidentReport) => void;
 }) {
   const [events, setEvents] = useState<RuntimeEvent[]>([]);
+  const [audit, setAudit] = useState<AuditRecord[]>([]);
   const [memory, setMemory] = useState<MemoryItem[]>([]);
+  const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
+  const [approvalArtifacts, setApprovalArtifacts] = useState<ApprovalArtifact[]>([]);
+  const [hardening, setHardening] = useState<SandboxHardeningStatus | null>(null);
   const [report, setReport] = useState<IncidentReport | null>(null);
   const [status, setStatus] = useState<
     "ready to deploy" | "running" | "waiting_for_approval" | "completed" | "stopped"
@@ -36,6 +59,27 @@ export function LiveDashboard({
       .then((response) => response.json())
       .then((data) => setMemory(data.memory ?? []))
       .catch(() => setMemory([]));
+
+    fetch(`/api/agents/${agentId}/audit`)
+      .then((response) => response.json())
+      .then((data) => setAudit(data.audit ?? []))
+      .catch(() => setAudit([]));
+
+    fetch(`/api/agents/${agentId}/approvals`)
+      .then((response) => response.json())
+      .then((data) => {
+        setApprovals(data.approvals ?? []);
+        setApprovalArtifacts(data.approval_artifacts ?? []);
+      })
+      .catch(() => {
+        setApprovals([]);
+        setApprovalArtifacts([]);
+      });
+
+    fetch("/api/security/health")
+      .then((response) => response.json())
+      .then((data) => setHardening(data.hardening ?? null))
+      .catch(() => setHardening(null));
 
     fetch(`/api/agents/${agentId}/report`)
       .then((response) => response.json())
@@ -86,6 +130,15 @@ export function LiveDashboard({
         return [...current, nextItem];
       });
       setEvents((current) => [...current, ...((data.events as RuntimeEvent[] | undefined) ?? [])]);
+      setAudit(data.audit ?? []);
+      if (data.approval_artifact) {
+        setApprovalArtifacts((current) => [...current, data.approval_artifact]);
+      }
+      if (data.approval) {
+        setApprovals((current) =>
+          current.map((approval) => (approval.id === data.approval.id ? data.approval : approval)),
+        );
+      }
       if (data.report) {
         setReport(data.report);
         onReport?.(data.report);
@@ -105,6 +158,7 @@ export function LiveDashboard({
           <div>Agent ID: {activeAgent}</div>
           <div>Sandbox: NemoClaw</div>
           <div>Runtime: OpenClaw</div>
+          <div>Hardening: {hardening?.status ?? "checking"}</div>
         </div>
         <div className="mt-5 flex flex-wrap gap-2">
           <button
@@ -152,13 +206,30 @@ export function LiveDashboard({
       </div>
 
       <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
-        <div className="text-[11px] uppercase tracking-[0.24em] text-white/40">policy + memory</div>
+        <div className="text-[11px] uppercase tracking-[0.24em] text-white/40">approval center</div>
         <div className="mt-5 rounded-xl border border-amber-400/30 bg-amber-400/[0.07] p-4 text-sm text-amber-100">
-          <div className="font-semibold lowercase">Approval Required</div>
+          <div className="text-lg font-semibold text-white">NemoClaw Approval Required</div>
           <p className="mt-2 text-xs leading-relaxed opacity-80">
-            Command: `block_ip 185.92.XX.XX`
+            SentinelClaw wants to execute a shell command. NemoClaw paused this action because
+            shell execution can change system state and requires human approval.
           </p>
-          <div className="mt-2 text-xs opacity-80">Status: {approvalStatus}</div>
+          <div className="mt-4 grid gap-px overflow-hidden rounded-xl border border-amber-300/20 bg-amber-200/10">
+            {approvalDetails.map(([label, value]) => (
+              <div
+                key={label}
+                className="grid gap-1 bg-black/50 p-3 text-xs md:grid-cols-[112px_1fr]"
+              >
+                <div className="uppercase tracking-[0.16em] text-amber-100/45">{label}</div>
+                <div className="font-medium text-amber-50">{value}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 text-xs opacity-80">Status: {approvalStatus}</div>
+          {approvalArtifacts.length > 0 && (
+            <div className="mt-3 rounded-xl border border-emerald-300/25 bg-emerald-300/[0.08] p-3 text-xs text-emerald-100">
+              Approval artifact recorded: {approvalArtifacts.at(-1)?.id}
+            </div>
+          )}
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               type="button"
@@ -166,7 +237,7 @@ export function LiveDashboard({
               disabled={!agentId || approvalStatus !== "pending"}
               className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-45"
             >
-              Approve Action
+              Approve Command
             </button>
             <button
               type="button"
@@ -174,23 +245,61 @@ export function LiveDashboard({
               disabled={!agentId || approvalStatus !== "pending"}
               className="rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
             >
-              Deny Action
+              Deny Command
             </button>
           </div>
         </div>
-        <div className="mt-5 grid gap-2">
-          {memory.slice(-4).map((item, index) => (
-            <div
-              key={`${item.id}-${index}`}
-              className="rounded-xl border border-white/10 bg-white/[0.03] p-3"
-            >
-              <div className="text-[10px] uppercase tracking-[0.18em] text-white/35">
-                {item.type}
+
+        <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="text-[11px] uppercase tracking-[0.2em] text-white/40">hardening</div>
+          <div className="mt-3 grid gap-2">
+            {(hardening?.checks ?? []).map((check) => (
+              <div key={check.id} className="grid gap-1 text-xs">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-white/70">{check.label}</span>
+                  <span
+                    className={
+                      check.status === "pass"
+                        ? "text-emerald-200"
+                        : check.status === "warn"
+                          ? "text-amber-200"
+                          : "text-red-200"
+                    }
+                  >
+                    {check.status}
+                  </span>
+                </div>
+                <div className="text-white/40">{check.message}</div>
               </div>
-              <div className="mt-1 text-xs leading-relaxed text-white/65">{item.content}</div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
+
+        <div className="mt-5">
+          <div className="mb-3 text-[11px] uppercase tracking-[0.2em] text-white/40">memory</div>
+          <MemoryTimeline memory={memory} />
+        </div>
+
+        <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="text-[11px] uppercase tracking-[0.2em] text-white/40">audit center</div>
+          <div className="mt-3 grid max-h-56 gap-2 overflow-auto pr-1">
+            {audit.slice(-8).map((record) => (
+              <div key={record.id} className="grid gap-1 border-b border-white/[0.06] pb-2 text-xs">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-white/70">#{record.sequence} {record.type}</span>
+                  <span className="text-white/35">{record.hash}</span>
+                </div>
+                <div className="text-white/45">{record.message}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {approvals.length > 0 && (
+          <div className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] p-4 text-xs text-white/55">
+            Pending policy: {approvals.at(-1)?.policy_id} · {approvals.at(-1)?.risk_label} risk
+          </div>
+        )}
         {report && (
           <div className="mt-5 rounded-xl border border-emerald-400/25 bg-emerald-400/[0.06] p-4 text-sm text-emerald-100">
             Report ready: {report.title} ({report.severity})

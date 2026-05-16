@@ -40,6 +40,9 @@ Development readiness:
 - `ANU-56` makes Brev the canonical build/demo environment and should land before final QA.
 - `ANU-57` and `ANU-58` unlock the advanced provider/sandbox lanes.
 - `ANU-63` turns the runtime toward real Brev-hosted NemoClaw sandbox sessions.
+- `ANU-40`, `ANU-64`, and `ANU-65` are grouped on `giwinDataSec`: durable JSON runtime state,
+  append-only audit records, approval artifacts, memory/report persistence, and sandbox hardening
+  verification.
 - `ANU-65` verifies sandbox hardening before final QA.
 - `ANU-50` is the final QA/deploy gate and should run after all P0 lanes, including Brev and sandbox hardening.
 - `ANU-55` Supabase accounts is optional P1 and must not block the public NemoClaw demo.

@@ -1,8 +1,12 @@
 import { DEMO_AGENT_ID, demoApproval, demoReport, createSentinelBlueprint } from "./fixtures";
 import {
+  getRuntimeApprovals,
+  getRuntimeAudit,
   getRuntimeEvents,
+  getRuntimeHardening,
   getRuntimeMemory,
   getRuntimeReport,
+  resetRuntime,
   resolveApproval,
   startRuntime,
   stopRuntime,
@@ -84,13 +88,17 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
     if (body.blueprint_id !== "bp_sentinelclaw_demo") {
       return errorResponse("Known demo blueprint_id is required.", 400);
     }
-    startRuntime();
+    const runtime = await startRuntime();
+    if (runtime.hardening.elevated_mode && !runtime.hardening.can_run_elevated) {
+      return errorResponse("Sandbox hardening is not healthy enough for elevated work.", 503);
+    }
     return json(
       {
         ok: true,
         agent_id: DEMO_AGENT_ID,
-        status: "running",
+        status: runtime.status,
         message: "Agent deployed successfully inside NemoClaw.",
+        hardening: runtime.hardening,
       },
       {
         headers: {
@@ -106,27 +114,39 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
     if (agentId !== DEMO_AGENT_ID) return errorResponse("Unknown demo agent.", 404);
 
     if (action === "start" && request.method === "POST") {
-      return json({ ok: true, ...startRuntime() });
+      const runtime = await startRuntime();
+      if (runtime.hardening.elevated_mode && !runtime.hardening.can_run_elevated) {
+        return errorResponse("Sandbox hardening is not healthy enough for elevated work.", 503);
+      }
+      return json({ ok: true, ...runtime });
     }
 
     if (action === "stop" && request.method === "POST") {
-      return json({ ok: true, ...stopRuntime() });
+      return json({ ok: true, ...(await stopRuntime()) });
     }
 
     if (action === "logs" && nested === "stream" && request.method === "GET") {
-      return sse(getRuntimeEvents());
+      return sse(await getRuntimeEvents());
     }
 
     if (action === "memory" && request.method === "GET") {
-      return json({ ok: true, agent_id: agentId, memory: getRuntimeMemory() });
+      return json({ ok: true, agent_id: agentId, memory: await getRuntimeMemory() });
     }
 
     if (action === "report" && request.method === "GET") {
-      const report = getRuntimeReport();
+      const report = await getRuntimeReport();
       if (!report && !hasCompletedCookie(request)) {
         return errorResponse("Report is not ready until the workflow completes.", 409);
       }
       return json({ ok: true, agent_id: agentId, report: report ?? getCompletedDemoReport() });
+    }
+
+    if (action === "audit" && request.method === "GET") {
+      return json({ ok: true, agent_id: agentId, audit: await getRuntimeAudit() });
+    }
+
+    if (action === "approvals" && request.method === "GET") {
+      return json({ ok: true, agent_id: agentId, ...(await getRuntimeApprovals()) });
     }
   }
 
@@ -137,7 +157,7 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
 
     const body = await readJsonBody(request);
     const decision = body.decision === "approved" ? "approved" : "denied";
-    const result = resolveApproval(decision);
+    const result = await resolveApproval(decision);
 
     return json(
       {
@@ -150,6 +170,8 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
         memory_item: result.memory_item,
         runtime_status: result.status,
         events: result.events,
+        audit: result.audit,
+        approval_artifact: result.approval_artifact,
         report: result.report,
       },
       {
@@ -158,6 +180,14 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
         },
       },
     );
+  }
+
+  if (path === "/api/security/health" && request.method === "GET") {
+    return json({ ok: true, hardening: await getRuntimeHardening() });
+  }
+
+  if (path === "/api/demo/reset" && request.method === "POST") {
+    return json({ ok: true, ...(await resetRuntime()) });
   }
 
   return undefined;
