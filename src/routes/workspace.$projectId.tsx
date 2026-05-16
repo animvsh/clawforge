@@ -12,6 +12,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ClawForgeLogo } from "@/components/clawforge/ClawForgeFrame";
 import { AuthPanel } from "@/components/clawforge/AuthPanel";
+import { WorkflowCanvas } from "@/components/clawforge/WorkflowCanvas";
 import { useClawForgeAuth } from "@/lib/clawforge/auth";
 import { saveLaunchInstance } from "@/lib/clawforge/instances";
 import {
@@ -23,6 +24,13 @@ import {
   recommendModelForTemplate,
 } from "@/lib/clawforge/models";
 import { type ClawForgeProject, getProject, updateProject } from "@/lib/clawforge/projects";
+import {
+  buildBlueprintWorkflowGraph,
+  buildOptimisticWorkflowGraph,
+  type WorkflowEdge,
+  type WorkflowGraph,
+  type WorkflowNode,
+} from "@/lib/clawforge/workflow-graph";
 import type {
   BlueprintResponse,
   IncidentReport,
@@ -258,11 +266,25 @@ function WorkspacePage() {
   const [provider, setProvider] = useState<ProviderMode>("auto");
   const [model, setModel] = useState("auto");
   const [modelTouched, setModelTouched] = useState(false);
+  const [workflowGraph, setWorkflowGraph] = useState<WorkflowGraph>({ nodes: [], edges: [] });
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const currentStatus = project?.status ?? "draft";
   const projectName = blueprint?.agent_name ?? project?.name ?? "NemoClaw Instance";
   const selectedModel = optionForModel(provider, model);
   const recommendedModel = recommendModelForTemplate(blueprint?.template_id);
+  const activeWorkflowNodeId = useMemo(() => {
+    if (workflowGraph.nodes.length === 0) return undefined;
+    if (currentStatus === "waiting_for_approval") {
+      return workflowGraph.nodes.find((node) => node.kind === "approval")?.id;
+    }
+    if (currentStatus === "completed") return workflowGraph.nodes.at(-1)?.id;
+    return workflowGraph.nodes[Math.min(activeIndex, workflowGraph.nodes.length - 1)]?.id;
+  }, [activeIndex, currentStatus, workflowGraph.nodes]);
+  const selectedWorkflowNode = useMemo(
+    () => workflowGraph.nodes.find((node) => node.id === selectedNodeId) ?? null,
+    [selectedNodeId, workflowGraph.nodes],
+  );
   const clarificationQuestions = useMemo(
     () => (project && !blueprint ? setupQuestionsForPrompt(project.prompt) : []),
     [blueprint, project],
@@ -306,6 +328,8 @@ function WorkspacePage() {
       setAgentId(null);
       setReport(null);
       setEvents([]);
+      setWorkflowGraph(buildOptimisticWorkflowGraph(nextProject.prompt));
+      setSelectedNodeId(null);
       setProject(updateProject(nextProject.id, { status: "generating" }) ?? nextProject);
       if (!options.preserveChat) {
         setChat([
@@ -341,6 +365,7 @@ function WorkspacePage() {
         const data = await response.json();
         if (!response.ok || !data.ok) throw new Error(data.error?.message || "Blueprint failed.");
         setBlueprint(data.blueprint);
+        setWorkflowGraph(buildBlueprintWorkflowGraph(nextProject.prompt, data.blueprint));
         const recommended = recommendModelForTemplate(data.blueprint.template_id);
         if (!modelTouched) {
           setProvider(recommended.provider);
@@ -376,14 +401,26 @@ function WorkspacePage() {
 
   useEffect(() => {
     if (currentStatus !== "generating" && currentStatus !== "running") return;
+    const nodeCount = Math.max(workflowGraph.nodes.length, workflowNodes.length);
     const timer = window.setInterval(
       () => {
-        setActiveIndex((current) => Math.min(current + 1, workflowNodes.length - 1));
+        setActiveIndex((current) => Math.min(current + 1, nodeCount - 1));
       },
       currentStatus === "running" ? 850 : 420,
     );
     return () => window.clearInterval(timer);
-  }, [currentStatus]);
+  }, [currentStatus, workflowGraph.nodes.length]);
+
+  useEffect(() => {
+    if (workflowGraph.nodes.length === 0) return;
+    setWorkflowGraph((current) => ({
+      ...current,
+      nodes: current.nodes.map((node, index) => ({
+        ...node,
+        status: nodeState(index, activeIndex, currentStatus),
+      })),
+    }));
+  }, [activeIndex, currentStatus, workflowGraph.nodes.length]);
 
   useEffect(() => {
     if (!agentId) return;
@@ -860,6 +897,18 @@ function WorkspacePage() {
     void sendChat(suggestedAnswerText(question, suggestion));
   }
 
+  function handleWorkflowNodesChange(nodes: WorkflowNode[]) {
+    setWorkflowGraph((current) => ({ ...current, nodes }));
+  }
+
+  function handleWorkflowEdgesChange(edge: WorkflowEdge) {
+    setWorkflowGraph((current) =>
+      current.edges.some((item) => item.id === edge.id)
+        ? current
+        : { ...current, edges: [...current.edges, edge] },
+    );
+  }
+
   if (!auth.isAuthenticated) {
     return (
       <main className="min-h-screen bg-black text-white">
@@ -1074,31 +1123,46 @@ function WorkspacePage() {
                 {error && <div className="text-sm text-red-200">{error}</div>}
               </div>
 
-              <div className="relative grid gap-4 md:grid-cols-3">
-                {workflowNodes.map(([id, title, body, kind], index) => {
-                  const state = nodeState(index, activeIndex, currentStatus);
-                  return (
-                    <div
-                      key={id}
-                      className={`relative min-h-[150px] border p-4 transition ${stateClass(state)}`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-[10px] uppercase tracking-[0.18em] text-white/34">
-                          {kind}
-                        </div>
-                        <div className="text-[10px] uppercase tracking-[0.16em]">{state}</div>
-                      </div>
-                      <h3 className="mt-6 text-lg font-semibold">{title}</h3>
-                      <p className="mt-2 text-sm leading-relaxed text-white/46">{body}</p>
-                      {index < workflowNodes.length - 1 && (
-                        <div
-                          className="pointer-events-none absolute -right-4 top-1/2 hidden h-px w-4 bg-white/18 md:block"
-                          aria-hidden="true"
-                        />
-                      )}
+              <div className="relative h-[560px] overflow-hidden rounded-[10px] border border-white/12 bg-[#050505] shadow-[0_30px_90px_rgba(0,0,0,0.35)]">
+                {workflowGraph.nodes.length > 0 ? (
+                  <>
+                    <WorkflowCanvas
+                      graph={workflowGraph}
+                      activeNodeId={activeWorkflowNodeId}
+                      selectedNodeId={selectedNodeId ?? undefined}
+                      onNodeClick={setSelectedNodeId}
+                      onNodesChange={handleWorkflowNodesChange}
+                      onEdgesChange={handleWorkflowEdgesChange}
+                    />
+                    <div className="pointer-events-none absolute left-4 top-4 rounded-full border border-white/10 bg-black/70 px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-white/45 backdrop-blur">
+                      drag nodes · connect handles · scroll to zoom
                     </div>
-                  );
-                })}
+                    {selectedWorkflowNode && (
+                      <div className="absolute bottom-4 left-4 max-w-sm border border-white/12 bg-black/88 p-4 backdrop-blur-xl">
+                        <div className="text-[10px] uppercase tracking-[0.18em] text-white/34">
+                          {selectedWorkflowNode.kind} · {selectedWorkflowNode.status}
+                        </div>
+                        <h3 className="mt-2 text-base font-semibold text-white">
+                          {selectedWorkflowNode.title}
+                        </h3>
+                        <p className="mt-2 text-sm leading-relaxed text-white/52">
+                          {selectedWorkflowNode.subtitle}
+                        </p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="grid h-full place-items-center p-8 text-center">
+                    <div>
+                      <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">
+                        waiting for prompt
+                      </div>
+                      <p className="mt-3 max-w-sm text-sm leading-relaxed text-white/52">
+                        The NemoClaw workflow graph appears here once the workspace starts building.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="mt-5 border border-white/12 bg-black p-5">
