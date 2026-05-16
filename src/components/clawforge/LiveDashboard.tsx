@@ -162,7 +162,7 @@ export function LiveDashboard({
           <div className="p-5">
             <h3 className="text-2xl font-semibold text-white">SentinelClaw</h3>
             <p className="mt-3 text-sm leading-relaxed text-white/55">Running inside NemoClaw.</p>
-            <div className="mt-5 flex flex-wrap gap-2">
+            <div className="mt-5 grid gap-2 sm:flex sm:flex-wrap">
               <button
                 type="button"
                 onClick={() => setRuntime("start")}
@@ -266,7 +266,7 @@ export function LiveDashboard({
               <code>block_ip 185.92.XX.XX</code> is paused by policy.
             </p>
             <div className="mt-3 text-xs text-amber-50/68">Status: {approvalStatus}</div>
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap">
               <button
                 type="button"
                 onClick={() => decide("approved")}

@@ -98,7 +98,7 @@ export function AgentBuilder({ provider = "auto", onBlueprint }: AgentBuilderPro
       <textarea
         value={prompt}
         onChange={(event) => setPrompt(event.target.value)}
-        className="mt-5 min-h-36 w-full resize-none border-0 bg-transparent text-xl leading-relaxed text-white outline-none placeholder:text-white/25 md:text-2xl"
+        className="mt-5 min-h-36 w-full resize-none border-0 bg-transparent text-lg leading-relaxed text-white outline-none placeholder:text-white/25 sm:text-xl md:text-2xl"
         placeholder="Describe the agent you want..."
       />
 
@@ -120,7 +120,7 @@ export function AgentBuilder({ provider = "auto", onBlueprint }: AgentBuilderPro
           type="button"
           onClick={generateBlueprint}
           disabled={loading || !prompt.trim()}
-          className="bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
         >
           {loading ? "Building" : "Build Agent"}
         </button>

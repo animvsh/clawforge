@@ -67,33 +67,33 @@ function Section({
 function Hero() {
   return (
     <section className="grid min-h-screen bg-black lg:grid-cols-[34%_66%]">
-      <div className="order-2 flex min-h-[68vh] flex-col border-r border-white/10 px-7 py-8 md:px-10 lg:order-1 lg:min-h-screen lg:px-14">
+      <div className="order-1 flex min-h-[58vh] flex-col border-b border-white/10 px-6 py-6 md:px-10 lg:min-h-screen lg:border-b-0 lg:border-r lg:px-14 lg:py-8">
         <div className="flex items-start justify-between gap-5">
           <Logo />
           <AuthPanel />
         </div>
 
-        <div className="mt-auto max-w-xl pb-8 pt-16">
-          <div className="mb-8 text-[11px] uppercase tracking-[0.34em] text-white/35">
+        <div className="mt-auto max-w-xl pb-8 pt-20 sm:pt-24 lg:pb-8">
+          <div className="mb-6 text-[10px] uppercase tracking-[0.3em] text-white/35 sm:text-[11px]">
             describe · review · run
           </div>
-          <h1 className="text-5xl font-semibold leading-[0.96] tracking-tight text-white md:text-6xl xl:text-[5.25rem]">
+          <h1 className="max-w-[11ch] text-[3.35rem] font-semibold leading-[0.96] tracking-tight text-white sm:text-6xl xl:text-[5.25rem]">
             Build safe agents from one prompt.
           </h1>
-          <p className="mt-7 max-w-md text-base leading-relaxed text-white/58 md:text-lg">
+          <p className="mt-6 max-w-md text-base leading-relaxed text-white/58 md:text-lg">
             Tell ClawForge what you want done. It builds the agent, adds guardrails, and shows you
             every step.
           </p>
-          <div className="mt-8 flex flex-wrap gap-3">
+          <div className="mt-8 grid gap-3 sm:flex sm:flex-wrap">
             <a
               href="#builder"
-              className="bg-white px-6 py-3 text-sm font-semibold text-black transition hover:bg-white/90"
+              className="bg-white px-6 py-3 text-center text-sm font-semibold text-black transition hover:bg-white/90"
             >
               Build an Agent
             </a>
             <a
               href="#dashboard"
-              className="border border-white/25 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/8"
+              className="border border-white/25 px-6 py-3 text-center text-sm font-semibold text-white transition hover:bg-white/8"
             >
               Watch Safety Demo
             </a>
@@ -101,17 +101,17 @@ function Hero() {
         </div>
       </div>
 
-      <div className="relative order-1 min-h-[44vh] overflow-hidden lg:order-2 lg:min-h-screen">
+      <div className="relative order-2 hidden min-h-[34vh] overflow-hidden sm:block lg:min-h-screen">
         <img
           src={heroImage}
           alt=""
-          className="absolute inset-0 h-full w-full object-cover opacity-55 saturate-[0.7]"
+          className="absolute inset-0 h-full w-full object-cover object-[72%_center] opacity-45 saturate-[0.7] sm:opacity-55"
         />
         <div className="absolute inset-0 bg-black/45" />
-        <div className="absolute right-5 top-5 border border-white/18 bg-black/50 px-4 py-2 text-[11px] uppercase tracking-[0.28em] text-white/60">
+        <div className="absolute right-5 top-5 hidden border border-white/18 bg-black/50 px-4 py-2 text-[11px] uppercase tracking-[0.28em] text-white/60 sm:block">
           safe mode
         </div>
-        <div className="absolute bottom-5 left-5 right-5 grid gap-px border border-white/15 bg-white/10 text-xs text-white/72 md:grid-cols-3">
+        <div className="absolute bottom-5 left-5 right-5 hidden gap-px border border-white/15 bg-white/10 text-xs text-white/72 sm:grid md:grid-cols-3">
           {["agent created", "risky actions paused", "live activity"].map((item) => (
             <div key={item} className="bg-black/72 px-4 py-3 uppercase tracking-[0.2em]">
               {item}

@@ -70,12 +70,12 @@ export function BlueprintReview({
             ))}
           </div>
 
-          <div className="mt-6 flex flex-wrap items-center gap-3">
+          <div className="mt-6 grid gap-3 sm:flex sm:flex-wrap sm:items-center">
             <button
               type="button"
               onClick={deploy}
               disabled={deploying}
-              className="bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90 disabled:opacity-50"
+              className="w-full bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90 disabled:opacity-50 sm:w-auto"
             >
               {deploying ? "Deploying" : deployed ? "Deploy Again" : "Deploy in NemoClaw"}
             </button>
