@@ -730,15 +730,7 @@ function WorkspacePage() {
             onSubmit={(msg) => {
               const clean = (msg ?? "").trim();
               if (!clean) return;
-              setChat((prev) => [...prev, [clean, ""]]);
               setMessage("");
-              setTimeout(() => {
-                setChat((prev) => {
-                  const updated = [...prev];
-                  updated[updated.length - 1][1] = "Got it! I'm processing your request. Watch the workflow on the right — nodes will start lighting up as I execute each step.";
-                  return updated;
-                });
-              }, 1200);
               void sendChat(clean);
             }}
             ctaLabel="Send"
