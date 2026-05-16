@@ -13,6 +13,8 @@ import {
   getRuntimeReport,
   getRuntimeState,
   getApprovalStatus,
+  hydrateRuntimeForAgentId,
+  isActiveRuntimeAgent,
   resolveApproval,
   resetLegacyRuntime,
   startRuntime,
@@ -27,6 +29,8 @@ import {
   getPredeployRunResult,
   runPredeployCheck,
 } from "./sandbox";
+import { createIntegrationConnectLink, getIntegrationStatus } from "./integrations/composio";
+import { createAgentMailInbox } from "./integrations/agentmail";
 import type {
   ProviderMode,
   BlueprintRequest,
@@ -38,6 +42,7 @@ import type {
   ApprovalDecisionRequest,
   ApprovalDecisionResponse,
   IncidentReportResponse,
+  BlueprintResponse,
 } from "./types";
 
 // ============================================================
@@ -200,6 +205,19 @@ function normalizePredeployScenario(
   return "happy_path";
 }
 
+function isBlueprintResponse(value: unknown): value is BlueprintResponse {
+  if (!value || Array.isArray(value) || typeof value !== "object") return false;
+  const candidate = value as Partial<BlueprintResponse>;
+  return (
+    typeof candidate.blueprint_id === "string" &&
+    typeof candidate.agent_name === "string" &&
+    typeof candidate.template_id === "string" &&
+    typeof candidate.goal === "string" &&
+    Array.isArray(candidate.tools) &&
+    Array.isArray(candidate.policies)
+  );
+}
+
 function runtimeEnv(
   workerEnv: Record<string, string | undefined> = {},
 ): Record<string, string | undefined> {
@@ -257,63 +275,6 @@ function cleanProviderSteps(steps: string[], fallbackSteps: string[]): string[] 
     );
 
   return cleaned.length >= 3 ? cleaned : fallbackSteps;
-}
-
-function composioStatus(workerEnv: Record<string, string | undefined> = {}) {
-  const env = runtimeEnv(workerEnv);
-  const configured = Boolean(env.COMPOSIO_API_KEY);
-  return {
-    configured,
-    mcp_url: env.COMPOSIO_MCP_URL || "https://connect.composio.dev/mcp",
-    dashboard_url:
-      env.COMPOSIO_DASHBOARD_URL ||
-      "https://dashboard.composio.dev/aalang_workspace/clawforge/getting-started",
-    phone_number: env.COMPOSIO_PHONE_NUMBER || null,
-    auth_configs: [
-      {
-        id: "phone_sms",
-        label: "Phone/SMS",
-        purpose: "Answer calls, send texts, and receive customer replies.",
-        status: configured ? "ready_to_connect" : "needs_api_key",
-      },
-      {
-        id: "calendar",
-        label: "Calendar",
-        purpose: "Read availability, book appointments, reschedule, and send confirmations.",
-        status: configured ? "ready_to_connect" : "needs_api_key",
-      },
-      {
-        id: "email",
-        label: "Email",
-        purpose: "Send confirmations, intake follow-ups, and call summaries after approval.",
-        status: configured ? "ready_to_connect" : "needs_api_key",
-      },
-      {
-        id: "crm",
-        label: "CRM",
-        purpose: "Create or update customer records after calls.",
-        status: configured ? "ready_to_connect" : "needs_api_key",
-      },
-      {
-        id: "github",
-        label: "GitHub",
-        purpose: "Issues, pull requests, repository context, and agent deployment tasks.",
-        status: configured ? "ready_to_connect" : "needs_api_key",
-      },
-      {
-        id: "linear",
-        label: "Linear",
-        purpose: "Tickets, engineering tasks, and audit-linked follow-up work.",
-        status: configured ? "ready_to_connect" : "needs_api_key",
-      },
-      {
-        id: "business_number",
-        label: "Business number",
-        purpose: "A phone number for approval prompts and incident notifications.",
-        status: env.COMPOSIO_PHONE_NUMBER ? "ready" : "needs_phone_number",
-      },
-    ],
-  };
 }
 
 async function createProviderBackedBlueprint(
@@ -473,7 +434,52 @@ export async function handleClawForgeApi(
     (apiPath === "/api/clawforge/composio/status" || apiPath === "/clawforge/composio/status") &&
     request.method === "GET"
   ) {
-    return successResponse({ composio: composioStatus(workerEnv) });
+    const userId = url.searchParams.get("user_id") || "clawforge-demo-user";
+    return successResponse({ composio: await getIntegrationStatus(workerEnv, userId) });
+  }
+
+  if (
+    (apiPath === "/api/clawforge/integrations" || apiPath === "/clawforge/integrations") &&
+    request.method === "GET"
+  ) {
+    const userId = url.searchParams.get("user_id") || "clawforge-demo-user";
+    return successResponse({ integrations: await getIntegrationStatus(workerEnv, userId) });
+  }
+
+  if (
+    (apiPath === "/api/clawforge/integrations/connect" ||
+      apiPath === "/clawforge/integrations/connect") &&
+    request.method === "POST"
+  ) {
+    try {
+      return successResponse({
+        connect: await createIntegrationConnectLink(request.clone(), workerEnv),
+      });
+    } catch (error) {
+      return errorResponse(
+        error instanceof Error ? error.message : "Could not create integration connect link.",
+        400,
+        "INVALID_REQUEST",
+      );
+    }
+  }
+
+  if (
+    (apiPath === "/api/clawforge/agentmail/inboxes" ||
+      apiPath === "/clawforge/agentmail/inboxes") &&
+    request.method === "POST"
+  ) {
+    try {
+      return successResponse({
+        inbox: await createAgentMailInbox(request.clone(), workerEnv),
+      });
+    } catch (error) {
+      return errorResponse(
+        error instanceof Error ? error.message : "Could not create agent inbox.",
+        400,
+        "INVALID_REQUEST",
+      );
+    }
   }
 
   if (
@@ -561,10 +567,13 @@ export async function handleClawForgeApi(
     (apiPath === "/api/agents/deploy" || apiPath === "/agents/deploy") &&
     request.method === "POST"
   ) {
-    const body = await readJsonBody<{ blueprint_id?: unknown; predeploy_run_id?: unknown }>(
-      request,
-    );
+    const body = await readJsonBody<{
+      blueprint_id?: unknown;
+      blueprint?: unknown;
+      predeploy_run_id?: unknown;
+    }>(request);
     const blueprintId = typeof body.blueprint_id === "string" ? body.blueprint_id : "";
+    const blueprint = isBlueprintResponse(body.blueprint) ? body.blueprint : undefined;
 
     if (!blueprintId) {
       return errorResponse("blueprint_id is required.", 400, "MISSING_FIELD", "blueprint_id");
@@ -588,12 +597,12 @@ export async function handleClawForgeApi(
     }
 
     resetLegacyRuntime();
-    startRuntime();
+    const runtime = startRuntime(blueprint);
     return successResponse(
       {
-        agent_id: DEMO_AGENT_ID,
+        agent_id: runtime.agent_id,
         status: "running" as const,
-        message: "Agent deployed successfully inside NemoClaw.",
+        message: `${blueprint?.agent_name ?? "Agent"} deployed successfully inside NemoClaw.`,
       },
       {
         headers: {
@@ -621,7 +630,7 @@ export async function handleClawForgeApi(
     const action = legacyAgentMatch ? match[2] : match[3];
     const nested = legacyAgentMatch ? match[3] : match[4];
 
-    if (agentId !== DEMO_AGENT_ID) {
+    if (!isActiveRuntimeAgent(agentId) && !hydrateRuntimeForAgentId(agentId)) {
       return notFoundError("Agent");
     }
 

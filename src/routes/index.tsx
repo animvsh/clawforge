@@ -248,6 +248,7 @@ function Index() {
       <Section id="dashboard" eyebrow="runtime" title="Watch it run.">
         <LiveDashboard
           agentId={agentId}
+          blueprint={blueprint}
           onReport={(nextReport) => {
             setReport(nextReport);
             window.setTimeout(() => {

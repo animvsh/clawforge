@@ -37,7 +37,7 @@ export function BlueprintReview({
       const response = await fetch("/api/agents/deploy", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ blueprint_id: blueprint.blueprint_id }),
+        body: JSON.stringify({ blueprint_id: blueprint.blueprint_id, blueprint }),
       });
       const data = await response.json();
       if (!response.ok || !data.ok) throw new Error(data.error?.message || "Deploy failed.");

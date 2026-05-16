@@ -1,4 +1,10 @@
-import type { IncidentReport, MemoryItem, ProviderMode, RuntimeEvent } from "@/lib/clawforge/types";
+import type {
+  BlueprintResponse,
+  IncidentReport,
+  MemoryItem,
+  ProviderMode,
+  RuntimeEvent,
+} from "@/lib/clawforge/types";
 import { useEffect, useMemo, useState } from "react";
 
 type BrevPanelState = {
@@ -24,14 +30,18 @@ type LaunchPanelState = {
 
 type ComposioPanelState = {
   configured: boolean;
-  mcp_url: string;
+  connect_base_url: string;
   dashboard_url: string;
   phone_number: string | null;
   auth_configs: Array<{
     id: string;
     label: string;
+    toolkit: string;
     purpose: string;
     status: string;
+    auth_config_id: string | null;
+    connected_account_id: string | null;
+    connectable: boolean;
   }>;
 };
 
@@ -40,6 +50,13 @@ type IntegrationNeed = {
   label: string;
   reason: string;
   status: "connected" | "connect";
+};
+
+type AgentInbox = {
+  id: string;
+  email: string;
+  display_name: string;
+  status: string;
 };
 
 const policies = [
@@ -92,9 +109,11 @@ function eventTone(event: RuntimeEvent) {
 
 export function LiveDashboard({
   agentId,
+  blueprint,
   onReport,
 }: {
   agentId?: string;
+  blueprint?: BlueprintResponse | null;
   onReport?: (report: IncidentReport) => void;
 }) {
   const [events, setEvents] = useState<RuntimeEvent[]>([]);
@@ -117,6 +136,12 @@ export function LiveDashboard({
   const [chatMeta, setChatMeta] = useState("Auto routes Nemotron, then MiniMax, then mock.");
   const [integrationNeeds, setIntegrationNeeds] = useState<IntegrationNeed[]>([]);
   const [creatingBrev, setCreatingBrev] = useState(false);
+  const [connectingIntegration, setConnectingIntegration] = useState<string | null>(null);
+  const [creatingInbox, setCreatingInbox] = useState(false);
+  const [agentInbox, setAgentInbox] = useState<AgentInbox | null>(null);
+
+  const agentName = blueprint?.agent_name ?? "SentinelClaw";
+  const isReceptionist = blueprint?.template_id === "phone_receptionist";
 
   useEffect(() => {
     if (!agentId) {
@@ -125,14 +150,18 @@ export function LiveDashboard({
       setMemory([]);
       setReport(null);
       setApprovalStatus("pending");
-      setChatReply("Deploy SentinelClaw to inspect the running agent.");
+      setChatReply(`Deploy ${agentName} to inspect the running agent.`);
       return;
     }
 
     setEvents([]);
     setApprovalStatus("pending");
     setStatus("waiting_for_approval");
-    setChatReply("SentinelClaw is reading logs inside NemoClaw and waiting at the approval gate.");
+    setChatReply(
+      isReceptionist
+        ? `${agentName} answered the call, checked availability, and is waiting before sending a customer text.`
+        : `${agentName} is reading logs inside NemoClaw and waiting at the approval gate.`,
+    );
 
     const source = new EventSource(`/api/agents/${agentId}/logs/stream`);
     source.onmessage = (message) => {
@@ -154,7 +183,7 @@ export function LiveDashboard({
       .catch(() => setReport(null));
 
     return () => source.close();
-  }, [agentId, onReport]);
+  }, [agentId, agentName, isReceptionist, onReport]);
 
   useEffect(() => {
     fetch("/api/clawforge/brev/status")
@@ -183,11 +212,11 @@ export function LiveDashboard({
       ["Status", status],
       ["Sandbox", agentId ? "NemoClaw active" : "Not deployed"],
       ["Policy", "Enforced"],
-      ["Model", "NVIDIA Nemotron"],
+      ["Model", blueprint?.model ?? "NVIDIA Nemotron"],
       ["Memory", agentId ? "Active" : "Waiting"],
       ["Audit", agentId ? "Live" : "Waiting"],
     ],
-    [agentId, status],
+    [agentId, blueprint?.model, status],
   );
 
   async function setRuntime(nextAction: "start" | "stop") {
@@ -221,9 +250,13 @@ export function LiveDashboard({
       setApprovalStatus(decision);
       if (data.runtime_status) setStatus(data.runtime_status);
       setChatReply(
-        decision === "denied"
-          ? "NemoClaw blocked the command, saved the decision to memory, and continued with a report-only workflow."
-          : "NemoClaw logged the approval and released the shell action.",
+        isReceptionist
+          ? decision === "denied"
+            ? "NemoClaw kept the text in draft mode, saved the decision to memory, and completed safely."
+            : "NemoClaw logged the approval and released the confirmation text."
+          : decision === "denied"
+            ? "NemoClaw blocked the command, saved the decision to memory, and continued with a report-only workflow."
+            : "NemoClaw logged the approval and released the shell action.",
       );
       setMemory((current) => {
         const nextItem = data.memory_item as MemoryItem;
@@ -294,7 +327,7 @@ export function LiveDashboard({
     if (/\b(phone|call|calls|receptionist|sms|text|voicemail)\b/.test(lowerMessage)) {
       nextNeeds.push({
         id: "phone_sms",
-        label: "Phone/SMS",
+        label: "AgentPhone",
         reason: "Needed to answer calls and send customer confirmations.",
         status: "connect",
       });
@@ -356,6 +389,64 @@ export function LiveDashboard({
     }
   }
 
+  async function connectIntegration(integrationId: string) {
+    setConnectingIntegration(integrationId);
+    try {
+      const response = await fetch("/api/clawforge/integrations/connect", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          integration_id: integrationId,
+          user_id: "clawforge-demo-user",
+          callback_url: window.location.href,
+        }),
+      });
+      const data = await response.json();
+      if (data.ok && data.connect) {
+        const redirectUrl = data.connect.redirect_url as string | null;
+        setSandboxReply(data.connect.message ?? "Integration connect link prepared.");
+        if (redirectUrl) window.open(redirectUrl, "_blank", "noopener,noreferrer");
+        const statusResponse = await fetch(
+          "/api/clawforge/integrations?user_id=clawforge-demo-user",
+        );
+        const statusData = await statusResponse.json();
+        setComposioStatus(statusData.integrations ?? null);
+      } else {
+        setSandboxReply(data.error?.message ?? "Could not prepare this integration.");
+      }
+    } catch {
+      setSandboxReply("Could not prepare this integration.");
+    } finally {
+      setConnectingIntegration(null);
+    }
+  }
+
+  async function createInbox() {
+    setCreatingInbox(true);
+    try {
+      const response = await fetch("/api/clawforge/agentmail/inboxes", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          agent_name: agentName,
+          blueprint_id: blueprint?.blueprint_id ?? "demo",
+          username: `${agentName}-${blueprint?.template_id ?? "agent"}`,
+        }),
+      });
+      const data = await response.json();
+      if (data.ok && data.inbox) {
+        setAgentInbox(data.inbox);
+        setSandboxReply(`${agentName} now has an inbox: ${data.inbox.email}`);
+      } else {
+        setSandboxReply(data.error?.message ?? "Could not create the agent inbox.");
+      }
+    } catch {
+      setSandboxReply("Could not create the agent inbox.");
+    } finally {
+      setCreatingInbox(false);
+    }
+  }
+
   return (
     <div className="grid gap-5">
       <div className="grid gap-px overflow-hidden border border-white/12 bg-white/10 md:grid-cols-3 lg:grid-cols-6">
@@ -373,7 +464,7 @@ export function LiveDashboard({
             agent control
           </div>
           <div className="p-5">
-            <h3 className="text-2xl font-semibold text-white">SentinelClaw</h3>
+            <h3 className="text-2xl font-semibold text-white">{agentName}</h3>
             <p className="mt-3 text-sm leading-relaxed text-white/55">Running inside NemoClaw.</p>
             <div className="mt-5 grid gap-2 sm:flex sm:flex-wrap">
               <button
@@ -402,12 +493,16 @@ export function LiveDashboard({
                   onClick={() =>
                     setChatReply(
                       command.includes("pause")
-                        ? "NemoClaw paused shell.execute because remediation commands can change system state."
+                        ? isReceptionist
+                          ? "NemoClaw paused sms.send because customer-facing messages require approval."
+                          : "NemoClaw paused shell.execute because remediation commands can change system state."
                         : command.includes("memory")
                           ? memory.length
                             ? memory.map((item) => item.content).join(" ")
                             : "No memory has been written yet."
-                          : "SentinelClaw is reading logs, classifying suspicious behavior, and preparing a safe report.",
+                          : isReceptionist
+                            ? `${agentName} is handling the call, checking availability, and preparing a safe booking summary.`
+                            : `${agentName} is reading logs, classifying suspicious behavior, and preparing a safe report.`,
                     )
                   }
                   className="border border-white/10 px-3 py-2 text-left text-xs text-white/58 transition hover:border-white/25 hover:text-white"
@@ -596,14 +691,14 @@ export function LiveDashboard({
                       <div className="font-semibold text-white">{need.label} access needed</div>
                       <div className="mt-1 leading-relaxed text-white/45">{need.reason}</div>
                     </div>
-                    <a
-                      href={composioStatus?.dashboard_url ?? "https://dashboard.composio.dev/"}
-                      target="_blank"
-                      rel="noreferrer"
+                    <button
+                      type="button"
+                      onClick={() => connectIntegration(need.id)}
+                      disabled={connectingIntegration === need.id}
                       className="self-start bg-white px-3 py-2 font-semibold text-black"
                     >
-                      Connect
-                    </a>
+                      {connectingIntegration === need.id ? "Opening" : "Connect"}
+                    </button>
                   </div>
                 ))}
               </div>
@@ -616,35 +711,84 @@ export function LiveDashboard({
               Integrations
             </div>
             <p className="mt-3 text-xs leading-relaxed text-white/45">
-              Connect Phone/SMS and Calendar so agents can answer calls, text customers, and book
-              appointments. Each integration stays scoped and approval-gated.
+              Connect AgentPhone, Calendar, and agent inboxes so agents can answer calls, text
+              customers, and book appointments. Each integration stays scoped and approval-gated.
             </p>
             <div className="mt-4 grid gap-2">
               {(composioStatus?.auth_configs ?? []).map((config) => (
-                <div key={config.id} className="grid grid-cols-[82px_1fr] gap-3 text-xs">
+                <div key={config.id} className="grid grid-cols-[82px_1fr_auto] gap-3 text-xs">
                   <span className="text-white/72">{config.label}</span>
                   <span className="text-white/38">{config.status.replaceAll("_", " ")}</span>
+                  {config.connectable && config.status !== "connected" && (
+                    <button
+                      type="button"
+                      onClick={() => connectIntegration(config.id)}
+                      disabled={connectingIntegration === config.id}
+                      className="text-white underline decoration-white/25 underline-offset-4 disabled:opacity-45"
+                    >
+                      {connectingIntegration === config.id ? "Opening" : "Connect"}
+                    </button>
+                  )}
                 </div>
               ))}
               {!composioStatus && (
                 <div className="text-xs text-white/38">Checking integrations.</div>
               )}
             </div>
+            <div className="mt-5 grid gap-3">
+              <div className="border border-white/10 bg-black p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-white">Agent inbox</div>
+                    <p className="mt-1 text-xs leading-relaxed text-white/45">
+                      Give this agent its own email address for confirmations, replies, and OTPs.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={createInbox}
+                    disabled={creatingInbox || !!agentInbox}
+                    className="bg-white px-3 py-2 text-xs font-semibold text-black disabled:opacity-45"
+                  >
+                    {agentInbox ? "Created" : creatingInbox ? "Creating" : "Create inbox"}
+                  </button>
+                </div>
+                {agentInbox && (
+                  <div className="mt-3 break-all border border-emerald-300/20 bg-emerald-300/[0.06] p-2 text-xs text-emerald-100">
+                    {agentInbox.email}
+                  </div>
+                )}
+              </div>
+              <div className="border border-white/10 bg-black p-3">
+                <div className="text-sm font-semibold text-white">AgentPhone + Voice</div>
+                <p className="mt-1 text-xs leading-relaxed text-white/45">
+                  Phone numbers and Vapi voice agents are modeled as required capabilities. Add a
+                  Vapi key to enable live voice provisioning.
+                </p>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                  <span className="border border-white/10 px-2 py-1 text-white/55">
+                    Phone number
+                  </span>
+                  <span className="border border-white/10 px-2 py-1 text-white/55">
+                    Voice runtime
+                  </span>
+                </div>
+              </div>
+            </div>
             <div className="mt-4 grid gap-2 text-xs text-white/45">
               <div>
-                Phone/SMS:{" "}
+                AgentPhone:{" "}
                 <span className="text-white/68">
                   {composioStatus?.phone_number ?? "Connect a business number"}
                 </span>
               </div>
-              <a
-                href={composioStatus?.dashboard_url ?? "https://dashboard.composio.dev/"}
-                target="_blank"
-                rel="noreferrer"
+              <button
+                type="button"
+                onClick={() => connectIntegration("calendar")}
                 className="text-white underline decoration-white/25 underline-offset-4"
               >
-                Manage integrations
-              </a>
+                Connect Calendar
+              </button>
             </div>
           </div>
 
@@ -653,7 +797,8 @@ export function LiveDashboard({
               approval required
             </div>
             <p className="mt-3 text-sm leading-relaxed text-amber-50/82">
-              <code>block_ip 185.92.XX.XX</code> is paused by policy.
+              <code>{isReceptionist ? "send_text +1-555-0100" : "block_ip 185.92.XX.XX"}</code> is
+              paused by policy.
             </p>
             <div className="mt-3 text-xs text-amber-50/68">Status: {approvalStatus}</div>
             <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap">

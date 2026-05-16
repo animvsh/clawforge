@@ -874,7 +874,7 @@ function integrationRequirementsForGoal(prompt: string): IntegrationRequirement[
   if (/\b(phone|call|calls|receptionist|voicemail)\b/.test(normalized)) {
     add({
       id: "phone_sms",
-      label: "Phone/SMS",
+      label: "AgentPhone",
       purpose: "Answer calls, receive customer replies, and send approved text confirmations.",
       status: "required",
     });
@@ -882,7 +882,7 @@ function integrationRequirementsForGoal(prompt: string): IntegrationRequirement[
   if (/\b(sms|text|texts|message|confirmation)\b/.test(normalized)) {
     add({
       id: "phone_sms",
-      label: "Phone/SMS",
+      label: "AgentPhone",
       purpose: "Send approved confirmations and follow-up messages.",
       status: "required",
     });
