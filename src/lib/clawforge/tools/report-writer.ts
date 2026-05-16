@@ -63,8 +63,19 @@ export class ReportWriterTool implements ToolBroker {
   }
 
   validate(params: Record<string, unknown>): { valid: boolean; errors?: string[] } {
-    // All parameters are optional; defaults will be applied
-    return { valid: true };
+    const errors: string[] = [];
+
+    // ReportWriterTool requires at least some content to write
+    // Check that at least one meaningful field is provided
+    const hasTitle = params.title && typeof params.title === "string" && params.title.trim().length > 0;
+    const hasBehavior = params.behavior && typeof params.behavior === "string" && params.behavior.trim().length > 0;
+    const hasContent = params.recommended_action && typeof params.recommended_action === "string" && params.recommended_action.trim().length > 0;
+
+    if (!hasTitle && !hasBehavior && !hasContent) {
+      errors.push("At least one of 'title', 'behavior', or 'recommended_action' must be provided with non-empty content");
+    }
+
+    return { valid: errors.length === 0, errors: errors.length > 0 ? errors : undefined };
   }
 
   getMetadata(): ToolMetadata {

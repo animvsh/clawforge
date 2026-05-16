@@ -132,11 +132,12 @@ export class ProviderRegistry {
   }
 
   async plan(input: ReasoningInput, mode: ProviderMode = "auto"): Promise<string[]> {
+    const requestedMode = mode;
     const provider = this.getProvider(mode);
     try {
       return await provider.plan(input);
     } catch (error) {
-      throw new Error(sanitizeError(provider.mode, error));
+      throw new Error(sanitizeError(requestedMode, error));
     }
   }
 
@@ -144,20 +145,22 @@ export class ProviderRegistry {
     input: ReasoningInput,
     mode: ProviderMode = "auto",
   ): Promise<{ label: string; severity: "low" | "medium" | "high" }> {
+    const requestedMode = mode;
     const provider = this.getProvider(mode);
     try {
       return await provider.classify(input);
     } catch (error) {
-      throw new Error(sanitizeError(provider.mode, error));
+      throw new Error(sanitizeError(requestedMode, error));
     }
   }
 
   async summarize(input: ReasoningInput, mode: ProviderMode = "auto"): Promise<string> {
+    const requestedMode = mode;
     const provider = this.getProvider(mode);
     try {
       return await provider.summarize(input);
     } catch (error) {
-      throw new Error(sanitizeError(provider.mode, error));
+      throw new Error(sanitizeError(requestedMode, error));
     }
   }
 }

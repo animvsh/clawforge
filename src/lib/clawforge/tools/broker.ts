@@ -62,6 +62,22 @@ export async function executeToolWithPolicy(
   params: ToolExecuteParams,
   routeToolCall: (action: string) => ToolCallResult,
 ): Promise<{ decision: ToolCallResult; result?: ToolExecuteResult }> {
+  // Check if tool is enabled at broker level
+  if (broker.getMetadata().enabled === false) {
+    return {
+      decision: {
+        action: broker.action,
+        allowed: false,
+        approval_required: false,
+        message: `Tool '${broker.action}' is disabled and cannot execute.`,
+      },
+      result: {
+        success: false,
+        error: `Tool is disabled.`,
+      },
+    };
+  }
+
   // First validate parameters
   const validation = broker.validate(params.params);
   if (!validation.valid) {

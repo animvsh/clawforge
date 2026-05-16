@@ -54,8 +54,10 @@ export class ExternalAlertSenderTool implements ToolBroker {
   validate(params: Record<string, unknown>): { valid: boolean; errors?: string[] } {
     const errors: string[] = [];
 
-    if (!params.message) {
-      errors.push("message is required for external alerts");
+    // Check for message - must be non-empty after trimming
+    const message = params.message;
+    if (!message || (typeof message !== "string") || message.trim().length === 0) {
+      errors.push("message is required for external alerts and cannot be empty");
     }
 
     if (params.format) {

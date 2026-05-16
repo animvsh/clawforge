@@ -12,30 +12,11 @@ export class DataExportTool implements ToolBroker {
   action = "data.export";
 
   async execute(params: ToolExecuteParams): Promise<ToolExecuteResult> {
-    // This tool should NEVER execute because policy blocks it
-    // But we implement the method anyway for completeness
-    const { destination, format, data_type } = params.params as {
-      destination?: string;
-      format?: string;
-      data_type?: string;
-    };
-
-    return {
-      success: false,
-      error: "Data export is blocked by policy. Raw logs may contain sensitive data.",
-      data: {
-        blocked: true,
-        reason: "policy_block_raw_export",
-        policy_effect: "deny",
-        attempted_export: {
-          destination: destination || "unknown",
-          format: format || "unknown",
-          data_type: data_type || "unknown",
-        },
-        agent_id: params.agent_id,
-        timestamp: new Date().toISOString(),
-      },
-    };
+    // This tool is BLOCKED at broker level - it should NEVER execute
+    throw new Error(
+      "DataExportTool is blocked and cannot execute. " +
+      "This tool has been disabled at the broker level for security reasons."
+    );
   }
 
   validate(params: Record<string, unknown>): { valid: boolean; errors?: string[] } {

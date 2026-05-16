@@ -96,8 +96,16 @@ export class LogReaderTool implements ToolBroker {
   }
 
   validate(params: Record<string, unknown>): { valid: boolean; errors?: string[] } {
-    // No required params for log reading
-    return { valid: true };
+    // LogReaderTool accepts no input parameters, but we validate
+    // that if any are provided they don't contain unexpected types
+    const errors: string[] = [];
+
+    // params should be empty or undefined for log reading
+    if (params && typeof params === "object" && Object.keys(params).length > 0) {
+      errors.push("LogReaderTool does not accept input parameters");
+    }
+
+    return { valid: errors.length === 0, errors: errors.length > 0 ? errors : undefined };
   }
 
   getMetadata(): ToolMetadata {

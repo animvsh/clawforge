@@ -155,8 +155,28 @@ export class ThreatClassifierTool implements ToolBroker {
   }
 
   validate(params: Record<string, unknown>): { valid: boolean; errors?: string[] } {
-    // Behavior is optional but recommended
-    return { valid: true };
+    const errors: string[] = [];
+
+    // behavior is the primary input - should be a non-empty string if provided
+    if (params.behavior !== undefined) {
+      if (typeof params.behavior !== "string") {
+        errors.push("behavior must be a string");
+      } else if (params.behavior.trim().length === 0) {
+        errors.push("behavior cannot be empty");
+      }
+    }
+
+    // ip should be a valid format if provided
+    if (params.ip !== undefined && typeof params.ip !== "string") {
+      errors.push("ip must be a string");
+    }
+
+    // user should be a string if provided
+    if (params.user !== undefined && typeof params.user !== "string") {
+      errors.push("user must be a string");
+    }
+
+    return { valid: errors.length === 0, errors: errors.length > 0 ? errors : undefined };
   }
 
   getMetadata(): ToolMetadata {

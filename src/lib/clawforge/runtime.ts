@@ -28,10 +28,12 @@ const VALID_TRANSITIONS: ValidTransition[] = [
   { from: "created", to: "deployed" },
   { from: "deployed", to: "running" },
   { from: "running", to: "paused" },
+  { from: "running", to: "stopped" },
   { from: "paused", to: "running" },
   { from: "running", to: "waiting_for_approval" },
   { from: "waiting_for_approval", to: "running" },
   { from: "waiting_for_approval", to: "stopped" },
+  { from: "waiting_for_approval", to: "completed" },
   { from: "running", to: "completed" },
   { from: "deployed", to: "stopped" },
 ];
@@ -284,17 +286,30 @@ export class NemoClawSandboxSession {
     return { status: this.state, events: this.getEvents() };
   }
 
-  resumeSession(approval: ApprovalResult): {
+  resumeSession(approval?: ApprovalResult): {
     status: SessionState;
     events: LifecycleEvent[];
     executed: boolean;
   } {
+    // Handle resuming from paused state
+    if (this.state === "paused") {
+      if (!isValidTransition(this.state, "running")) {
+        throw new Error(`Invalid transition from ${this.state} to running`);
+      }
+      this.state = "running";
+      this.emit(createLifecycleEvent(this.sessionId, "session.resumed", "Sandbox session resumed from paused state.", "info"));
+      return { status: this.state, events: this.getEvents(), executed: false };
+    }
+
     if (this.state !== "waiting_for_approval") {
       this.emit(createLifecycleEvent(this.sessionId, "session.resumed", `Cannot resume: session is ${this.state}.`, "warning"));
       return { status: this.state, events: this.getEvents(), executed: false };
     }
 
-    if (!approval.approved) {
+    if (!approval || !approval.approved) {
+      if (!isValidTransition(this.state, "running")) {
+        throw new Error(`Invalid transition from ${this.state} to running`);
+      }
       this.state = "running";
       const memoryItem: MemoryItem = {
         id: generateId("memory"),
@@ -349,6 +364,7 @@ export class NemoClawSandboxSession {
       throw new Error(`Invalid transition from ${this.state} to stopped`);
     }
 
+    this.state = "stopped";
     this.emit(createLifecycleEvent(this.sessionId, "session.terminated", "Sandbox session terminated and cleaned up.", "warning"));
 
     this.pendingApproval = null;
@@ -599,6 +615,15 @@ export function resolveApproval(decision: "approved" | "denied"): {
     events: resolvedEvents,
     report: legacyReport,
   };
+}
+
+export function resetLegacyRuntime(): void {
+  legacyState = "created";
+  legacyEvents = [];
+  legacyMemory = [];
+  legacyReport = null;
+  legacyApprovalStatus = "pending";
+  legacyPendingApprovalId = null;
 }
 
 export function getApprovalStatus(): "pending" | "approved" | "denied" {
