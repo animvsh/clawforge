@@ -6,6 +6,7 @@ import type {
   RuntimeEvent,
 } from "@/lib/clawforge/types";
 import { WorkflowGraph, AuditReplay } from "@/components/clawforge/WorkflowGraph";
+import { AgentActivityTimeline } from "@/components/clawforge/AgentActivityTimeline";
 import { useEffect, useMemo, useState } from "react";
 
 type BrevPanelState = {
@@ -932,6 +933,8 @@ export function LiveDashboard({
           )}
 
           <AuditReplay events={events} />
+
+          <AgentActivityTimeline agentId={agentId} />
         </div>
       </div>
     </div>

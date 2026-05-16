@@ -271,3 +271,133 @@ export type ProviderStatus = {
   available: boolean;
   error?: string;
 };
+
+// ============================================================
+// ANU-54: Agent Activity Monitoring
+// ============================================================
+
+export type ActivityEventType =
+  | "agent.started"
+  | "agent.thinking"
+  | "agent.resumed"
+  | "agent.paused"
+  | "tool.called"
+  | "tool.executed"
+  | "tool.blocked"
+  | "tool.pending_approval"
+  | "policy.checked"
+  | "policy.blocked"
+  | "policy.approved"
+  | "approval.requested"
+  | "approval.granted"
+  | "approval.denied"
+  | "memory.updated"
+  | "memory.retrieved"
+  | "report.generated"
+  | "report.viewed"
+  | "session.created"
+  | "session.deployed"
+  | "session.running"
+  | "session.waiting_for_approval"
+  | "session.completed"
+  | "session.terminated"
+  | "session.error";
+
+export type ActivityEventSeverity = "debug" | "info" | "warning" | "error" | "success";
+
+export type ToolExecutionMetadata = {
+  tool_id: string;
+  tool_name: string;
+  action: string;
+  args?: Record<string, unknown>;
+  result?: string;
+  duration_ms?: number;
+  allowed: boolean;
+  approval_required: boolean;
+  blocked: boolean;
+};
+
+export type PolicyCheckMetadata = {
+  policy_id: string;
+  policy_name: string;
+  action: string;
+  effect: PolicyEffect;
+  reason: string;
+  allowed: boolean;
+};
+
+export type ApprovalWorkflowMetadata = {
+  approval_id: string;
+  action: string;
+  command?: string;
+  reason: string;
+  policy_id: string;
+  decision?: "approved" | "denied";
+  modified_command?: string;
+};
+
+export type MemoryOperationMetadata = {
+  memory_id: string;
+  operation: "created" | "read" | "updated" | "deleted";
+  memory_type: MemorySchemaItem["type"];
+  content_preview: string;
+};
+
+export type AgentThinkingMetadata = {
+  provider: string;
+  model: string;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  reasoning?: string;
+};
+
+export type ActivityEvent = {
+  id: string;
+  agent_id: string;
+  session_id?: string;
+  type: ActivityEventType;
+  message: string;
+  timestamp: string;
+  severity: ActivityEventSeverity;
+  duration_ms?: number;
+  metadata?: Record<string, unknown>;
+  // Structured metadata for specific event categories
+  tool_execution?: ToolExecutionMetadata;
+  policy_check?: PolicyCheckMetadata;
+  approval_workflow?: ApprovalWorkflowMetadata;
+  memory_operation?: MemoryOperationMetadata;
+  agent_thinking?: AgentThinkingMetadata;
+};
+
+export type ActivityEventSummary = {
+  total_events: number;
+  events_by_type: Record<ActivityEventType, number>;
+  events_by_severity: Record<ActivityEventSeverity, number>;
+  tool_call_counts: Record<string, number>;
+  policy_blocked_count: number;
+  approval_requested_count: number;
+  approval_granted_count: number;
+  approval_denied_count: number;
+  session_duration_ms?: number;
+};
+
+export type ActivityQueryFilters = {
+  event_types?: ActivityEventType[];
+  severity?: ActivityEventSeverity[];
+  tool_action?: string;
+  policy_id?: string;
+  from_timestamp?: string;
+  to_timestamp?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type ActivityQueryResponse = {
+  ok: true;
+  agent_id: string;
+  events: ActivityEvent[];
+  total_count: number;
+  has_more: boolean;
+  next_offset: number | null;
+  summary: ActivityEventSummary;
+};

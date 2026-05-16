@@ -21,6 +21,10 @@ import {
   stopRuntime,
 } from "./runtime";
 import {
+  getActivityEvents,
+  getActivitySummary,
+} from "./activity-store";
+import {
   chatWithOpenHands,
   collectSandboxEvents,
   createBrevInstance,
@@ -709,6 +713,33 @@ export async function handleClawForgeApi(
         agent_id: agentId,
         report: report,
       } satisfies Omit<AgentReportResponse, "ok">);
+    }
+
+    // GET /api/agents/:id/activity
+    if (action === "activity" && request.method === "GET") {
+      const url = new URL(request.url);
+      const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50", 10), 200);
+      const offset = parseInt(url.searchParams.get("offset") ?? "0", 10);
+
+      const { events, totalCount } = getActivityEvents(agentId, { limit, offset });
+
+      const summary = getActivitySummary(agentId);
+      const hasMore = offset + events.length < totalCount;
+
+      return successResponse({
+        agent_id: agentId,
+        events,
+        total_count: totalCount,
+        has_more: hasMore,
+        next_offset: hasMore ? offset + limit : null,
+        summary,
+      });
+    }
+
+    // GET /api/agents/:id/activity/summary
+    if (action === "activity" && nested === "summary" && request.method === "GET") {
+      const summary = getActivitySummary(agentId);
+      return successResponse({ agent_id: agentId, summary });
     }
 
     return methodNotAllowedError();

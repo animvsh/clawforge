@@ -1,6 +1,12 @@
 import { DEMO_AGENT_ID, demoApproval, demoMemory, demoReport } from "./fixtures";
 import { routeToolCall } from "./tools";
+import {
+  createActivityEvent,
+  appendActivityEvent,
+  trackSession,
+} from "./activity-store";
 import type {
+  ActivityEvent,
   ApprovalRequest,
   BlueprintResponse,
   IncidentReport,
@@ -8,6 +14,7 @@ import type {
   PolicyDefinition,
   RuntimeEvent,
   ToolDefinition,
+  PolicyEffect,
 } from "./types";
 
 export type SessionState =
@@ -614,7 +621,99 @@ function legacyEvent(
 
 function addLegacyEvent(nextEvent: RuntimeEvent): RuntimeEvent {
   legacyEvents.push(nextEvent);
+  // Instrument: capture all runtime events into the activity store
+  captureActivityEvent(nextEvent);
   return nextEvent;
+}
+
+// Maps RuntimeEventType to ActivityEventType and enriches activity events
+function captureActivityEvent(event: RuntimeEvent): void {
+  const activityType = event.type as Parameters<typeof createActivityEvent>[1];
+  const activitySeverity = event.severity ?? "info";
+
+  // Determine structured metadata based on event type
+  let toolExecution: ActivityEvent["tool_execution"];
+  let policyCheck: ActivityEvent["policy_check"];
+  let approvalWorkflow: ActivityEvent["approval_workflow"];
+  let memoryOperation: ActivityEvent["memory_operation"];
+  let agentThinking: ActivityEvent["agent_thinking"];
+
+  if (event.type === "tool.called" as string) {
+    toolExecution = {
+      tool_id: (event.metadata?.tool as string) ?? "",
+      tool_name: (event.metadata?.tool as string) ?? "",
+      action: (event.metadata?.action as string) ?? "",
+      allowed: event.severity !== "error",
+      approval_required: false,
+      blocked: event.severity === "error",
+    };
+  }
+
+  if (event.type === "policy.checked") {
+    policyCheck = {
+      policy_id: (event.metadata?.action as string) ?? "",
+      policy_name: "",
+      action: (event.metadata?.action as string) ?? "",
+      effect: (event.metadata?.effect as PolicyEffect) ?? "allow",
+      reason: event.message,
+      allowed: event.severity !== "error",
+    };
+  }
+
+  if (event.type === "policy.blocked") {
+    policyCheck = {
+      policy_id: (event.metadata?.action as string) ?? "",
+      policy_name: "",
+      action: (event.metadata?.action as string) ?? "",
+      effect: "deny",
+      reason: event.message,
+      allowed: false,
+    };
+  }
+
+  if (event.type === "approval.requested") {
+    approvalWorkflow = {
+      approval_id: (event.metadata?.approval_id as string) ?? "",
+      action: (event.metadata?.action as string) ?? "",
+      command: event.metadata?.command as string | undefined,
+      reason: event.message,
+      policy_id: (event.metadata?.policy_id as string) ?? "",
+    };
+  }
+
+  if (event.type === "agent.thinking") {
+    agentThinking = {
+      provider: (event.metadata?.provider as string) ?? "",
+      model: (event.metadata?.model as string) ?? "",
+    };
+  }
+
+  if (event.type === "memory.updated") {
+    memoryOperation = {
+      memory_id: (event.metadata?.memory_id as string) ?? "",
+      operation: "created",
+      memory_type: "context",
+      content_preview: event.message,
+    };
+  }
+
+  const activityEvent = createActivityEvent(
+    event.agent_id,
+    activityType as Parameters<typeof createActivityEvent>[1],
+    event.message,
+    activitySeverity,
+    {
+      metadata: event.metadata,
+      toolExecution,
+      policyCheck,
+      approvalWorkflow,
+      memoryOperation,
+      agentThinking,
+    },
+  );
+
+  appendActivityEvent(activityEvent);
+  trackSession(event.agent_id, activityEvent);
 }
 
 function customAgentId(blueprint: BlueprintResponse): string {
