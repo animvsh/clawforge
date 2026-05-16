@@ -22,3 +22,10 @@ Short notes for each UI issue commit on this branch.
 - Added tool permissions with NemoClaw behavior.
 - Added policy pack, memory rules, and deploy checklist.
 - Kept policy editing as an MVP placeholder.
+
+## ANU-48
+
+- Reworked dashboard into three columns.
+- Added NemoClaw status cards and audit colors.
+- Added quick command buttons.
+- Updated approval buttons to approve or deny commands.
