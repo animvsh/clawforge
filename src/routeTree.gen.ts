@@ -14,6 +14,8 @@ import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as BuilderRouteImport } from './routes/builder'
 import { Route as BlueprintRouteImport } from './routes/blueprint'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as WorkspaceProjectIdRouteImport } from './routes/workspace.$projectId'
+import { Route as InstanceInstanceIdRouteImport } from './routes/instance.$instanceId'
 
 const ReportRoute = ReportRouteImport.update({
   id: '/report',
@@ -40,6 +42,16 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WorkspaceProjectIdRoute = WorkspaceProjectIdRouteImport.update({
+  id: '/workspace/$projectId',
+  path: '/workspace/$projectId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InstanceInstanceIdRoute = InstanceInstanceIdRouteImport.update({
+  id: '/instance/$instanceId',
+  path: '/instance/$instanceId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -47,6 +59,8 @@ export interface FileRoutesByFullPath {
   '/builder': typeof BuilderRoute
   '/dashboard': typeof DashboardRoute
   '/report': typeof ReportRoute
+  '/instance/$instanceId': typeof InstanceInstanceIdRoute
+  '/workspace/$projectId': typeof WorkspaceProjectIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -54,6 +68,8 @@ export interface FileRoutesByTo {
   '/builder': typeof BuilderRoute
   '/dashboard': typeof DashboardRoute
   '/report': typeof ReportRoute
+  '/instance/$instanceId': typeof InstanceInstanceIdRoute
+  '/workspace/$projectId': typeof WorkspaceProjectIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -62,13 +78,37 @@ export interface FileRoutesById {
   '/builder': typeof BuilderRoute
   '/dashboard': typeof DashboardRoute
   '/report': typeof ReportRoute
+  '/instance/$instanceId': typeof InstanceInstanceIdRoute
+  '/workspace/$projectId': typeof WorkspaceProjectIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/blueprint' | '/builder' | '/dashboard' | '/report'
+  fullPaths:
+    | '/'
+    | '/blueprint'
+    | '/builder'
+    | '/dashboard'
+    | '/report'
+    | '/instance/$instanceId'
+    | '/workspace/$projectId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/blueprint' | '/builder' | '/dashboard' | '/report'
-  id: '__root__' | '/' | '/blueprint' | '/builder' | '/dashboard' | '/report'
+  to:
+    | '/'
+    | '/blueprint'
+    | '/builder'
+    | '/dashboard'
+    | '/report'
+    | '/instance/$instanceId'
+    | '/workspace/$projectId'
+  id:
+    | '__root__'
+    | '/'
+    | '/blueprint'
+    | '/builder'
+    | '/dashboard'
+    | '/report'
+    | '/instance/$instanceId'
+    | '/workspace/$projectId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -77,6 +117,8 @@ export interface RootRouteChildren {
   BuilderRoute: typeof BuilderRoute
   DashboardRoute: typeof DashboardRoute
   ReportRoute: typeof ReportRoute
+  InstanceInstanceIdRoute: typeof InstanceInstanceIdRoute
+  WorkspaceProjectIdRoute: typeof WorkspaceProjectIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -116,6 +158,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/workspace/$projectId': {
+      id: '/workspace/$projectId'
+      path: '/workspace/$projectId'
+      fullPath: '/workspace/$projectId'
+      preLoaderRoute: typeof WorkspaceProjectIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/instance/$instanceId': {
+      id: '/instance/$instanceId'
+      path: '/instance/$instanceId'
+      fullPath: '/instance/$instanceId'
+      preLoaderRoute: typeof InstanceInstanceIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -125,6 +181,8 @@ const rootRouteChildren: RootRouteChildren = {
   BuilderRoute: BuilderRoute,
   DashboardRoute: DashboardRoute,
   ReportRoute: ReportRoute,
+  InstanceInstanceIdRoute: InstanceInstanceIdRoute,
+  WorkspaceProjectIdRoute: WorkspaceProjectIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

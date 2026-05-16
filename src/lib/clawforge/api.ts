@@ -39,6 +39,7 @@ import {
 } from "./memory/gateway";
 import { createIntegrationConnectLink, getIntegrationStatus } from "./integrations/composio";
 import { createAgentMailInbox } from "./integrations/agentmail";
+import { saveAgentRun, saveMemory } from "./storage";
 import type {
   ProviderMode,
   BlueprintRequest,
@@ -549,6 +550,37 @@ export async function handleClawForgeApi(
         workerEnv,
       },
     );
+    const blueprint = isBlueprintResponse(body.blueprint) ? body.blueprint : undefined;
+    if (blueprint) {
+      await saveAgentRun({
+        agent_name: blueprint.agent_name,
+        agent_id: launch.integrationManifest.agent.id,
+        blueprint_id: blueprint.blueprint_id,
+        provider: blueprint.provider,
+        model: blueprint.model,
+        status:
+          launch.mode === "created"
+            ? "running"
+            : launch.mode === "create_failed"
+              ? "error"
+              : "created",
+        metadata: {
+          runtime_target: "brev",
+          instance_name: launch.instanceName,
+          instance_type: instanceType,
+          mode: launch.mode,
+          command: launch.command,
+          openhands: launch.openHands,
+          integrations: launch.integrationManifest.integrations,
+          startup_script: launch.startupScript,
+        },
+      }).catch(() => undefined);
+      await saveMemory({
+        agent_id: launch.integrationManifest.agent.id,
+        type: "context",
+        content: `Brev launch ${launch.mode} for ${launch.instanceName}. Runtime target: NemoClaw on Brev.`,
+      }).catch(() => undefined);
+    }
     return successResponse({ launch });
   }
 

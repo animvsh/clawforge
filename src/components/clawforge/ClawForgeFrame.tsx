@@ -3,9 +3,9 @@ import type { ReactNode } from "react";
 import { AuthPanel } from "./AuthPanel";
 
 const navItems = [
+  ["/dashboard", "Projects"],
   ["/builder", "Builder"],
   ["/blueprint", "Blueprint"],
-  ["/dashboard", "Dashboard"],
   ["/report", "Report"],
 ] as const;
 
