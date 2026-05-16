@@ -24,6 +24,7 @@ export { TicketCreatorTool, ticketCreatorTool } from "./ticket-creator";
 export { ShellExecutorTool, shellExecutorTool } from "./shell-executor";
 export { ExternalAlertSenderTool, externalAlertSenderTool } from "./external-alert-sender";
 export { DataExportTool, dataExportTool } from "./data-export";
+export { MemoryHelperTool, memoryHelperTool } from "./memory-helper";
 
 import { logReaderTool } from "./log-reader";
 import { threatClassifierTool } from "./threat-classifier";
@@ -32,6 +33,7 @@ import { ticketCreatorTool } from "./ticket-creator";
 import { shellExecutorTool } from "./shell-executor";
 import { externalAlertSenderTool } from "./external-alert-sender";
 import { dataExportTool } from "./data-export";
+import { memoryHelperTool } from "./memory-helper";
 import type { ToolBroker } from "./broker";
 
 /**
@@ -46,6 +48,7 @@ export const toolBrokers: Record<string, ToolBroker> = {
   "shell.execute": shellExecutorTool,
   "message.send_external": externalAlertSenderTool,
   "data.export": dataExportTool,
+  "memory.helper": memoryHelperTool,
 };
 
 /**
