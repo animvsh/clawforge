@@ -64,7 +64,7 @@ else
 fi
 
 log "Creating runtime directories and a secret-free .env if needed"
-mkdir -p .runtime/reports .runtime/memory .runtime/audit
+mkdir -p .runtime/reports .runtime/memory .runtime/audit .runtime/integrations
 if [[ ! -f .env ]]; then
   cp .env.example .env
   chmod 600 .env
@@ -72,6 +72,31 @@ if [[ ! -f .env ]]; then
 else
   chmod 600 .env || true
   log "Existing .env left unchanged."
+fi
+
+if [[ -n "${CLAWFORGE_INTEGRATION_MANIFEST_B64:-}" ]]; then
+  log "Installing custom NemoClaw integration manifest"
+  if base64 --help 2>&1 | grep -q -- '--decode'; then
+    printf '%s' "${CLAWFORGE_INTEGRATION_MANIFEST_B64}" | base64 --decode > .runtime/integrations/active.json
+  else
+    printf '%s' "${CLAWFORGE_INTEGRATION_MANIFEST_B64}" | base64 -d > .runtime/integrations/active.json
+  fi
+  chmod 600 .runtime/integrations/active.json
+  export CLAWFORGE_INTEGRATION_MANIFEST_PATH="${REPO_ROOT}/.runtime/integrations/active.json"
+  node - <<'NODE' || true
+const fs = require("node:fs");
+const manifest = JSON.parse(fs.readFileSync(".runtime/integrations/active.json", "utf8"));
+console.log(`  agent: ${manifest.agent?.name || "ClawForge Agent"}`);
+console.log(`  blueprint: ${manifest.agent?.blueprint_id || "none"}`);
+console.log(`  inbox: ${manifest.inbox?.email || "not created"}`);
+for (const integration of manifest.integrations || []) {
+  if (integration.required || integration.connected_account_id || integration.auth_config_id) {
+    console.log(`  ${integration.label}: ${integration.status}`);
+  }
+}
+NODE
+else
+  log "No custom integration manifest supplied."
 fi
 
 log "Checking required Brev secret names. Values are intentionally hidden."
@@ -87,7 +112,19 @@ optional_secret_names=(
   SUPABASE_SERVICE_ROLE_KEY
   COMPOSIO_API_KEY
   NEMOCLAW_INSTALL_URL
+  AGENTMAIL_API_KEY
+  VAPI_API_KEY
 )
+
+if [[ -n "${CLAWFORGE_REQUIRED_SECRET_NAMES:-}" ]]; then
+  IFS=',' read -r -a custom_secret_names <<< "${CLAWFORGE_REQUIRED_SECRET_NAMES}"
+  for name in "${custom_secret_names[@]}"; do
+    [[ -z "${name}" ]] && continue
+    if [[ " ${required_secret_names[*]} ${optional_secret_names[*]} " != *" ${name} "* ]]; then
+      optional_secret_names+=("${name}")
+    fi
+  done
+fi
 
 for name in "${required_secret_names[@]}"; do
   if [[ -n "${!name:-}" ]]; then

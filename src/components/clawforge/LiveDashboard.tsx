@@ -19,6 +19,34 @@ type LaunchPanelState = {
   mode: string;
   instanceName: string;
   command: string;
+  integrationManifest?: {
+    agent?: {
+      name?: string;
+      blueprint_id?: string | null;
+    };
+    integrations?: Array<{
+      id: string;
+      label: string;
+      status: string;
+      required: boolean;
+      auth_config_id: string | null;
+      connected_account_id: string | null;
+    }>;
+    inbox?: {
+      email: string | null;
+      status: string;
+    };
+    capabilities?: {
+      agentphone: boolean;
+      voice_agent: boolean;
+      agent_inbox: boolean;
+      docs_sheets_gmail: boolean;
+    };
+  };
+  startupScript?: {
+    path: string | null;
+    inline: boolean;
+  };
   openHands: {
     mode: string;
     workspaceUrl: string | null;
@@ -277,7 +305,11 @@ export function LiveDashboard({
     const response = await fetch("/api/clawforge/brev/launch-plan", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ instance_name: "clawforge-nemoclaw" }),
+      body: JSON.stringify({
+        instance_name: "clawforge-nemoclaw",
+        blueprint,
+        agent_inbox: agentInbox,
+      }),
     });
     const data = await response.json();
     if (data.ok && data.launch) {
@@ -300,6 +332,8 @@ export function LiveDashboard({
           instance_name: "clawforge-nemoclaw",
           instance_type: "verda_L40S",
           confirmation: "CREATE_BREV_INSTANCE",
+          blueprint,
+          agent_inbox: agentInbox,
         }),
       });
       const data = await response.json();
@@ -603,6 +637,40 @@ export function LiveDashboard({
               <code className="mt-3 block break-all border border-white/10 bg-black p-3 text-xs text-white/58">
                 {launchPlan.command}
               </code>
+            )}
+            {launchPlan?.integrationManifest && (
+              <div className="mt-3 border border-emerald-300/20 bg-emerald-300/[0.045] p-3">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-emerald-100/55">
+                  attached integrations
+                </div>
+                <div className="mt-2 grid gap-1 text-xs text-emerald-100/75">
+                  {(launchPlan.integrationManifest.integrations ?? [])
+                    .filter(
+                      (integration) =>
+                        integration.required ||
+                        integration.auth_config_id ||
+                        integration.connected_account_id,
+                    )
+                    .slice(0, 6)
+                    .map((integration) => (
+                      <div key={integration.id} className="flex justify-between gap-3">
+                        <span>{integration.label}</span>
+                        <span className="text-emerald-100/45">
+                          {integration.connected_account_id
+                            ? "connected"
+                            : integration.auth_config_id
+                              ? "auth ready"
+                              : integration.status.replaceAll("_", " ")}
+                        </span>
+                      </div>
+                    ))}
+                  {launchPlan.integrationManifest.inbox?.email && (
+                    <div className="break-all text-emerald-100/55">
+                      inbox: {launchPlan.integrationManifest.inbox.email}
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
             <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap">
               <button

@@ -1,6 +1,7 @@
 import { DEMO_AGENT_ID } from "../fixtures";
+import { getIntegrationStatus, type IntegrationConfig } from "../integrations/composio";
 import { createProviderRegistry } from "../providers";
-import type { ProviderMode, RuntimeEvent } from "../types";
+import type { BlueprintResponse, ProviderMode, RuntimeEvent } from "../types";
 
 export type BrevInstanceStatus = "not_installed" | "not_authenticated" | "ready" | "error";
 
@@ -21,6 +22,11 @@ export type BrevLaunchPlan = {
   status: BrevStatus;
   events: RuntimeEvent[];
   openHands: OpenHandsConnection;
+  integrationManifest: NemoClawIntegrationManifest;
+  startupScript: {
+    path: string | null;
+    inline: boolean;
+  };
 };
 
 export type OpenHandsConnection = {
@@ -43,6 +49,50 @@ type CommandResult = {
   stdout: string;
   stderr: string;
   exitCode: number | null;
+};
+
+export type NemoClawIntegrationManifest = {
+  version: 1;
+  instance_name: string;
+  generated_at: string;
+  agent: {
+    id: string;
+    name: string;
+    blueprint_id: string | null;
+    template_id: string | null;
+    goal: string | null;
+  };
+  integrations: Array<{
+    id: string;
+    label: string;
+    toolkit: string;
+    purpose: string;
+    status: string;
+    auth_config_id: string | null;
+    connected_account_id: string | null;
+    required: boolean;
+    connectable: boolean;
+  }>;
+  inbox: {
+    email: string | null;
+    status: string;
+  };
+  capabilities: {
+    agentphone: boolean;
+    voice_agent: boolean;
+    agent_inbox: boolean;
+    docs_sheets_gmail: boolean;
+  };
+  secret_names: string[];
+};
+
+type BrevIntegrationOptions = {
+  blueprint?: BlueprintResponse;
+  agentInbox?: {
+    email?: string | null;
+    status?: string | null;
+  };
+  workerEnv?: Record<string, string | undefined>;
 };
 
 const INSTALL_COMMAND = "brew install brevdev/homebrew-brev/brev";
@@ -80,6 +130,127 @@ function readEnv(name: string): string {
     typeof process !== "undefined" && typeof process.env === "object" ? process.env : undefined;
   const viteEnv = import.meta.env as Record<string, string | undefined>;
   return processEnv?.[name] ?? viteEnv[name] ?? "";
+}
+
+function base64Encode(value: string): string {
+  if (typeof Buffer !== "undefined") return Buffer.from(value, "utf8").toString("base64");
+  return btoa(value);
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\"'\"'")}'`;
+}
+
+function sanitizeFilePart(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+}
+
+function requiredIntegrationIds(blueprint?: BlueprintResponse): Set<string> {
+  return new Set(
+    (blueprint?.integration_requirements ?? [])
+      .filter((integration) => integration.status === "required")
+      .map((integration) => integration.id),
+  );
+}
+
+function secretNamesForIntegrations(integrations: IntegrationConfig[]): string[] {
+  const names = new Set<string>(["NVIDIA_API_KEY", "MINIMAX_PLAN_KEY", "COMPOSIO_API_KEY"]);
+
+  if (integrations.some((integration) => integration.id === "agent_email")) {
+    names.add("AGENTMAIL_API_KEY");
+  }
+  if (
+    integrations.some(
+      (integration) => integration.id === "phone_sms" || integration.id === "voice_agent",
+    )
+  ) {
+    names.add("VAPI_API_KEY");
+  }
+  return Array.from(names);
+}
+
+async function buildIntegrationManifest(
+  instanceName: string,
+  options: BrevIntegrationOptions = {},
+): Promise<NemoClawIntegrationManifest> {
+  const integrationStatus = await getIntegrationStatus(options.workerEnv ?? {});
+  const requiredIds = requiredIntegrationIds(options.blueprint);
+  const integrations = integrationStatus.auth_configs.map((integration) => ({
+    id: integration.id,
+    label: integration.label,
+    toolkit: integration.toolkit,
+    purpose: integration.purpose,
+    status: integration.status,
+    auth_config_id: integration.auth_config_id,
+    connected_account_id: integration.connected_account_id,
+    required: requiredIds.has(integration.id),
+    connectable: integration.connectable,
+  }));
+
+  return {
+    version: 1,
+    instance_name: instanceName,
+    generated_at: now(),
+    agent: {
+      id: options.blueprint?.blueprint_id
+        ? `agent_${options.blueprint.template_id}_${options.blueprint.blueprint_id.slice(-8)}`
+        : DEMO_AGENT_ID,
+      name: options.blueprint?.agent_name ?? "ClawForge Agent",
+      blueprint_id: options.blueprint?.blueprint_id ?? null,
+      template_id: options.blueprint?.template_id ?? null,
+      goal: options.blueprint?.goal ?? null,
+    },
+    integrations,
+    inbox: {
+      email: options.agentInbox?.email ?? null,
+      status: options.agentInbox?.status ?? (options.agentInbox?.email ? "ready" : "not_created"),
+    },
+    capabilities: {
+      agentphone: requiredIds.has("phone_sms"),
+      voice_agent:
+        requiredIds.has("phone_sms") || options.blueprint?.template_id === "phone_receptionist",
+      agent_inbox: Boolean(options.agentInbox?.email) || requiredIds.has("email"),
+      docs_sheets_gmail: requiredIds.has("email") || requiredIds.has("calendar"),
+    },
+    secret_names: secretNamesForIntegrations(integrationStatus.auth_configs),
+  };
+}
+
+async function writeStartupScript(
+  instanceName: string,
+  manifest: NemoClawIntegrationManifest,
+): Promise<{ arg: string; path: string | null; inline: boolean }> {
+  const manifestJson = JSON.stringify(manifest, null, 2);
+  const manifestB64 = base64Encode(manifestJson);
+  const secretNames = manifest.secret_names.join(",");
+  const script = `#!/usr/bin/env bash
+set -euo pipefail
+export CLAWFORGE_INTEGRATION_MANIFEST_B64=${shellQuote(manifestB64)}
+export CLAWFORGE_REQUIRED_SECRET_NAMES=${shellQuote(secretNames)}
+export CLAWFORGE_AGENT_NAME=${shellQuote(manifest.agent.name)}
+export CLAWFORGE_BLUEPRINT_ID=${shellQuote(manifest.agent.blueprint_id ?? "")}
+./scripts/brev/setup-clawforge.sh
+`;
+
+  if (import.meta.env.SSR === true && typeof process !== "undefined") {
+    try {
+      const fs = await import("node:fs/promises");
+      const path = await import("node:path");
+      const directory = path.join(process.cwd(), ".runtime", "brev");
+      await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+      const filePath = path.join(directory, `${sanitizeFilePart(instanceName)}-startup.sh`);
+      await fs.writeFile(filePath, script, { mode: 0o700 });
+      return { arg: `@${filePath}`, path: filePath, inline: false };
+    } catch {
+      // Cloudflare Workers cannot write local files. Inline startup still carries the manifest.
+    }
+  }
+
+  return { arg: script, path: null, inline: true };
 }
 
 async function runCommand(
@@ -228,15 +399,36 @@ export function openHandsConnection(): OpenHandsConnection {
 
 export async function createBrevLaunchPlan(
   instanceName = "clawforge-nemoclaw",
+  options: BrevIntegrationOptions = {},
 ): Promise<BrevLaunchPlan> {
   const status = await getBrevStatus();
-  const command = `brev create ${instanceName} --gpu-name L40S --startup-script @scripts/brev/setup-clawforge.sh`;
+  const integrationManifest = await buildIntegrationManifest(instanceName, options);
+  const startupScript = await writeStartupScript(instanceName, integrationManifest);
+  const command = `brev create ${instanceName} --gpu-name L40S --startup-script ${
+    startupScript.inline ? "<inline-clawforge-startup>" : startupScript.arg
+  }`;
   const openHands = openHandsConnection();
   const events = [
     runtimeEvent("agent.started", "Prepared Brev NemoClaw launch plan.", "success", {
       instance_name: instanceName,
       command,
+      agent_name: integrationManifest.agent.name,
+      integrations: integrationManifest.integrations
+        .filter((integration) => integration.required)
+        .map((integration) => integration.label),
     }),
+    runtimeEvent(
+      "memory.updated",
+      "Attached custom integration manifest to the NemoClaw startup payload.",
+      "success",
+      {
+        manifest_version: integrationManifest.version,
+        auth_configs: integrationManifest.integrations.filter((integration) =>
+          Boolean(integration.auth_config_id),
+        ).length,
+        agent_inbox: integrationManifest.inbox.email,
+      },
+    ),
     runtimeEvent(
       "tool.called",
       status.ok
@@ -264,6 +456,11 @@ export async function createBrevLaunchPlan(
     status,
     events,
     openHands,
+    integrationManifest,
+    startupScript: {
+      path: startupScript.path,
+      inline: startupScript.inline,
+    },
   };
 }
 
@@ -271,9 +468,14 @@ export async function createBrevInstance(
   instanceName = "clawforge-nemoclaw",
   instanceType = "verda_L40S",
   confirmed = false,
+  options: BrevIntegrationOptions = {},
 ): Promise<BrevLaunchPlan> {
   const status = await getBrevStatus();
-  const command = `brev create ${instanceName} --type ${instanceType} --startup-script @scripts/brev/setup-clawforge.sh`;
+  const integrationManifest = await buildIntegrationManifest(instanceName, options);
+  const startupScript = await writeStartupScript(instanceName, integrationManifest);
+  const command = `brev create ${instanceName} --type ${instanceType} --startup-script ${
+    startupScript.inline ? "<inline-clawforge-startup>" : startupScript.arg
+  }`;
   const openHands = openHandsConnection();
   const events = [
     runtimeEvent(
@@ -285,6 +487,22 @@ export async function createBrevInstance(
         effect: confirmed ? "allow" : "require_approval",
         instance_type: instanceType,
         estimated_cost: "about $1.63/hr for the current cheapest L40S option",
+        agent_name: integrationManifest.agent.name,
+        integration_manifest: {
+          integrations: integrationManifest.integrations
+            .filter((integration) => integration.required)
+            .map((integration) => integration.id),
+          inbox: integrationManifest.inbox.email,
+        },
+      },
+    ),
+    runtimeEvent(
+      "memory.updated",
+      "Prepared custom integration manifest for the created NemoClaw instance.",
+      "success",
+      {
+        secret_names: integrationManifest.secret_names,
+        startup_script: startupScript.path,
       },
     ),
   ];
@@ -305,6 +523,11 @@ export async function createBrevInstance(
       status,
       events,
       openHands,
+      integrationManifest,
+      startupScript: {
+        path: startupScript.path,
+        inline: startupScript.inline,
+      },
     };
   }
 
@@ -322,19 +545,17 @@ export async function createBrevInstance(
       status,
       events,
       openHands,
+      integrationManifest,
+      startupScript: {
+        path: startupScript.path,
+        inline: startupScript.inline,
+      },
     };
   }
 
   const result = await runCommand(
     status.cliPath,
-    [
-      "create",
-      instanceName,
-      "--type",
-      instanceType,
-      "--startup-script",
-      "@scripts/brev/setup-clawforge.sh",
-    ],
+    ["create", instanceName, "--type", instanceType, "--startup-script", startupScript.arg],
     180_000,
   );
 
@@ -353,6 +574,11 @@ export async function createBrevInstance(
       status,
       events,
       openHands,
+      integrationManifest,
+      startupScript: {
+        path: startupScript.path,
+        inline: startupScript.inline,
+      },
     };
   }
 
@@ -372,6 +598,11 @@ export async function createBrevInstance(
     status: await getBrevStatus(),
     events,
     openHands,
+    integrationManifest,
+    startupScript: {
+      path: startupScript.path,
+      inline: startupScript.inline,
+    },
   };
 }
 

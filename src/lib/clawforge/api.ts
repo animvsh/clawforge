@@ -486,12 +486,26 @@ export async function handleClawForgeApi(
     (apiPath === "/api/clawforge/brev/launch-plan" || apiPath === "/clawforge/brev/launch-plan") &&
     request.method === "POST"
   ) {
-    const body = await readJsonBody<{ instance_name?: unknown }>(request);
+    const body = await readJsonBody<{
+      instance_name?: unknown;
+      blueprint?: unknown;
+      agent_inbox?: unknown;
+    }>(request);
     const instanceName =
       typeof body.instance_name === "string" && body.instance_name.trim()
         ? body.instance_name.trim()
         : "clawforge-nemoclaw";
-    return successResponse({ launch: await createBrevLaunchPlan(instanceName) });
+    const agentInbox =
+      body.agent_inbox && typeof body.agent_inbox === "object" && !Array.isArray(body.agent_inbox)
+        ? (body.agent_inbox as { email?: string; status?: string })
+        : undefined;
+    return successResponse({
+      launch: await createBrevLaunchPlan(instanceName, {
+        blueprint: isBlueprintResponse(body.blueprint) ? body.blueprint : undefined,
+        agentInbox,
+        workerEnv,
+      }),
+    });
   }
 
   if (
@@ -502,6 +516,8 @@ export async function handleClawForgeApi(
       instance_name?: unknown;
       instance_type?: unknown;
       confirmation?: unknown;
+      blueprint?: unknown;
+      agent_inbox?: unknown;
     }>(request);
     const instanceName =
       typeof body.instance_name === "string" && body.instance_name.trim()
@@ -511,10 +527,19 @@ export async function handleClawForgeApi(
       typeof body.instance_type === "string" && body.instance_type.trim()
         ? body.instance_type.trim()
         : "verda_L40S";
+    const agentInbox =
+      body.agent_inbox && typeof body.agent_inbox === "object" && !Array.isArray(body.agent_inbox)
+        ? (body.agent_inbox as { email?: string; status?: string })
+        : undefined;
     const launch = await createBrevInstance(
       instanceName,
       instanceType,
       body.confirmation === "CREATE_BREV_INSTANCE",
+      {
+        blueprint: isBlueprintResponse(body.blueprint) ? body.blueprint : undefined,
+        agentInbox,
+        workerEnv,
+      },
     );
     return successResponse({ launch });
   }
