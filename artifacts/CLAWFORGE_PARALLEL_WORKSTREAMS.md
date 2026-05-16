@@ -36,25 +36,43 @@ Use one branch per workstream:
 - `codex/clawforge-memory-report`
 - `codex/clawforge-demo-deploy`
 
-## Workstream Map
+## Person-Owned Workstream Map
 
-| Workstream | Owner Type | Linear | Can Start Now | Blocks |
-| --- | --- | --- | --- | --- |
-| 1. Product Shell | Frontend/product | ANU-21 | Yes | None |
-| 2. Builder UI | Frontend | ANU-22 | Yes | Workstream 3 contract for final API integration |
-| 3. Blueprint API | Backend/full-stack | ANU-24 | Yes | None |
-| 4. Blueprint Review | Frontend | ANU-23 | Yes with mock data | Workstream 3 final response shape |
-| 5. Provider Layer | Backend/AI | ANU-25 | Yes | None |
-| 6. Runtime + Tools | Backend/runtime | ANU-26 | Yes | Workstream 7 policy contract |
-| 7. Policy Engine | Backend/security | ANU-27 | Yes | None |
-| 8. Live Dashboard | Frontend/full-stack | ANU-28 | Yes with mocked SSE | Workstream 6 event stream |
-| 9. Memory | Backend/full-stack | ANU-29 | Yes | Workstream 6 runtime events |
-| 10. Final Report | Frontend/full-stack | ANU-30 | Yes with mocked data | Workstream 9 memory schema |
-| 11. Demo + Deployment | DevOps/demo | ANU-31, ANU-32 | Yes | Final integrated app |
+Actual Linear assignment is only possible for users already in the workspace. `pmgandhi@ucsc.edu` is assigned directly. Adithya and Edwin are recorded as owners in issue comments until their Linear workspace invites are complete.
+
+| Person                                | Lane                        | Linear Issues                  | Current Linear Status                                     |
+| ------------------------------------- | --------------------------- | ------------------------------ | --------------------------------------------------------- |
+| Adithya (`adithyaapradeep@gmail.com`) | Frontend product experience | ANU-21, ANU-22, ANU-23, ANU-28 | Ownership recorded in comments, pending Linear user setup |
+| pmgandhi (`pmgandhi@ucsc.edu`)        | Backend/runtime/security    | ANU-24, ANU-25, ANU-26, ANU-27 | Assigned directly                                         |
+| Edwin (`edwin.giwin@gmail.com`)       | Memory/report/demo/release  | ANU-29, ANU-30, ANU-31, ANU-32 | Ownership recorded in comments, pending Linear user setup |
+
+## Detailed Workstream Map
+
+| Workstream            | Owner Type          | Linear         | Can Start Now        | Blocks                                          |
+| --------------------- | ------------------- | -------------- | -------------------- | ----------------------------------------------- |
+| 1. Product Shell      | Frontend/product    | ANU-21         | Yes                  | None                                            |
+| 2. Builder UI         | Frontend            | ANU-22         | Yes                  | Workstream 3 contract for final API integration |
+| 3. Blueprint API      | Backend/full-stack  | ANU-24         | Yes                  | None                                            |
+| 4. Blueprint Review   | Frontend            | ANU-23         | Yes with mock data   | Workstream 3 final response shape               |
+| 5. Provider Layer     | Backend/AI          | ANU-25         | Yes                  | None                                            |
+| 6. Runtime + Tools    | Backend/runtime     | ANU-26         | Yes                  | Workstream 7 policy contract                    |
+| 7. Policy Engine      | Backend/security    | ANU-27         | Yes                  | None                                            |
+| 8. Live Dashboard     | Frontend/full-stack | ANU-28         | Yes with mocked SSE  | Workstream 6 event stream                       |
+| 9. Memory             | Backend/full-stack  | ANU-29         | Yes                  | Workstream 6 runtime events                     |
+| 10. Final Report      | Frontend/full-stack | ANU-30         | Yes with mocked data | Workstream 9 memory schema                      |
+| 11. Demo + Deployment | DevOps/demo         | ANU-31, ANU-32 | Yes                  | Final integrated app                            |
 
 ## Shared Contracts
 
 These contracts let people work independently. Keep them stable unless the team explicitly updates them.
+
+Canonical implementation file: `src/lib/clawforge/types.ts`
+
+Mock fixtures: `src/lib/clawforge/fixtures.ts`
+
+Mock API router: `src/lib/clawforge/api.ts`
+
+API examples: `artifacts/CLAWFORGE_API_EXAMPLES.md`
 
 ### Provider Mode
 
@@ -624,68 +642,65 @@ Handoff:
 
 ## First-Day Task Assignments
 
-### Person 1: Frontend Shell
+### Adithya: Frontend Product Experience
 
-Start: Workstream 1
+Email: `adithyaapradeep@gmail.com`
 
-Deliver today:
+Start: Workstreams 1, 2, 4, and 8
 
-- Replace landing copy.
-- Add hero builder prompt.
-- Add ClawForge sections.
-- Add anchors.
+Owns:
 
-### Person 2: Builder And Blueprint Review
+- Product shell and navigation.
+- Blueprint builder UI.
+- Blueprint review UI.
+- Live dashboard UI.
 
-Start: Workstreams 2 and 4
+Deliver first:
 
-Deliver today:
+- Keep the simplified landing page polished.
+- Connect the builder to `POST /api/blueprints`.
+- Render the returned SentinelClaw blueprint.
+- Consume mock SSE events in the dashboard.
 
-- Prompt builder component.
-- Provider selector.
-- Mock blueprint review.
+### pmgandhi: Backend, Runtime, Intelligence, Policy
 
-### Person 3: APIs And Blueprint Generator
+Email: `pmgandhi@ucsc.edu`
 
-Start: Workstream 3
+Start: Workstreams 3, 5, 6, and 7
 
-Deliver today:
+Owns:
 
-- `POST /api/blueprints`.
-- SentinelClaw deterministic response.
-- Shared types.
+- Backend API foundation.
+- Intelligence provider layer.
+- Agent runtime and tool router.
+- NemoClaw policy engine.
 
-### Person 4: Runtime, Tools, And Policies
+Deliver first:
 
-Start: Workstreams 6 and 7
+- Keep all current mock endpoints working.
+- Replace mock internals with real provider/runtime layers behind stable contracts.
+- Preserve mock mode.
+- Ensure no secrets leak.
 
-Deliver today:
+### Edwin: Memory, Report, Demo, Release
 
-- Runtime state machine.
-- Sample log reader.
-- Policy checker.
-- Approval-required shell step.
+Email: `edwin.giwin@gmail.com`
 
-### Person 5: Dashboard, Memory, Report
+Start: Workstreams 9, 10, and 11
 
-Start: Workstreams 8, 9, and 10
+Owns:
 
-Deliver today:
+- Persistent memory system.
+- Final incident report.
+- Deployment and demo verification.
+- Demo script and judge walkthrough.
 
-- Mock SSE dashboard.
-- Memory timeline.
-- Final report component.
+Deliver first:
 
-### Person 6: Providers And Deployment
-
-Start: Workstreams 5 and 11
-
-Deliver today:
-
-- Mock provider.
-- Provider interface.
-- Cloudflare smoke checks.
-- Demo script outline.
+- Connect memory/report screens to mock endpoints.
+- Keep Cloudflare smoke checks current.
+- Maintain a five-minute demo script.
+- Track deployment status and limitations.
 
 ## Merge Checklist
 
@@ -713,4 +728,3 @@ Run this when the integrated flow exists:
 9. Confirm memory updates.
 10. Confirm final report appears.
 11. Confirm `/api/health` still returns `ok: true`.
-

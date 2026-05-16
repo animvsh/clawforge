@@ -1,5 +1,7 @@
 # ClawForge PRD
 
+> Deployment note, May 16, 2026: Cloudflare Workers is the current canonical live demo target at https://clawforge.aalang.workers.dev/. Railway remains a backlog/alternate deployment target unless explicitly reactivated.
+
 ## 1. Executive Summary
 
 ClawForge is a one-prompt builder for secure autonomous agents. A user describes a workflow in plain English, and ClawForge generates an OpenClaw/Hermes-compatible agent blueprint, selects tools, creates persistent memory, writes NemoClaw safety policies, deploys the agent runtime, and streams every decision, tool call, policy check, approval request, and memory update into a live audit dashboard.
