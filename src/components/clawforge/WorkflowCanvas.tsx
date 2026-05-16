@@ -308,6 +308,7 @@ function CanvasInner({
 }: CanvasInnerProps) {
   const { fitView } = useReactFlow();
   const lastTopologySignatureRef = useRef<string | null>(null);
+  const lastPositionSignatureRef = useRef<string | null>(null);
 
   // Apply default layout to nodes without positions
   const layoutedGraph = useMemo(() => {
@@ -334,6 +335,11 @@ function CanvasInner({
       }),
     [layoutedGraph],
   );
+  const positionSignature = useMemo(
+    () =>
+      JSON.stringify(layoutedGraph.nodes.map((node) => [node.id, node.x ?? null, node.y ?? null])),
+    [layoutedGraph.nodes],
+  );
 
   const [nodes, setNodes, onNodesChangeInternal] = useNodesState<WorkflowFlowNode>(initialNodes);
   const [edges, setEdges, onEdgesChangeInternal] = useEdgesState(initialEdges);
@@ -348,10 +354,27 @@ function CanvasInner({
     const layoutedGraphAdjusted = { ...graph, nodes: layouted };
     setNodes(graphNodesToFlowNodes(layoutedGraphAdjusted, selectedNodeId));
     setEdges(graphEdgesToFlowEdges(layoutedGraphAdjusted));
+    lastPositionSignatureRef.current = positionSignature;
     setTimeout(() => {
       fitView({ padding: 0.3, duration: 200 });
     }, 50);
-  }, [fitView, graph, selectedNodeId, setEdges, setNodes, topologySignature]);
+  }, [fitView, graph, positionSignature, selectedNodeId, setEdges, setNodes, topologySignature]);
+
+  // Reapply saved/server-provided coordinates without fitting the viewport.
+  useEffect(() => {
+    if (lastPositionSignatureRef.current === positionSignature) return;
+    lastPositionSignatureRef.current = positionSignature;
+    const latestFlowNodes = graphNodesToFlowNodes(layoutedGraph, selectedNodeId);
+    setNodes((currentNodes) => {
+      const currentById = new Map(currentNodes.map((node) => [node.id, node]));
+      return latestFlowNodes.map((node) => ({
+        ...(currentById.get(node.id) ?? node),
+        position: node.position,
+        data: node.data,
+        selected: node.selected,
+      }));
+    });
+  }, [layoutedGraph, positionSignature, selectedNodeId, setNodes]);
 
   // Sync selected/status data without replacing node positions.
   useEffect(() => {
@@ -375,20 +398,16 @@ function CanvasInner({
   const handleNodeDragStop = useCallback(
     (_: React.MouseEvent, draggedNode: Node, currentNodes: Node[]) => {
       if (!onNodesChange) return;
-      const flowNodes = currentNodes.length > 0 ? currentNodes : nodes;
+      const draggedById = new Map(currentNodes.map((node) => [node.id, node]));
       onNodesChange(
-        flowNodes.map((node) => {
-          const data = node.data as WorkflowNodeData;
+        nodes.map((node) => {
+          const changedNode =
+            draggedById.get(node.id) ?? (node.id === draggedNode.id ? draggedNode : node);
+          const data = (changedNode.data ?? node.data) as WorkflowNodeData;
           return {
             ...data,
-            x:
-              node.id === draggedNode.id
-                ? draggedNode.position.x / COL_SPACING
-                : node.position.x / COL_SPACING,
-            y:
-              node.id === draggedNode.id
-                ? draggedNode.position.y / ROW_SPACING
-                : node.position.y / ROW_SPACING,
+            x: changedNode.position.x / COL_SPACING,
+            y: changedNode.position.y / ROW_SPACING,
           };
         }),
       );
