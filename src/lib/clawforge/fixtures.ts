@@ -242,8 +242,8 @@ export const demoMemory: MemoryItem[] = [
   {
     id: "memory_denied_shell",
     agent_id: DEMO_AGENT_ID,
-    type: "approval",
-    content: "User denied shell execution for an unknown source IP.",
+    type: "preference",
+    content: "Prior preference: unknown source IP shell actions require human approval.",
     created_at: timestamp,
   },
   {
@@ -302,7 +302,8 @@ export const demoEvents: RuntimeEvent[] = [
     id: "event_006",
     agent_id: DEMO_AGENT_ID,
     type: "memory.updated",
-    message: "Saved user preference: require explicit approval for unknown IP shell actions.",
+    message:
+      "Saved memory: user denied shell execution for unknown suspicious IPs; future remediation commands require explicit approval.",
     timestamp,
     severity: "success",
   },
@@ -322,11 +323,25 @@ export const demoReport: IncidentReport = {
   title: "Suspicious Login Activity",
   severity: "high",
   detected_behavior: "Repeated failed login attempts",
+  classification: "Credential access attempt with brute-force indicators",
+  model_used: "NVIDIA Nemotron via ClawForge mock demo path",
+  runtime: "OpenClaw runtime inside NemoClaw sandbox",
+  policy_triggered: "require_shell_approval",
+  action_attempted: "block_ip 185.92.XX.XX",
+  user_decision: "Command denied.",
+  final_action:
+    "SentinelClaw skipped automatic remediation and continued with a report-only workflow.",
+  memory_update:
+    "User denied shell execution for unknown suspicious IPs. Future remediation commands against unknown IPs require explicit approval.",
+  safety_result:
+    "NemoClaw kept the agent inside safe mode. No restricted action was executed without approval.",
   likely_threat: "Brute-force login attempt",
   mitre_mapping: "Credential Access",
   evidence: [
     "47 failed SSH login attempts in 2 minutes.",
     "Source IP: 185.92.XX.XX.",
+    "Second suspicious source detected: 91.201.XX.XX.",
+    "Memory retrieved: user denied shell execution for unknown suspicious IPs.",
     "No approved remediation command was executed.",
   ],
   recommended_action:
@@ -334,5 +349,8 @@ export const demoReport: IncidentReport = {
   actions_attempted: ["block_ip 185.92.XX.XX"],
   actions_blocked: ["Raw log export", "Shell command without approval"],
   approval_decisions: ["User denied command execution."],
-  memory_updates: demoMemory.map((item) => item.content),
+  memory_updates: [
+    ...demoMemory.map((item) => item.content),
+    "Retrieved memory before handling 91.201.XX.XX and skipped automatic remediation.",
+  ],
 };
