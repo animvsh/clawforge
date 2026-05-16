@@ -18,14 +18,12 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "ClawForge generates OpenClaw-compatible agent instances powered by NVIDIA Nemotron, attaches tools and memory, writes NemoClaw policies, and deploys them with live audit logs.",
+          "ClawForge turns one prompt into a NemoClaw-secured autonomous agent instance with tools, memory, policies, and live audit logs.",
       },
     ],
   }),
   component: Index,
 });
-
-const simpleSteps = ["Prompt", "Blueprint", "Deploy", "Audit"];
 
 function Reveal({
   children,
@@ -80,15 +78,15 @@ function Section({
   id?: string;
 }) {
   return (
-    <section id={id} className="border-t border-white/[0.07] px-6 md:px-12 lg:px-16 py-16">
-      <div className="max-w-6xl mx-auto">
+    <section id={id} className="border-t border-white/[0.07] px-6 py-14 md:px-12 lg:px-16">
+      <div className="mx-auto max-w-6xl">
         <Reveal>
           {eyebrow && (
-            <div className="text-[11px] text-white/40 lowercase mb-4 tracking-[0.3em]">
+            <div className="mb-4 text-[11px] lowercase tracking-[0.3em] text-white/35">
               {eyebrow}
             </div>
           )}
-          <h2 className="text-3xl lg:text-4xl font-semibold tracking-tight lowercase leading-[1.08] max-w-2xl">
+          <h2 className="max-w-2xl text-3xl font-semibold leading-[1.08] tracking-tight lowercase lg:text-4xl">
             {title}
           </h2>
         </Reveal>
@@ -108,74 +106,26 @@ function HeroVisual() {
       <img
         src={heroImage}
         alt=""
-        className="h-full w-full scale-105 object-cover object-[68%_50%] opacity-70 blur-[1px] saturate-[0.85]"
+        className="h-full w-full scale-105 object-cover object-[62%_50%] opacity-64 blur-[1.5px] saturate-[0.78]"
       />
-      <div className="absolute inset-0 bg-black/35" />
-      <div className="absolute inset-y-0 left-0 w-28 bg-gradient-to-r from-black/70 to-transparent" />
-      <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/45 to-transparent" />
-      <div className="absolute right-6 top-6 hidden md:block">
-        <div className="flex items-center gap-2 border border-white/10 bg-black/35 px-3 py-1.5 text-[10px] uppercase tracking-[0.28em] text-white/65 backdrop-blur">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-          sandbox live
-        </div>
-      </div>
-      <div className="absolute bottom-6 left-6 hidden border border-white/10 bg-black/30 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.22em] text-white/50 backdrop-blur md:block">
-        approval gate armed
-      </div>
+      <div className="absolute inset-0 bg-black/42" />
+      <div className="absolute inset-y-0 left-0 w-36 bg-gradient-to-r from-black/85 to-transparent" />
     </div>
   );
 }
 
 function EmptyPanel({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-8">
+    <div className="border border-white/10 bg-white/[0.02] p-7">
       <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">{title}</div>
       <p className="mt-3 max-w-xl text-sm leading-relaxed text-white/55 lowercase">{body}</p>
     </div>
   );
 }
 
-function SimpleFlow() {
-  return (
-    <div className="grid gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 md:grid-cols-4">
-      {simpleSteps.map((step, index) => (
-        <div key={step} className="bg-black p-5">
-          <div className="text-[10px] uppercase tracking-[0.24em] text-white/30">
-            {String(index + 1).padStart(2, "0")}
-          </div>
-          <div className="mt-3 text-base font-semibold lowercase text-white/90">{step}</div>
-          <div className="mt-2 text-sm lowercase leading-relaxed text-white/55">
-            {index === 0 && "Describe the workflow."}
-            {index === 1 && "Review tools and policies."}
-            {index === 2 && "Run the agent safely."}
-            {index === 3 && "Watch logs, memory, and report."}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function SafetyStrip() {
-  return (
-    <div className="grid gap-3 md:grid-cols-3">
-      {[
-        ["Allowed", "Read logs and write local reports."],
-        ["Approval", "Pause shell commands and external alerts."],
-        ["Blocked", "Deny raw exports and unsafe actions."],
-      ].map(([title, body]) => (
-        <div key={title} className="rounded-2xl border border-white/10 bg-white/[0.025] p-5">
-          <div className="font-semibold lowercase text-white/90">{title}</div>
-          <div className="mt-2 text-sm lowercase text-white/55">{body}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function ReportPlaceholder() {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-8">
+    <div className="border border-white/10 bg-white/[0.02] p-7">
       <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">report waiting</div>
       <p className="mt-3 max-w-xl text-sm leading-relaxed text-white/55 lowercase">
         Generate and deploy SentinelClaw, then deny or approve the pending shell action to complete
@@ -187,20 +137,18 @@ function ReportPlaceholder() {
 
 function FinalCta() {
   return (
-    <section className="border-t border-white/[0.07] px-6 py-20 md:px-12 lg:px-16">
+    <section className="border-t border-white/[0.07] px-6 py-16 md:px-12 lg:px-16">
       <div className="mx-auto max-w-6xl">
-        <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-8 md:p-10">
-          <div className="text-[11px] lowercase tracking-[0.3em] text-white/45">
-            ready for the demo
-          </div>
-          <h2 className="mt-4 max-w-3xl text-3xl font-semibold leading-[1.08] tracking-tight lowercase lg:text-5xl">
-            describe an agent. generate it. sandbox it. run it.
+        <div className="max-w-3xl">
+          <div className="text-[11px] lowercase tracking-[0.3em] text-white/35">demo line</div>
+          <h2 className="mt-4 text-3xl font-semibold leading-[1.08] tracking-tight lowercase lg:text-5xl">
+            describe it. sandbox it. run it.
           </h2>
           <a
             href="#builder"
-            className="mt-7 inline-block rounded-xl bg-white px-6 py-3 text-sm font-medium lowercase text-black transition hover:bg-white/90"
+            className="mt-7 inline-block bg-white px-6 py-3 text-sm font-semibold lowercase text-black transition hover:bg-white/90"
           >
-            Build an Agent
+            build an agent
           </a>
         </div>
       </div>
@@ -224,17 +172,19 @@ function Index() {
   return (
     <main className="min-h-screen bg-black text-white">
       <div className="grid min-h-screen lg:grid-cols-[34%_66%]">
-        <section className="relative order-2 flex min-h-[64vh] flex-col border-r border-white/[0.06] bg-black p-8 animate-fade-in lg:order-1 lg:min-h-screen lg:p-14">
+        <section className="relative order-2 flex min-h-[64vh] animate-fade-in flex-col border-r border-white/[0.06] bg-black p-8 lg:order-1 lg:min-h-screen lg:p-14">
           <Logo />
 
           <div className="mt-auto max-w-xl pb-8 pt-16 lg:pb-12">
-            <h1 className="text-5xl font-semibold leading-[0.98] tracking-tight lowercase md:text-6xl lg:text-[4.6rem] xl:text-[5.2rem]">
-              Build NemoClaw-secured agent instances from one prompt.
+            <div className="mb-8 text-[11px] lowercase tracking-[0.34em] text-white/34">
+              describe an agent. sandbox it. run it.
+            </div>
+            <h1 className="text-6xl font-semibold leading-[0.93] tracking-tight lowercase md:text-7xl lg:text-[5.6rem] xl:text-[6.2rem]">
+              build agents. ship safely.
             </h1>
-            <p className="mt-7 max-w-lg text-base leading-relaxed text-white/58 md:text-lg">
-              ClawForge generates OpenClaw-compatible agent instances powered by NVIDIA Nemotron,
-              attaches tools and memory, writes NemoClaw policies, and deploys them with live audit
-              logs.
+            <p className="mt-7 max-w-md text-base leading-relaxed text-white/54 md:text-lg">
+              ClawForge turns one prompt into a NemoClaw-secured autonomous agent instance with
+              tools, memory, policies, and live audit logs.
             </p>
 
             <div className="mt-8 flex flex-wrap gap-3">
@@ -259,12 +209,14 @@ function Index() {
         </section>
       </div>
 
-      <section id="builder" className="border-t border-white/[0.07] px-6 py-16 md:px-12 lg:px-16">
+      <section id="builder" className="border-t border-white/[0.07] px-6 py-14 md:px-12 lg:px-16">
         <div className="mx-auto max-w-6xl">
           <Reveal>
-            <div className="mb-4 text-[11px] lowercase tracking-[0.3em] text-white/45">builder</div>
+            <div className="mb-4 text-[11px] lowercase tracking-[0.3em] text-white/35">
+              start here
+            </div>
             <h2 className="max-w-2xl text-3xl font-semibold leading-[1.08] tracking-tight lowercase lg:text-4xl">
-              describe your agent. ClawForge will build it.
+              describe the workflow.
             </h2>
           </Reveal>
           <Reveal delay={120} className="mt-10">
@@ -279,11 +231,7 @@ function Index() {
         </div>
       </section>
 
-      <Section id="how" eyebrow="flow" title="one clean path from prompt to audit.">
-        <SimpleFlow />
-      </Section>
-
-      <Section id="blueprint" eyebrow="blueprint review" title="review the generated blueprint.">
+      <Section id="blueprint" eyebrow="review" title="check the blueprint.">
         {blueprint ? (
           <BlueprintReview
             blueprint={blueprint}
@@ -297,15 +245,11 @@ function Index() {
         )}
       </Section>
 
-      <Section id="safety" eyebrow="safety" title="autonomy with guardrails.">
-        <SafetyStrip />
-      </Section>
-
-      <Section id="dashboard" eyebrow="live dashboard" title="see every decision as it happens.">
+      <Section id="dashboard" eyebrow="run" title="watch it work.">
         <LiveDashboard agentId={agentId} onReport={setReport} />
       </Section>
 
-      <Section id="report" eyebrow="final output" title="final incident output.">
+      <Section id="report" eyebrow="output" title="read the report.">
         {report ? <IncidentReport report={report} /> : <ReportPlaceholder />}
       </Section>
 
