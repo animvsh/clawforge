@@ -1,4 +1,4 @@
-export type ProviderMode = "auto" | "nemotron" | "minimax" | "mock";
+export type ProviderMode = "auto" | "nemotron" | "minimax" | "pi" | "mock";
 
 export type ToolPermission = "allowed" | "read_only" | "approval_required" | "blocked";
 export type RiskLevel = "low" | "medium" | "high";
@@ -153,4 +153,64 @@ export type IncidentReportResponse = {
   ok: true;
   agent_id: string;
   report: IncidentReport;
+};
+
+// ANU-57: Capability manifest and policy broker
+
+export type CapabilityTarget = "agent" | "tool" | "user" | "system";
+
+export type CapabilityPermission = "allowed" | "denied" | "approval_required";
+
+export type Capability = {
+  id: string;
+  name: string;
+  action: string;
+  target: CapabilityTarget;
+  permission: CapabilityPermission;
+  conditions?: Record<string, unknown>;
+};
+
+export type AgentCapabilityManifest = {
+  manifest_id: string;
+  agent_id: string;
+  agent_name: string;
+  version: string;
+  capabilities: Capability[];
+  created_at: string;
+};
+
+export type ActionEnvelopeContext = {
+  agent_id?: string;
+  session_id?: string;
+  user_id?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type ActionEnvelopeParams = Record<string, unknown>;
+
+export type ActionEnvelope = {
+  action: string;
+  tool?: string;
+  params: ActionEnvelopeParams;
+  context: ActionEnvelopeContext;
+  capabilities: AgentCapabilityManifest;
+};
+
+// ANU-58: Provider configuration (env var references, not values)
+
+export type ProviderConfig = {
+  mode: ProviderMode;
+  env_vars: {
+    nemotron?: string; // NVIDIA_API_KEY
+    minimax_api_key?: string; // MINIMAX_API_KEY
+    minimax_plan_key?: string; // MINIMAX_PLAN_KEY
+  };
+  fallback_chain: ProviderMode[];
+};
+
+export type ProviderStatus = {
+  mode: ProviderMode;
+  model: string;
+  available: boolean;
+  error?: string;
 };
