@@ -23,8 +23,9 @@ This plan slices the NemoClaw-first PRD into separate worktrees with low merge-c
 6. Live dashboard UI.
 7. Final report UI.
 8. Landing positioning scrub.
-9. QA, docs, and deploy.
-10. Supabase accounts, only after the core NemoClaw demo path stays green.
+9. Brev foundation and Launchable.
+10. QA, docs, and deploy.
+11. Supabase accounts, only after the core NemoClaw demo path stays green.
 
 ## Development Start Checklist
 
@@ -55,7 +56,8 @@ Before anyone starts implementation:
 | ANU-48 | Live dashboard                     | After ANU-46 and ANU-47                 | ANU-49, ANU-50, ANU-54                 |
 | ANU-49 | Approval and report UI             | After ANU-47 and ANU-48                 | ANU-50, ANU-54                         |
 | ANU-41 | Positioning and landing            | Immediately                             | ANU-50                                 |
-| ANU-50 | QA, deploy, and handoff            | After ANU-41 through ANU-49             | Final release                          |
+| ANU-56 | Brev foundation and Launchable     | After ANU-44, before final QA           | ANU-50                                 |
+| ANU-50 | QA, deploy, and handoff            | After ANU-41 through ANU-49 and ANU-56  | Final release                          |
 | ANU-55 | Supabase accounts                  | After ANU-50                            | Optional P1 release                    |
 | ANU-51 | Editable policies                  | After ANU-43 and ANU-44                 | Optional P1 release                    |
 | ANU-52 | Multiple templates                 | After ANU-42 and ANU-44                 | Optional P1 release                    |
@@ -338,8 +340,45 @@ Acceptance criteria:
 - `npm run build` passes.
 - Production smoke covers blueprint, deploy, audit stream, approval denial, memory retrieval, and final report.
 - Cloudflare live URL is updated.
+- Brev runtime demo is verified as the canonical environment.
 - Linear issues match worktree lanes.
 - No secrets are present in repo, docs, Linear descriptions, or logs.
+
+## Lane J2: Brev Foundation And Launchable
+
+Owner: Backend / Deployment
+
+Branch: `codex/nemoclaw-brev-foundation`
+
+Primary files:
+
+- `scripts/brev/setup-clawforge.sh`
+- `README.md`
+- `artifacts/CLAWFORGE_BREV_BUILD_RESEARCH.md`
+- `artifacts/CLAWFORGE_NEMOCLAW_WORKTREE_PLAN.md`
+- `.env.example`
+
+Goal:
+
+Make Brev the canonical ClawForge build and demo environment.
+
+Brev role:
+
+- Host the core NemoClaw/Nemotron runtime.
+- Run the ClawForge app and API.
+- Provide a reproducible GPU development environment.
+- Produce a Launchable for team/judge reproducibility.
+
+Acceptance criteria:
+
+- Brev setup instructions are documented.
+- Setup script is safe and secret-free.
+- Required Brev secrets are documented by name only.
+- ClawForge can run on `0.0.0.0` inside Brev.
+- NemoClaw onboarding path is documented.
+- Ports/tunnels are documented.
+- Launchable creation checklist exists.
+- Cloudflare is treated as optional landing/public mirror; Brev is the canonical runtime demo.
 
 ## Lane K: Supabase Accounts And Auth
 

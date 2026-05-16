@@ -20,6 +20,7 @@ NemoClaw-first v2 artifacts:
 Linear v2 scope:
 
 - `ANU-41` through `ANU-50`: P0 NemoClaw-first worktree lanes.
+- `ANU-56`: P0 Brev foundation and Launchable lane.
 - `ANU-51` through `ANU-55`: P1 follow-up features, including optional Supabase accounts.
 
 Development readiness:
@@ -28,7 +29,8 @@ Development readiness:
 - Then merge `ANU-45` API compatibility and `ANU-46` policy router.
 - Then merge `ANU-47` runtime and memory.
 - Frontend lanes can work in parallel as long as they stay inside their owned files and wait for shared type changes before final merge.
-- `ANU-50` is the final QA/deploy gate and should run after all P0 lanes.
+- `ANU-56` makes Brev the canonical build/demo environment and should land before final QA.
+- `ANU-50` is the final QA/deploy gate and should run after all P0 lanes, including Brev.
 - `ANU-55` Supabase accounts is optional P1 and must not block the public NemoClaw demo.
 
 V2 owner split:
@@ -36,6 +38,7 @@ V2 owner split:
 - Adithya / frontend: `ANU-41`, `ANU-42`, `ANU-43`, plus P1 `ANU-51`, `ANU-52`.
 - pmgandhi / backend: `ANU-44`, `ANU-45`, `ANU-46`, `ANU-47`, plus P1 `ANU-53`, `ANU-55`.
 - Edwin / dashboard, report, QA: `ANU-48`, `ANU-49`, `ANU-50`, plus P1 `ANU-54`.
+- Deployment/Brev owner: `ANU-56`.
 
 Supabase project reference: `mfslvyqvkutazsimsrhu`
 
