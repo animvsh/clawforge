@@ -241,14 +241,11 @@ function buildResearchGraph(_prompt: string): WorkflowGraph {
   nodes.push(node("in-0", "Research Topic", "Defined goal", "input", "ready", "🔍", 0, 0));
   nodes.push(node("tool-0", "Source Collector", "Gather sources", "tool", "idle", "📚", 1, 0));
   nodes.push(node("model-0", "Summarizer", "Synthesize content", "model", "idle", "🧠", 2, 0));
-  nodes.push(node("tool-1", "Brief Generator", "Create document", "tool", "idle", "📝", 3, 0));
-  nodes.push(node("tool-2", "Citation Check", "Verify references", "tool", "idle", "✅", 4, 0));
-  nodes.push(node("approval-0", "Approval Gate", "Human review", "approval", "idle", "⏸️", 5, 0));
-  nodes.push(node("out-0", "Export", "Final output", "output", "idle", "⬇️", 6, 0));
+  nodes.push(node("approval-0", "Approval Gate", "Human review", "approval", "idle", "⏸️", 3, 0));
+  nodes.push(node("out-0", "Export", "Final output", "output", "idle", "⬇️", 4, 0));
 
   const edgeData: [string, string][] = [
-    ["in-0", "tool-0"], ["tool-0", "model-0"], ["model-0", "tool-1"],
-    ["tool-1", "tool-2"], ["tool-2", "approval-0"], ["approval-0", "out-0"],
+    ["in-0", "tool-0"], ["tool-0", "model-0"], ["model-0", "approval-0"], ["approval-0", "out-0"],
   ];
 
   edgeData.forEach(([src, tgt], i) => edges.push({ id: makeEdgeId(i), sourceId: src, targetId: tgt, type: "execution" }));

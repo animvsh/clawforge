@@ -105,8 +105,8 @@ function Index() {
               <AgentPromptComposer
                 value={prompt}
                 onChange={setPrompt}
-                onSubmit={() => {
-                  const cleanPrompt = prompt.trim();
+                onSubmit={(val) => {
+                  const cleanPrompt = (val ?? prompt).trim();
                   if (!cleanPrompt) return;
                   setSubmitting(true);
                   const project = createProject(cleanPrompt);

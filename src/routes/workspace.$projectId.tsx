@@ -162,11 +162,14 @@ function WorkspacePage() {
       setEvents([]);
       setProject(updateProject(nextProject.id, { status: "generating" }) ?? nextProject);
       if (!options.preserveChat) {
+        const promptContext = nextProject.prompt
+          ? `\n\nThe user requested: "${nextProject.prompt.slice(0, 200)}${nextProject.prompt.length > 200 ? "…" : ""}"`
+          : "";
         setChat([
           ["user", nextProject.prompt],
           [
             "assistant",
-            "I’ll create a secure NemoClaw agent. I’m generating the workflow graph, tool permissions, policies, memory rules, and deployment config.",
+            `Hello! I’m your NemoClaw assistant. I’ve analyzed your agent goal and I’m generating the full workflow — tools, policies, memory rules, and deployment config now.${promptContext}\n\nYou can ask me anything about the agent’s behavior, modify settings, or trigger a deploy from here.`,
           ],
         ]);
       }
@@ -739,10 +742,10 @@ function WorkspacePage() {
             <AgentPromptComposer
               value={message}
               onChange={setMessage}
-              onSubmit={() => {
-                const msg = message.trim();
-                if (!msg) return;
-                setChat((prev) => [...prev, [msg, ""]]);
+              onSubmit={(msg) => {
+                const clean = (msg ?? "").trim();
+                if (!clean) return;
+                setChat((prev) => [...prev, [clean, ""]]);
                 setMessage("");
                 setTimeout(() => {
                   setChat((prev) => {

@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 interface AgentPromptComposerProps {
   value: string;
   onChange: (value: string) => void;
-  onSubmit?: () => void;
+  onSubmit?: (value: string) => void;
   disabled?: boolean;
   suggestions?: string[];
   ctaLabel?: string;
@@ -72,7 +72,7 @@ export function AgentPromptComposer({
 
   function handleSubmit() {
     if (!value.trim() || disabled) return;
-    onSubmit?.();
+    onSubmit?.(value.trim());
   }
 
   const showPlaceholder = !value;
