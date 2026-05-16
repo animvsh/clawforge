@@ -737,6 +737,7 @@ function WorkspacePage() {
                   return updated;
                 });
               }, 1200);
+              void sendChat(clean);
             }}
             ctaLabel="Send"
             showPlanToggle={false}

@@ -163,7 +163,9 @@ function WorkflowNodeCard({ data }: NodeProps<WorkflowNode>) {
         width:  160,
         height: 80,
         background: "#1a1a1a",
-        border: `1px solid ${statusStyle.border}`,
+        borderTop: `1px solid ${statusStyle.border}`,
+        borderRight: `1px solid ${statusStyle.border}`,
+        borderBottom: `1px solid ${statusStyle.border}`,
         borderLeft: `3px solid ${kindColor}`,
         borderRadius: 6,
         boxShadow: isRunning
