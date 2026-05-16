@@ -1,6 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { AgentBuilder } from "@/components/clawforge/AgentBuilder";
+import { BlueprintReview } from "@/components/clawforge/BlueprintReview";
+import { IncidentReport } from "@/components/clawforge/IncidentReport";
+import { LiveDashboard } from "@/components/clawforge/LiveDashboard";
 import { useReveal } from "@/hooks/use-reveal";
+import type {
+  BlueprintResponse,
+  IncidentReport as IncidentReportModel,
+} from "@/lib/clawforge/types";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -551,6 +559,18 @@ function FinalReport() {
 }
 
 function Index() {
+  const [blueprint, setBlueprint] = useState<BlueprintResponse | null>(null);
+  const [agentId, setAgentId] = useState<string | undefined>();
+  const [report, setReport] = useState<IncidentReportModel | null>(null);
+
+  useEffect(() => {
+    if (!agentId) return;
+    fetch(`/api/agents/${agentId}/report`)
+      .then((response) => response.json())
+      .then((data) => setReport(data.report ?? null))
+      .catch(() => setReport(null));
+  }, [agentId]);
+
   return (
     <main className="min-h-screen bg-black text-white">
       <div className="grid min-h-[92vh] lg:grid-cols-[0.9fr_1.1fr]">
@@ -599,9 +619,22 @@ function Index() {
       </div>
 
       <section id="builder" className="border-t border-white/[0.07] px-6 py-16 md:px-12 lg:px-16">
-        <div className="mx-auto grid max-w-5xl gap-5 lg:grid-cols-[1fr_0.9fr]">
-          <PromptCard />
-          <GenerationPanel />
+        <div className="mx-auto max-w-6xl">
+          <Reveal>
+            <div className="mb-4 text-[11px] lowercase tracking-[0.3em] text-white/45">builder</div>
+            <h2 className="max-w-2xl text-3xl font-semibold leading-[1.08] tracking-tight lowercase lg:text-4xl">
+              describe your agent. ClawForge will build it.
+            </h2>
+          </Reveal>
+          <Reveal delay={120} className="mt-10">
+            <AgentBuilder
+              onBlueprint={(nextBlueprint) => {
+                setBlueprint(nextBlueprint);
+                setAgentId(undefined);
+                setReport(null);
+              }}
+            />
+          </Reveal>
         </div>
       </section>
 
@@ -649,7 +682,14 @@ function Index() {
         eyebrow="blueprint review"
         title="your secure agent blueprint is ready."
       >
-        <BlueprintPreview />
+        {blueprint ? (
+          <BlueprintReview
+            blueprint={blueprint}
+            onDeployed={(nextAgentId) => setAgentId(nextAgentId)}
+          />
+        ) : (
+          <BlueprintPreview />
+        )}
       </Section>
 
       <Section id="safety" eyebrow="safety" title="autonomy with guardrails.">
@@ -665,11 +705,11 @@ function Index() {
       </Section>
 
       <Section id="dashboard" eyebrow="live dashboard" title="see every decision as it happens.">
-        <DashboardPreview />
+        <LiveDashboard agentId={agentId} />
       </Section>
 
       <Section id="report" eyebrow="final output" title="incident report generated.">
-        <FinalReport />
+        {report ? <IncidentReport report={report} /> : <FinalReport />}
       </Section>
 
       <section className="relative overflow-hidden border-t border-white/[0.07] px-6 py-24 md:px-12 lg:px-16">

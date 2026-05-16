@@ -8,6 +8,7 @@ export function listMemory(): MemoryItem[] {
 export function createApprovalMemory(content: string): MemoryItem {
   return {
     ...demoMemory[1],
+    id: `memory_approval_${Date.now()}`,
     content,
     created_at: new Date().toISOString(),
   };
