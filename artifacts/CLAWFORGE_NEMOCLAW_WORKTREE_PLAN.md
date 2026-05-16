@@ -110,7 +110,7 @@ Acceptance criteria:
 - CTA says "Build NemoClaw Agent."
 - Secondary CTA says "Watch Safety Demo."
 - Page explains prompt -> NemoClaw blueprint -> sandboxed agent -> policy enforcement -> memory -> safe completion.
-- No copy implies ClawForge is Lantern, a Slack-like workspace, a chatbot, or an app builder.
+- No copy implies ClawForge is an unrelated workspace, chatbot, or app builder.
 - Buildspace-inspired simplicity remains intact.
 
 ## Lane B: Prompt Builder And Generation States

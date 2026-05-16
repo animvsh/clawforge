@@ -22,6 +22,7 @@ NemoClaw-first v2 artifacts:
 - `artifacts/CLAWFORGE_NEMOCLAW_WORKTREE_PLAN.md`
 - `artifacts/CLAWFORGE_BREV_BUILD_RESEARCH.md`
 - `artifacts/CLAWFORGE_PI_SANDBOX_RESEARCH.md`
+- `artifacts/CLAWFORGE_MAIN_INTEGRATION_FRAME.md`
 
 Linear v2 scope:
 
@@ -43,12 +44,20 @@ Development readiness:
 - `ANU-50` is the final QA/deploy gate and should run after all P0 lanes, including Brev and sandbox hardening.
 - `ANU-55` Supabase accounts is optional P1 and must not block the public NemoClaw demo.
 
+Main integration frame:
+
+- Everyone branches from latest `main`.
+- Everyone works one Linear issue per branch.
+- Every PR merges back into `main`.
+- There is no long-running integration branch.
+- Everyone pulls latest `main` before starting the next issue.
+
 Four-person owner split:
 
-- Animesh / product, safety, final coordination: `ANU-36`, `ANU-41`, `ANU-50`, `ANU-53`.
-- Adithya / frontend experience: `ANU-42`, `ANU-43`, `ANU-48`, plus P1 `ANU-51`, `ANU-52`.
-- pmgandhi / backend, runtime, providers, policy: `ANU-37`, `ANU-38`, `ANU-39`, `ANU-44`, `ANU-45`, `ANU-46`, `ANU-47`, `ANU-55`, `ANU-57`, `ANU-58`, `ANU-59`, `ANU-60`, `ANU-61`, `ANU-62`, `ANU-63`.
-- Edwin / memory, report, deployment, QA: `ANU-31`, `ANU-40`, `ANU-49`, `ANU-54`, `ANU-56`, `ANU-64`, `ANU-65`.
+- Animesh / product, safety, final coordination: `ANU-36`, `ANU-50`.
+- Paras / UI and frontend experience, using `pmgandhi@ucsc.edu` in Linear: `ANU-41`, `ANU-42`, `ANU-43`, `ANU-48`, plus P1 `ANU-51`, `ANU-52`, `ANU-53`.
+- Adithya / backend, runtime, providers, policy: `ANU-37`, `ANU-38`, `ANU-39`, `ANU-44`, `ANU-45`, `ANU-46`, `ANU-47`, `ANU-55`, `ANU-57`, `ANU-58`, `ANU-59`, `ANU-60`, `ANU-61`, `ANU-62`, `ANU-63`.
+- Edwin / memory, reports, Brev, deployment, QA: `ANU-31`, `ANU-40`, `ANU-49`, `ANU-54`, `ANU-56`, `ANU-64`, `ANU-65`.
 
 Advanced runtime scope:
 
