@@ -905,6 +905,42 @@ function integrationRequirementsForGoal(prompt: string): IntegrationRequirement[
       status: "required",
     });
   }
+  if (/\b(doc|docs|document|documents|google doc|writeup|brief)\b/.test(normalized)) {
+    add({
+      id: "google_docs",
+      label: "Docs",
+      purpose: "Draft, review, and update approved documents for this workflow.",
+      status: "required",
+    });
+    add({
+      id: "google_drive",
+      label: "Drive",
+      purpose: "Find and store approved documents and generated reports.",
+      status: "optional",
+    });
+  }
+  if (/\b(sheet|sheets|spreadsheet|spread spreadsheets|tracker|row|rows)\b/.test(normalized)) {
+    add({
+      id: "google_sheets",
+      label: "Sheets",
+      purpose: "Read and update approved spreadsheets or trackers.",
+      status: "required",
+    });
+    add({
+      id: "google_drive",
+      label: "Drive",
+      purpose: "Find and store approved spreadsheets and generated reports.",
+      status: "optional",
+    });
+  }
+  if (/\b(slack|channel|channels|team notification|internal notification)\b/.test(normalized)) {
+    add({
+      id: "slack",
+      label: "Slack",
+      purpose: "Send approved internal updates and team handoffs.",
+      status: "required",
+    });
+  }
   if (/\b(customer|lead|crm|contact|contacts)\b/.test(normalized)) {
     add({
       id: "crm",

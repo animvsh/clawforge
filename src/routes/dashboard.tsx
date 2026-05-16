@@ -1,5 +1,6 @@
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowRight, Plus } from "lucide-react";
+import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { AuthPanel } from "@/components/clawforge/AuthPanel";
 import { ClawForgeFrame, PageShell } from "@/components/clawforge/ClawForgeFrame";
@@ -37,8 +38,11 @@ function statusLabel(status: ClawForgeProject["status"]) {
 }
 
 function DashboardPage() {
+  const navigate = useNavigate();
   const [projects, setProjects] = useState<ClawForgeProject[]>([]);
   const [instances, setInstances] = useState<ClawForgeInstance[]>([]);
+  const [showNewAgent, setShowNewAgent] = useState(false);
+  const [draftPrompt, setDraftPrompt] = useState(quickPrompt);
   const auth = useClawForgeAuth();
 
   function refresh() {
@@ -69,10 +73,18 @@ function DashboardPage() {
     );
   }
 
-  function createQuickProject() {
-    createProject(quickPrompt);
+  function createNewProject(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const cleanPrompt = draftPrompt.trim();
+    if (!cleanPrompt) return;
+    const project = createProject(cleanPrompt);
     setProjects(listProjects());
     setInstances(listInstances());
+    setShowNewAgent(false);
+    void navigate({
+      to: "/workspace/$projectId",
+      params: { projectId: project.id },
+    });
   }
 
   return (
@@ -100,13 +112,66 @@ function DashboardPage() {
           </div>
           <button
             type="button"
-            onClick={createQuickProject}
+            onClick={() => setShowNewAgent((current) => !current)}
             className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-black transition hover:bg-white/88"
           >
             <Plus className="h-4 w-4" aria-hidden="true" />
             New agent
           </button>
         </div>
+
+        {showNewAgent && (
+          <form
+            onSubmit={createNewProject}
+            className="mt-4 overflow-hidden rounded-[28px] border border-white/14 bg-[#20201e] shadow-[0_20px_70px_rgba(0,0,0,0.35)]"
+          >
+            <label className="sr-only" htmlFor="dashboard-new-agent-prompt">
+              Describe the NemoClaw agent you want to build
+            </label>
+            <textarea
+              id="dashboard-new-agent-prompt"
+              value={draftPrompt}
+              onChange={(event) => setDraftPrompt(event.target.value)}
+              rows={3}
+              className="min-h-[118px] w-full resize-none border-0 bg-transparent px-6 pt-6 text-base leading-relaxed text-white outline-none placeholder:text-white/28"
+              placeholder="Describe the NemoClaw agent you want to build..."
+            />
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/8 px-4 py-4">
+              <div className="flex flex-wrap gap-2">
+                {["Phone receptionist", "Incident response", "GitHub triage", "Research scout"].map(
+                  (label) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => {
+                        const next =
+                          label === "Phone receptionist"
+                            ? "Create a NemoClaw phone receptionist agent that answers calls, takes messages, checks my calendar, books appointments, and asks before sending texts."
+                            : label === "GitHub triage"
+                              ? "Create a NemoClaw agent that reads GitHub issues, finds urgent bugs, drafts responses, and asks before posting."
+                              : label === "Research scout"
+                                ? "Create a NemoClaw research agent that researches a topic, saves sources, writes a brief, and asks before publishing."
+                                : quickPrompt;
+                        setDraftPrompt(next);
+                      }}
+                      className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/45 transition hover:border-white/25 hover:text-white"
+                    >
+                      {label}
+                    </button>
+                  ),
+                )}
+              </div>
+              <button
+                type="submit"
+                disabled={!draftPrompt.trim()}
+                className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/88 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                Create workspace
+                <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+          </form>
+        )}
 
         <div className="mt-4 grid gap-3">
           {projects.map((project) => {

@@ -18,12 +18,15 @@ function json(data: unknown, init?: ResponseInit): Response {
   });
 }
 
-function healthResponse(): Response {
+function healthResponse(env?: Record<string, string | undefined>): Response {
   return json({
     ok: true,
     app: "clawforge",
     service: "backend",
-    runtime: "cloudflare-workers",
+    runtime:
+      env?.RAILWAY_ENVIRONMENT || env?.RAILWAY_ENVIRONMENT_NAME
+        ? "railway-node"
+        : "cloudflare-workers",
     frontend: "tanstack-start",
   });
 }
@@ -91,7 +94,7 @@ export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     const url = new URL(request.url);
     if (url.pathname === "/api/health") {
-      return healthResponse();
+      return healthResponse(env as Record<string, string | undefined>);
     }
 
     const clawForgeApiResponse = await handleClawForgeApi(

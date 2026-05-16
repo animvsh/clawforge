@@ -38,6 +38,7 @@ import {
   handleMemoryList,
 } from "./memory/gateway";
 import { createIntegrationConnectLink, getIntegrationStatus } from "./integrations/composio";
+import { createPipedreamConnectToken, getPipedreamStatus } from "./integrations/pipedream";
 import { createAgentMailInbox } from "./integrations/agentmail";
 import { saveAgentRun, saveMemory } from "./storage";
 import type {
@@ -458,6 +459,35 @@ export async function handleClawForgeApi(
   ) {
     const userId = url.searchParams.get("user_id") || "clawforge-demo-user";
     return successResponse({ integrations: await getIntegrationStatus(workerEnv, userId) });
+  }
+
+  if (
+    (apiPath === "/api/clawforge/pipedream/status" || apiPath === "/clawforge/pipedream/status") &&
+    request.method === "POST"
+  ) {
+    const body = await readJsonBody<{ blueprint?: unknown }>(request);
+    const blueprint = isBlueprintResponse(body.blueprint) ? body.blueprint : undefined;
+    return successResponse({
+      pipedream: await getPipedreamStatus(workerEnv, blueprint?.integration_requirements ?? []),
+    });
+  }
+
+  if (
+    (apiPath === "/api/clawforge/pipedream/connect" ||
+      apiPath === "/clawforge/pipedream/connect") &&
+    request.method === "POST"
+  ) {
+    try {
+      return successResponse({
+        connect: await createPipedreamConnectToken(request.clone(), workerEnv),
+      });
+    } catch (error) {
+      return errorResponse(
+        error instanceof Error ? error.message : "Could not create tool connect link.",
+        400,
+        "INVALID_REQUEST",
+      );
+    }
   }
 
   if (

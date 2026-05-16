@@ -1,5 +1,6 @@
 import { DEMO_AGENT_ID } from "../fixtures";
 import { getIntegrationStatus, type IntegrationConfig } from "../integrations/composio";
+import { getPipedreamStatus } from "../integrations/pipedream";
 import { createProviderRegistry } from "../providers";
 import type { BlueprintResponse, ProviderMode, RuntimeEvent } from "../types";
 
@@ -83,6 +84,18 @@ export type NemoClawIntegrationManifest = {
     required: boolean;
     connectable: boolean;
   }>;
+  pipedream: {
+    configured: boolean;
+    project_id: string | null;
+    environment: string;
+    connections: Array<{
+      id: string;
+      label: string;
+      app: string;
+      required: boolean;
+      status: string;
+    }>;
+  };
   inbox: {
     email: string | null;
     status: string;
@@ -91,7 +104,11 @@ export type NemoClawIntegrationManifest = {
     agentphone: boolean;
     voice_agent: boolean;
     agent_inbox: boolean;
-    docs_sheets_gmail: boolean;
+    calendar: boolean;
+    gmail: boolean;
+    google_docs: boolean;
+    google_drive: boolean;
+    google_sheets: boolean;
   };
   secret_names: string[];
 };
@@ -142,6 +159,14 @@ function readEnv(name: string): string {
   return processEnv?.[name] ?? viteEnv[name] ?? "";
 }
 
+function hasNodeRuntime(): boolean {
+  return (
+    typeof process !== "undefined" &&
+    typeof process.versions === "object" &&
+    typeof process.versions.node === "string"
+  );
+}
+
 function base64Encode(value: string): string {
   if (typeof Buffer !== "undefined") return Buffer.from(value, "utf8").toString("base64");
   return btoa(value);
@@ -188,6 +213,10 @@ async function buildIntegrationManifest(
   options: BrevIntegrationOptions = {},
 ): Promise<NemoClawIntegrationManifest> {
   const integrationStatus = await getIntegrationStatus(options.workerEnv ?? {});
+  const pipedreamStatus = await getPipedreamStatus(
+    options.workerEnv ?? {},
+    options.blueprint?.integration_requirements ?? [],
+  );
   const requiredIds = requiredIntegrationIds(options.blueprint);
   const integrations = integrationStatus.auth_configs.map((integration) => ({
     id: integration.id,
@@ -225,6 +254,18 @@ async function buildIntegrationManifest(
       status: "configured",
     },
     integrations,
+    pipedream: {
+      configured: pipedreamStatus.configured,
+      project_id: pipedreamStatus.project_id,
+      environment: pipedreamStatus.environment,
+      connections: pipedreamStatus.connections.map((connection) => ({
+        id: connection.id,
+        label: connection.label,
+        app: connection.app,
+        required: connection.required,
+        status: connection.status,
+      })),
+    },
     inbox: {
       email: options.agentInbox?.email ?? null,
       status: options.agentInbox?.status ?? (options.agentInbox?.email ? "ready" : "not_created"),
@@ -234,7 +275,11 @@ async function buildIntegrationManifest(
       voice_agent:
         requiredIds.has("phone_sms") || options.blueprint?.template_id === "phone_receptionist",
       agent_inbox: Boolean(options.agentInbox?.email) || requiredIds.has("email"),
-      docs_sheets_gmail: requiredIds.has("email") || requiredIds.has("calendar"),
+      calendar: requiredIds.has("calendar"),
+      gmail: requiredIds.has("email"),
+      google_docs: requiredIds.has("google_docs"),
+      google_drive: requiredIds.has("google_drive"),
+      google_sheets: requiredIds.has("google_sheets"),
     },
     secret_names: secretNamesForIntegrations(integrationStatus.auth_configs),
   };
@@ -274,7 +319,7 @@ cd "\${CLAWFORGE_ROOT}"
 ./scripts/brev/setup-clawforge.sh
 `;
 
-  if (import.meta.env.SSR === true && typeof process !== "undefined") {
+  if (hasNodeRuntime()) {
     try {
       const fs = await import("node:fs/promises");
       const path = await import("node:path");
@@ -296,7 +341,7 @@ async function runCommand(
   args: string[],
   timeoutMs = 8_000,
 ): Promise<CommandResult> {
-  if (import.meta.env.SSR !== true) {
+  if (!hasNodeRuntime()) {
     return { ok: false, stdout: "", stderr: "Server runtime unavailable.", exitCode: null };
   }
 

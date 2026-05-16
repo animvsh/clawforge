@@ -26,6 +26,39 @@ const promptChips = [
   ],
 ] as const;
 
+const exampleAgents = [
+  [
+    "Phone receptionist",
+    "Answer calls, take messages, check the calendar, and ask before sending texts.",
+    "Create a NemoClaw phone receptionist agent that answers calls, takes messages, checks my calendar, books appointments, and asks before sending texts.",
+  ],
+  [
+    "Security analyst",
+    "Watch logs, spot suspicious behavior, write a report, and pause risky commands.",
+    incidentPrompt,
+  ],
+  [
+    "GitHub triage",
+    "Find urgent bugs, suggest labels, draft replies, and ask before posting.",
+    "Create a NemoClaw agent that reads GitHub issues, finds urgent bugs, drafts responses, and asks before posting.",
+  ],
+  [
+    "Inbox assistant",
+    "Summarize important email, draft follow-ups, and ask before sending anything.",
+    "Create a NemoClaw inbox assistant that summarizes important emails, drafts replies, and asks before sending anything.",
+  ],
+  [
+    "Research scout",
+    "Collect sources, compare claims, write a brief, and keep publishing approval-gated.",
+    "Create a NemoClaw research agent that researches a topic, saves sources, writes a brief, and asks before publishing.",
+  ],
+  [
+    "Ops ticket agent",
+    "Read incidents, create tickets, assign owners, and ask before notifying the team.",
+    "Create a NemoClaw operations agent that reads incidents, creates tickets, assigns owners, and asks before sending team alerts.",
+  ],
+] as const;
+
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
@@ -46,6 +79,14 @@ function Index() {
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const auth = useClawForgeAuth();
+
+  function fillPrompt(nextPrompt: string) {
+    setPrompt(nextPrompt);
+    document.getElementById("hero-agent-prompt")?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  }
 
   function createWorkspace(nextPrompt: string) {
     const cleanPrompt = nextPrompt.trim();
@@ -149,7 +190,7 @@ function Index() {
                 <button
                   key={label}
                   type="button"
-                  onClick={() => setPrompt(value)}
+                  onClick={() => fillPrompt(value)}
                   className="rounded-full border border-white/10 px-3 py-2 text-xs text-white/45 transition hover:border-white/25 hover:text-white"
                 >
                   {label}
@@ -174,6 +215,41 @@ function Index() {
               <div key={item} className="bg-black/72 px-4 py-3 uppercase tracking-[0.2em]">
                 {item}
               </div>
+            ))}
+          </div>
+        </div>
+      </section>
+      <section className="border-t border-white/10 bg-black px-6 py-14 md:px-10 lg:px-14 lg:py-20">
+        <div className="mx-auto max-w-6xl">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.28em] text-white/35">examples</div>
+              <h2 className="mt-4 max-w-2xl text-4xl font-semibold tracking-tight text-white md:text-5xl">
+                Agents people are building.
+              </h2>
+            </div>
+            <p className="max-w-md text-sm leading-relaxed text-white/48">
+              Pick one, tune the prompt, then ClawForge turns it into a workspace with tools, safety
+              checks, memory, and a Brev deploy path.
+            </p>
+          </div>
+
+          <div className="mt-10 grid gap-px border border-white/12 bg-white/10 md:grid-cols-2 xl:grid-cols-3">
+            {exampleAgents.map(([title, description, examplePrompt]) => (
+              <button
+                key={title}
+                type="button"
+                onClick={() => fillPrompt(examplePrompt)}
+                className="group bg-black p-5 text-left transition hover:bg-white/[0.035]"
+              >
+                <div className="text-lg font-semibold text-white">{title}</div>
+                <p className="mt-3 min-h-[3.5rem] text-sm leading-relaxed text-white/50">
+                  {description}
+                </p>
+                <div className="mt-5 border-t border-white/10 pt-4 text-xs leading-relaxed text-white/35 transition group-hover:text-white/58">
+                  {examplePrompt}
+                </div>
+              </button>
             ))}
           </div>
         </div>

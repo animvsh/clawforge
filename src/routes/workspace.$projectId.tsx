@@ -1,5 +1,14 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { ArrowUp, Check, FileText, Rocket, Shield, Sparkles, Workflow } from "lucide-react";
+import {
+  ArrowUp,
+  Check,
+  FileText,
+  MessagesSquare,
+  Rocket,
+  Shield,
+  Sparkles,
+  Workflow,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ClawForgeLogo } from "@/components/clawforge/ClawForgeFrame";
 import { AuthPanel } from "@/components/clawforge/AuthPanel";
@@ -89,9 +98,24 @@ type BrevLaunchState = {
       status: string;
       required: boolean;
     }>;
+    pipedream?: {
+      configured: boolean;
+      connections?: Array<{
+        id: string;
+        label: string;
+        app: string;
+        required: boolean;
+        status: string;
+      }>;
+    };
     secret_names?: string[];
     capabilities?: Record<string, boolean>;
   };
+};
+
+type ClarificationQuestion = {
+  question: string;
+  suggestions: string[];
 };
 
 function nodeState(
@@ -125,6 +149,95 @@ function stateClass(state: NodeState) {
   return "border-white/10 bg-black text-white/42";
 }
 
+function setupQuestionsForPrompt(prompt: string): ClarificationQuestion[] {
+  const clean = prompt.trim();
+  const lower = clean.toLowerCase();
+  const questions: ClarificationQuestion[] = [];
+  const words = clean.split(/\s+/).filter(Boolean);
+  const hasConcreteAction =
+    /(monitor|watch|read|answer|book|schedule|triage|summarize|research|write|detect|send|create|call|route|classif)/.test(
+      lower,
+    );
+  const hasToolOrData =
+    /(phone|call|sms|calendar|email|gmail|slack|github|linear|ticket|log|file|browser|search|crm|sheet|doc)/.test(
+      lower,
+    );
+  const hasSafety =
+    /(ask|approval|approve|deny|block|before|safe|policy|guardrail|permission|human)/.test(lower);
+
+  if (words.length < 8 || /^(build|create|make)\s+(an?\s+)?(agent|assistant)$/i.test(clean)) {
+    questions.push({
+      question: "What should the agent do first, and what should it produce at the end?",
+      suggestions: [
+        "Read incoming requests and create a summary.",
+        "Monitor logs and create an incident report.",
+        "Answer calls and book appointments.",
+      ],
+    });
+  }
+  if (!hasConcreteAction) {
+    questions.push({
+      question: "What work should the agent perform step by step?",
+      suggestions: [
+        "Read, decide, draft, ask approval, then act.",
+        "Collect context, classify risk, then write the output.",
+        "Answer, gather details, then hand off.",
+      ],
+    });
+  }
+  if (!hasToolOrData) {
+    questions.push({
+      question:
+        "Which tools or accounts should it use, like phone, calendar, email, GitHub, Slack, logs, files, docs, or sheets?",
+      suggestions: [
+        "Phone, calendar, and email.",
+        "GitHub, Linear, and Slack.",
+        "Docs, Sheets, and Drive.",
+      ],
+    });
+  }
+  if (!hasSafety) {
+    questions.push({
+      question: "What actions should require your approval or be completely blocked?",
+      suggestions: [
+        "Ask before sending messages or changing records.",
+        "Block shell commands and data export.",
+        "Ask before booking or cancelling anything.",
+      ],
+    });
+  }
+  if (
+    /(receptionist|phone|call|sms)/.test(lower) &&
+    !/(calendar|hours|availability|sms|text|forward|route|voicemail)/.test(lower)
+  ) {
+    questions.push({
+      question:
+        "For the receptionist, should it book calendar events, send SMS, route calls, or just take messages?",
+      suggestions: [
+        "Book appointments and send confirmations.",
+        "Take messages and forward urgent calls.",
+        "Check availability but ask before booking.",
+      ],
+    });
+  }
+
+  return questions.slice(0, 3);
+}
+
+function clarificationMessage(questions: ClarificationQuestion[]) {
+  return [
+    "I need a little more detail before I forge the NemoClaw instance.",
+    "",
+    ...questions.map((question, index) => `${index + 1}. ${question.question}`),
+    "",
+    "Reply in one message. I’ll use your answers to build the workspace, tools, policies, memory, and Brev deploy plan.",
+  ].join("\n");
+}
+
+function suggestedAnswerText(question: ClarificationQuestion, suggestion: string) {
+  return `${question.question} ${suggestion}`;
+}
+
 function WorkspacePage() {
   const { projectId } = Route.useParams();
   const auth = useClawForgeAuth();
@@ -150,6 +263,10 @@ function WorkspacePage() {
   const projectName = blueprint?.agent_name ?? project?.name ?? "NemoClaw Instance";
   const selectedModel = optionForModel(provider, model);
   const recommendedModel = recommendModelForTemplate(blueprint?.template_id);
+  const clarificationQuestions = useMemo(
+    () => (project && !blueprint ? setupQuestionsForPrompt(project.prompt) : []),
+    [blueprint, project],
+  );
 
   function blueprintWithModel(nextBlueprint = blueprint): BlueprintResponse | null {
     if (!nextBlueprint) return null;
@@ -198,6 +315,22 @@ function WorkspacePage() {
             "I’ll build the agent, choose the tools it needs, add safety checks, and show the plan on the canvas.",
           ],
         ]);
+      }
+      const setupQuestions = setupQuestionsForPrompt(nextProject.prompt);
+      if (setupQuestions.length > 0) {
+        setBlueprint(null);
+        setEvents([]);
+        setActiveIndex(0);
+        setProject(updateProject(nextProject.id, { status: "draft" }) ?? nextProject);
+        setChat((current) => {
+          const hasClarification = current.some(([role, text]) => {
+            return role === "assistant" && text.includes("I need a little more detail");
+          });
+          return hasClarification
+            ? current
+            : [...current, ["assistant", clarificationMessage(setupQuestions)]];
+        });
+        return null;
       }
       try {
         const response = await fetch("/api/blueprints", {
@@ -479,9 +612,47 @@ function WorkspacePage() {
     setChat((current) => [...current, ["user", clean]]);
     setChatLoading(true);
 
+    const pendingClarification =
+      project && !blueprint && setupQuestionsForPrompt(project.prompt).length > 0;
+    if (pendingClarification && !requestedModel) {
+      const nextPrompt = `${project.prompt}\n\nAdditional setup details: ${clean}`;
+      const updated =
+        updateProject(projectId, {
+          prompt: nextPrompt,
+          status: "generating",
+          blueprintId: undefined,
+          agentId: undefined,
+        }) ?? project;
+      setProject(updated);
+      const remainingQuestions = setupQuestionsForPrompt(nextPrompt);
+      if (remainingQuestions.length > 0) {
+        setChat((current) => [...current, ["assistant", clarificationMessage(remainingQuestions)]]);
+        setChatLoading(false);
+        return;
+      }
+      setChat((current) => [
+        ...current,
+        [
+          "assistant",
+          "Perfect. I have enough to build this now. I’m generating the tools, safety policy, memory rules, and Brev deployment plan.",
+        ],
+      ]);
+      const nextBlueprint = await loadBlueprint(updated, { preserveChat: true });
+      if (nextBlueprint) {
+        setChat((current) => [
+          ...current,
+          [
+            "assistant",
+            `${nextBlueprint.agent_name} is ready on the canvas. Review the workflow, then press Deploy when you want the Brev-hosted NemoClaw instance.`,
+          ],
+        ]);
+      }
+      setChatLoading(false);
+      return;
+    }
+
     let actionReply = "";
     let action:
-      | "deploy"
       | "show_policies"
       | "show_memory"
       | "deny"
@@ -609,13 +780,7 @@ function WorkspacePage() {
       setChatLoading(false);
     }
 
-    if (action === "deploy") {
-      let activeBlueprint = blueprint;
-      if (!activeBlueprint && project) {
-        activeBlueprint = await loadBlueprint(project, { preserveChat: true });
-      }
-      void deploy(blueprintWithModel(activeBlueprint));
-    } else if (action === "brev_plan") {
+    if (action === "brev_plan") {
       let activeBlueprint = blueprint;
       if (!activeBlueprint && project) {
         activeBlueprint = await loadBlueprint(project, { preserveChat: true });
@@ -689,6 +854,10 @@ function WorkspacePage() {
         ]);
       }
     }
+  }
+
+  function answerClarification(question: ClarificationQuestion, suggestion: string) {
+    void sendChat(suggestedAnswerText(question, suggestion));
   }
 
   if (!auth.isAuthenticated) {
@@ -800,6 +969,37 @@ function WorkspacePage() {
                 </button>
               ))}
             </div>
+            {clarificationQuestions.length > 0 && (
+              <div className="mb-3 rounded-[22px] border border-white/12 bg-white/[0.035] p-4">
+                <div className="flex items-center gap-2 text-sm font-medium text-white">
+                  <MessagesSquare className="h-4 w-4" aria-hidden="true" />A few setup details
+                </div>
+                <div className="mt-3 space-y-3">
+                  {clarificationQuestions.map((question, index) => (
+                    <div
+                      key={question.question}
+                      className="border-t border-white/8 pt-3 first:border-t-0 first:pt-0"
+                    >
+                      <div className="text-xs leading-relaxed text-white/64">
+                        {index + 1}. {question.question}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {question.suggestions.map((suggestion) => (
+                          <button
+                            key={suggestion}
+                            type="button"
+                            onClick={() => answerClarification(question, suggestion)}
+                            className="rounded-full border border-white/10 px-3 py-1.5 text-left text-[11px] leading-snug text-white/48 transition hover:border-white/28 hover:text-white"
+                          >
+                            {suggestion}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             <form
               onSubmit={(event) => {
                 event.preventDefault();
@@ -1091,7 +1291,7 @@ function WorkspacePage() {
                       </p>
                       <div className="border-t border-white/8 pt-3">
                         <div className="text-xs uppercase tracking-[0.18em] text-white/32">
-                          Connections
+                          Required connections
                         </div>
                         <div className="mt-2 space-y-2">
                           {(brevLaunch?.integrationManifest?.integrations ?? [])
@@ -1105,6 +1305,28 @@ function WorkspacePage() {
                           {!brevLaunch?.integrationManifest?.integrations?.some(
                             (integration) => integration.required,
                           ) && <span className="text-white/38">No required connections yet.</span>}
+                        </div>
+                      </div>
+                      <div className="border-t border-white/8 pt-3">
+                        <div className="text-xs uppercase tracking-[0.18em] text-white/32">
+                          Tool access
+                        </div>
+                        <div className="mt-2 space-y-2">
+                          {(brevLaunch?.integrationManifest?.pipedream?.connections ?? []).map(
+                            (connection) => (
+                              <div key={connection.id} className="flex justify-between gap-3">
+                                <span>{connection.label}</span>
+                                <span className="text-white/34">
+                                  {connection.status.replaceAll("_", " ")}
+                                </span>
+                              </div>
+                            ),
+                          )}
+                          {!brevLaunch?.integrationManifest?.pipedream?.connections?.length && (
+                            <span className="text-white/38">
+                              Tool access appears after the deploy plan is prepared.
+                            </span>
+                          )}
                         </div>
                       </div>
                       {instanceChatId ? (
