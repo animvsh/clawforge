@@ -12,6 +12,16 @@ Canonical PRD Google Doc: https://docs.google.com/document/d/1b1yJaS8inIQ4lXasAi
 
 Composio status: Google Docs and Gmail were connected through Composio MCP. The PRD link was emailed to `aalang@ucsc.edu`.
 
+NemoClaw-first v2 artifacts:
+
+- `artifacts/CLAWFORGE_NEMOCLAW_FIRST_PRD.md`
+- `artifacts/CLAWFORGE_NEMOCLAW_WORKTREE_PLAN.md`
+
+Linear v2 scope:
+
+- `ANU-41` through `ANU-50`: P0 NemoClaw-first worktree lanes.
+- `ANU-51` through `ANU-54`: P1 follow-up features.
+
 ## Current Access Reality
 
 - `pmgandhi@ucsc.edu` exists in Linear and is assigned directly.
