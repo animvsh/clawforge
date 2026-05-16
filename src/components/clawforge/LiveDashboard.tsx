@@ -40,7 +40,13 @@ export function LiveDashboard({ agentId }: { agentId?: string }) {
     const data = await response.json();
     if (data.ok) {
       setApprovalStatus(decision);
-      setMemory((current) => [...current, data.memory_item]);
+      setMemory((current) => {
+        const nextItem = data.memory_item as MemoryItem;
+        if (current.some((item) => item.id === nextItem.id || item.content === nextItem.content)) {
+          return current;
+        }
+        return [...current, nextItem];
+      });
       setEvents((current) => [
         ...current,
         {
@@ -107,14 +113,16 @@ export function LiveDashboard({ agentId }: { agentId?: string }) {
             <button
               type="button"
               onClick={() => decide("approved")}
-              className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-black"
+              disabled={approvalStatus !== "pending"}
+              className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-45"
             >
               Approve Action
             </button>
             <button
               type="button"
               onClick={() => decide("denied")}
-              className="rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold text-white"
+              disabled={approvalStatus !== "pending"}
+              className="rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
             >
               Deny Action
             </button>
