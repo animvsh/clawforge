@@ -45,14 +45,17 @@ export async function saveAgentRun(input: AgentRunInput): Promise<AgentRun> {
   return data as AgentRun;
 }
 
-export async function getAgentRun(id: string): Promise<AgentRun | null> {
+export async function getAgentRunByAgentId(agentId: string): Promise<AgentRun | null> {
   const client = getSupabaseClient();
 
   if (!client) {
-    return _runs.get(id) ?? null;
+    for (const run of _runs.values()) {
+      if (run.agent_id === agentId) return run;
+    }
+    return null;
   }
 
-  const { data, error } = await client.from("clawforge_runs").select().eq("id", id).single();
+  const { data, error } = await client.from("clawforge_runs").select().eq("agent_id", agentId).single();
 
   if (error) return null;
   return data as AgentRun;

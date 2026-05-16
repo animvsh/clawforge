@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import type { BlueprintResponse } from "@/lib/clawforge/types";
 import { useState } from "react";
 
@@ -26,6 +27,7 @@ export function BlueprintReview({
   blueprint: BlueprintResponse;
   onDeployed?: (agentId: string) => void;
 }) {
+  const navigate = useNavigate();
   const [deploying, setDeploying] = useState(false);
   const [deployed, setDeployed] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,12 +39,15 @@ export function BlueprintReview({
       const response = await fetch("/api/agents/deploy", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ blueprint_id: blueprint.blueprint_id, blueprint }),
+        body: JSON.stringify({ blueprint_id: blueprint.blueprint_id }),
       });
       const data = await response.json();
       if (!response.ok || !data.ok) throw new Error(data.error?.message || "Deploy failed.");
       setDeployed(true);
-      onDeployed?.(data.agent_id);
+      const agentId = data.agent_id;
+      window.sessionStorage.setItem("clawforge.agentId", agentId);
+      onDeployed?.(agentId);
+      void navigate({ to: "/dashboard", search: { agentId } });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Deploy failed.");
     } finally {

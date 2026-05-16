@@ -25,9 +25,21 @@ function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const storedAgentId = window.sessionStorage.getItem("clawforge.agentId");
-    if (storedAgentId) setAgentId(storedAgentId);
+    const params = new URLSearchParams(window.location.search);
+    const urlAgentId = params.get("agentId");
+    if (urlAgentId) {
+      window.sessionStorage.setItem("clawforge.agentId", urlAgentId);
+      setAgentId(urlAgentId);
+    } else {
+      const stored = window.sessionStorage.getItem("clawforge.agentId");
+      if (stored) setAgentId(stored);
+    }
   }, []);
+
+  useEffect(() => {
+    if (!agentId) return;
+    fetch(`/api/agents/${agentId}/start`, { method: "POST" }).catch(() => {});
+  }, [agentId]);
 
   async function deployDemoAgent() {
     setDeploying(true);

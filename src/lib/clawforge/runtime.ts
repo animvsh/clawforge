@@ -1062,6 +1062,141 @@ export function getApprovalStatus(): "pending" | "approved" | "denied" {
 import { checkPolicy } from "./policies";
 import { toolBrokers, getToolBroker } from "./tools/index";
 import type { ToolExecuteParams, ToolExecuteResult } from "./tools/broker";
+import { createAgentMemoryHelper } from "./memory/agent-helper";
+import type { AgentMemoryHelper, MemorySearchOptions } from "./memory/agent-helper";
+import type { MemoryItem } from "./types";
+
+// Re-export MemoryContext so consumers can import it from runtime
+export type MemoryContext = {
+  /** Memory items from recent approval decisions for this agent */
+  recentApprovals: MemoryItem[];
+  /** Memory items for actions that have been blocked for this agent */
+  blockedActions: MemoryItem[];
+  /** User preferences relevant to this agent's operation */
+  preferences: MemoryItem[];
+  /** Agent-specific instructions or guidelines */
+  agentInstructions: MemoryItem[];
+  /** All memory merged into a single context string for LLM reasoning */
+  mergedContext: string;
+};
+
+// Lazy-initialized memory helper (avoids circular deps at module load time)
+let _memoryHelper: AgentMemoryHelper | null = null;
+
+function getMemoryHelper(): AgentMemoryHelper {
+  if (!_memoryHelper) {
+    // Use internal user_id from environment or fall back to agent_id as project_id
+    const user_id = process.env["CLAWFORGE_USER_ID"] ?? "default";
+    const tenant_id = process.env["CLAWFORGE_TENANT_ID"];
+    _memoryHelper = createAgentMemoryHelper({ user_id, tenant_id });
+  }
+  return _memoryHelper;
+}
+
+/** Reset the memory helper (for testing purposes) */
+export function resetRuntimeMemoryHelper(): void {
+  _memoryHelper = null;
+}
+
+/**
+ * Build memory context for an agent before tool execution.
+ * Searches memory for:
+ * - Recent approvals related to this agent
+ * - Blocked actions for this agent
+ * - User preferences (preferred report format, etc.)
+ * - Agent instructions
+ */
+export async function buildMemoryContext(
+  agent_id: string,
+  tool_name: string,
+): Promise<MemoryContext> {
+  const helper = getMemoryHelper();
+  const project_id = process.env["CLAWFORGE_PROJECT_ID"] ?? agent_id;
+
+  // Search for different memory categories in parallel
+  const [approvalsResult, blockedResult, preferencesResult, instructionsResult] = await Promise.allSettled([
+    // Recent approvals - search for approval-related memory
+    helper.search("approval decision recent", {
+      project_id,
+      agent_id,
+      limit: 5,
+    }),
+    // Blocked actions
+    helper.search("blocked action denied prevented", {
+      project_id,
+      agent_id,
+      limit: 5,
+    }),
+    // User preferences
+    helper.search("preference format user choice", {
+      project_id,
+      agent_id,
+      limit: 3,
+    }),
+    // Agent instructions
+    helper.search("instruction guideline rule", {
+      project_id,
+      agent_id,
+      limit: 3,
+    }),
+  ]);
+
+  const recentApprovals = approvalsResult?.status === "fulfilled" ? approvalsResult.value : [];
+  const blockedActions = blockedResult?.status === "fulfilled" ? blockedResult.value : [];
+  const preferences = preferencesResult?.status === "fulfilled" ? preferencesResult.value : [];
+  const agentInstructions = instructionsResult?.status === "fulfilled" ? instructionsResult.value : [];
+
+  // Merge memory into a single context string for the LLM
+  const allItems = [...recentApprovals, ...blockedActions, ...preferences, ...agentInstructions];
+  const mergedContext = buildMergedMemoryString(allItems, agent_id, tool_name);
+
+  return {
+    recentApprovals,
+    blockedActions,
+    preferences,
+    agentInstructions,
+    mergedContext,
+  };
+}
+
+/**
+ * Format memory items into a string for LLM context.
+ */
+function buildMergedMemoryString(items: MemoryItem[], agent_id: string, tool_name: string): string {
+  if (items.length === 0) {
+    return "";
+  }
+
+  const lines = [`[Memory for agent ${agent_id}, tool ${tool_name}]`];
+
+  // Group by type
+  const approvals = items.filter((m) => m.type === "approval");
+  const blocked = items.filter((m) => m.type === "blocked_action");
+  const prefs = items.filter((m) => m.type === "preference");
+  const instructions = items.filter((m) => m.type === "agent_instruction");
+
+  if (approvals.length > 0) {
+    lines.push("\nRecent approvals:");
+    approvals.forEach((m) => lines.push(`  - ${m.content}`));
+  }
+
+  if (blocked.length > 0) {
+    lines.push("\nBlocked actions:");
+    blocked.forEach((m) => lines.push(`  - ${m.content}`));
+  }
+
+  if (prefs.length > 0) {
+    lines.push("\nUser preferences:");
+    prefs.forEach((m) => lines.push(`  - ${m.content}`));
+  }
+
+  if (instructions.length > 0) {
+    lines.push("\nAgent instructions:");
+    instructions.forEach((m) => lines.push(`  - ${m.content}`));
+  }
+
+  return lines.join("\n");
+}
 
 // Runtime state type for the new state machine
 export type RuntimeStatus = "created" | "running" | "completed" | "stopped" | "error";
@@ -1251,6 +1386,7 @@ export function getRuntimeEventsByAgent(agent_id: string): RuntimeEvent[] {
  * - DataExport (data.export) is always blocked.
  * - Every tool call emits a RuntimeEvent.
  * - Policy check determines allow/deny/require_approval.
+ * - Memory context is fetched and injected into the tool execution context.
  */
 export async function routeToolCall(
   tool_name: string,
@@ -1335,11 +1471,20 @@ export async function routeToolCall(
   }
 
   // effect === "allow" - execute the tool
+  // First, fetch memory context to inject into tool params
+  const memoryContext = await buildMemoryContext(agent_id, tool_name);
+
   try {
     const toolParams: ToolExecuteParams = {
       agent_id,
       session_id: context.session_id,
       params,
+      // Inject memory context into tool params for the LLM provider to reason about
+      context: {
+        ...context,
+        recentMemory: memoryContext.mergedContext,
+        agentMemory: memoryContext,
+      },
     };
 
     const result = await broker.execute(toolParams);
@@ -1349,7 +1494,7 @@ export async function routeToolCall(
         rt,
         "tool.called",
         `Tool '${tool_name}' executed successfully.`,
-        { tool: tool_name, success: true },
+        { tool: tool_name, success: true, memory_injected: !!memoryContext.mergedContext },
       );
       return {
         status: "allowed",

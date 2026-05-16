@@ -60,6 +60,7 @@ import type {
 import {
   saveAgentRun,
   getAgentRun,
+  getAgentRunByAgentId,
   updateAgentRun,
   listMemoryByAgent,
   listReportsByAgent,
@@ -405,7 +406,7 @@ async function* streamSseEvents(
     }
 
     // Also check if there's a Brev run for this agent with new events
-    const run = await getAgentRun(agentId);
+    const run = await getAgentRunByAgentId(agentId);
     if (run?.metadata?.run_id) {
       const brevEvents = collectSandboxEvents(run.metadata.run_id as string).filter((e) => {
         if (seenIds.has(e.id)) return false;
@@ -825,7 +826,7 @@ export async function handleClawForgeApi(
 
     // POST /api/agents/:agentId/start
     if (action === "start" && request.method === "POST") {
-      const run = await getAgentRun(agentId);
+      const run = await getAgentRunByAgentId(agentId);
       if (!run) {
         return notFoundError("Agent");
       }
@@ -864,7 +865,7 @@ export async function handleClawForgeApi(
 
     // POST /api/agents/:agentId/stop
     if (action === "stop" && request.method === "POST") {
-      const run = await getAgentRun(agentId);
+      const run = await getAgentRunByAgentId(agentId);
       if (!run) {
         return notFoundError("Agent");
       }

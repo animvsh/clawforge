@@ -31,6 +31,7 @@ const mockResolveApproval = vi.fn();
 vi.mock("./storage", () => ({
   saveAgentRun: (...args: unknown[]) => mockSaveAgentRun(...args),
   getAgentRun: (...args: unknown[]) => mockGetAgentRun(...args),
+  getAgentRunByAgentId: (...args: unknown[]) => mockGetAgentRun(...args),
   updateAgentRun: (...args: unknown[]) => mockUpdateAgentRun(...args),
   listMemoryByAgent: (...args: unknown[]) => mockListMemoryByAgent(...args),
   listReportsByAgent: (...args: unknown[]) => mockListReportsByAgent(...args),

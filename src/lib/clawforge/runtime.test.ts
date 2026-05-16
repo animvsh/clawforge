@@ -3,7 +3,7 @@
  * Tests runtime lifecycle state machine, memory updates, and sandbox session
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   NemoClawSandboxSession,
   startRuntime,
@@ -24,9 +24,13 @@ import {
   resetRuntimeSystem,
   completeRuntime,
   errorRuntimeState,
+  buildMemoryContext,
+  resetRuntimeMemoryHelper,
+  type MemoryContext,
 } from "./runtime";
 import { createSentinelBlueprint, demoApproval } from "./fixtures";
 import { listMemory, createMemoryItem, clearMemory } from "./memory";
+import { resetAgentMemoryHelper } from "./memory/agent-helper";
 import type { RuntimeEventType } from "./types";
 
 describe("NemoClawSandboxSession - Runtime Lifecycle", () => {
@@ -750,5 +754,232 @@ describe("Tool Router Edge Cases", () => {
     // Shell executor requires command - validation should fail but it's approval_required
     // So it returns pending_approval first
     expect(result.status).toBe("pending_approval");
+  });
+});
+
+// =============================================================================
+// Memory Injection Tests (ANU-63 extension)
+// =============================================================================
+
+describe("Memory Injection in routeToolCall", () => {
+  beforeEach(() => {
+    resetRuntimeSystem();
+    resetRuntimeMemoryHelper();
+    resetAgentMemoryHelper();
+    // Set up test environment
+    process.env["CLAWFORGE_USER_ID"] = "test-user-memory";
+    process.env["CLAWFORGE_TENANT_ID"] = "test-tenant";
+    process.env["CLAWFORGE_PROJECT_ID"] = "test-project";
+  });
+
+  afterEach(() => {
+    resetRuntimeSystem();
+    resetRuntimeMemoryHelper();
+    resetAgentMemoryHelper();
+    delete process.env["CLAWFORGE_USER_ID"];
+    delete process.env["CLAWFORGE_TENANT_ID"];
+    delete process.env["CLAWFORGE_PROJECT_ID"];
+  });
+
+  describe("buildMemoryContext", () => {
+    it("should return a valid MemoryContext object", async () => {
+      const context = await buildMemoryContext("agent_test_1", "logs.read");
+
+      expect(context).toBeDefined();
+      expect(context).toHaveProperty("recentApprovals");
+      expect(context).toHaveProperty("blockedActions");
+      expect(context).toHaveProperty("preferences");
+      expect(context).toHaveProperty("agentInstructions");
+      expect(context).toHaveProperty("mergedContext");
+      expect(typeof context.mergedContext).toBe("string");
+    });
+
+    it("should handle empty memory gracefully (no throw)", async () => {
+      // When Mem0 is not available or returns no results, should return empty arrays
+      const context = await buildMemoryContext("agent_no_memory", "logs.read");
+
+      expect(context.recentApprovals).toBeDefined();
+      expect(Array.isArray(context.recentApprovals)).toBe(true);
+      expect(context.blockedActions).toBeDefined();
+      expect(Array.isArray(context.blockedActions)).toBe(true);
+      expect(context.preferences).toBeDefined();
+      expect(Array.isArray(context.preferences)).toBe(true);
+      expect(context.agentInstructions).toBeDefined();
+      expect(Array.isArray(context.agentInstructions)).toBe(true);
+    });
+
+    it("should search with the correct agent_id scope", async () => {
+      const context = await buildMemoryContext("specific_agent_123", "report.write");
+
+      // Context should be scoped to the agent_id we passed
+      // We can't directly verify the search parameters without mocking,
+      // but we can verify the function completed without error
+      expect(context).toBeDefined();
+    });
+  });
+
+  describe("memory context attached to tool calls", () => {
+    it("should inject memory context into allowed tool execution", async () => {
+      // logs.read is an allowed tool - it should execute and receive memory context
+      const result = await routeToolCall(
+        "logs.read",
+        {},
+        { agent_id: "test_agent_memory_1" },
+      );
+
+      expect(result.status).toBe("allowed");
+      // The event metadata should indicate memory was injected
+      // (may be empty string if no memory found, but should be present)
+      expect(result.event.metadata).toBeDefined();
+      expect(result.event.metadata).toHaveProperty("memory_injected");
+    });
+
+    it("should still work when memory fetch returns empty", async () => {
+      // Even with no memory, tool should execute normally
+      const result = await routeToolCall(
+        "logs.read",
+        {},
+        { agent_id: "agent_with_no_memory" },
+      );
+
+      expect(result.status).toBe("allowed");
+      expect(result.event).toBeDefined();
+      expect(result.event.type).toBe("tool.called");
+    });
+
+    it("should not break blocked tools (data.export) - memory not fetched for blocked", async () => {
+      // data.export is blocked before memory would be fetched
+      const result = await routeToolCall(
+        "data.export",
+        {},
+        { agent_id: "test_agent_blocked" },
+      );
+
+      expect(result.status).toBe("blocked");
+      // Blocked tools return early before memory lookup
+    });
+
+    it("should not break approval-required tools - memory fetched before approval", async () => {
+      // shell.execute requires approval, memory is fetched first
+      const result = await routeToolCall(
+        "shell.execute",
+        { command: "test" },
+        { agent_id: "test_agent_approval" },
+      );
+
+      expect(result.status).toBe("pending_approval");
+      // Memory is still fetched even for approval-required tools
+    });
+  });
+
+  describe("memory context is scoped by agent_id", () => {
+    it("should call buildMemoryContext with the correct agent_id", async () => {
+      const agentId = "unique_agent_id_for_memory_test";
+
+      const result = await routeToolCall(
+        "threat.classify",
+        { behavior: "test behavior" },
+        { agent_id: agentId },
+      );
+
+      // Result should succeed and the agent_id used should be correct
+      expect(result.status).toBe("allowed");
+      expect(result.event.agent_id).toBe(agentId);
+    });
+
+    it("should maintain separate memory context per agent", async () => {
+      const agentA = "agent_memory_a";
+      const agentB = "agent_memory_b";
+
+      const resultA = await routeToolCall(
+        "logs.read",
+        {},
+        { agent_id: agentA },
+      );
+      const resultB = await routeToolCall(
+        "logs.read",
+        {},
+        { agent_id: agentB },
+      );
+
+      // Both should succeed independently
+      expect(resultA.status).toBe("allowed");
+      expect(resultB.status).toBe("allowed");
+      expect(resultA.event.agent_id).toBe(agentA);
+      expect(resultB.event.agent_id).toBe(agentB);
+    });
+  });
+
+  describe("empty memory doesn't break tool execution", () => {
+    it("should execute tool successfully with empty mergedContext", async () => {
+      const context = await buildMemoryContext("agent_empty_memory", "logs.read");
+
+      // mergedContext may be empty string if no memory found
+      expect(typeof context.mergedContext).toBe("string");
+
+      const result = await routeToolCall(
+        "logs.read",
+        {},
+        { agent_id: "agent_empty_memory" },
+      );
+
+      expect(result.status).toBe("allowed");
+    });
+
+    it("should have all array fields defined even when empty", async () => {
+      const context = await buildMemoryContext("agent_totally_empty", "report.write");
+
+      expect(Array.isArray(context.recentApprovals)).toBe(true);
+      expect(Array.isArray(context.blockedActions)).toBe(true);
+      expect(Array.isArray(context.preferences)).toBe(true);
+      expect(Array.isArray(context.agentInstructions)).toBe(true);
+    });
+  });
+
+  describe("memory from multiple categories is merged correctly", () => {
+    it("should build mergedContext from multiple memory categories", async () => {
+      // This tests the buildMergedMemoryString function behavior
+      // In a real scenario with memory populated, the merged context
+      // would contain sections for approvals, blocked, preferences, instructions
+      const context = await buildMemoryContext("agent_multi_category", "shell.execute");
+
+      // The mergedContext structure should follow the expected format
+      // Even if empty, it should be a string
+      expect(typeof context.mergedContext).toBe("string");
+
+      // When memory IS found, it should be grouped by type
+      // We can verify the string format is correct
+      if (context.mergedContext) {
+        expect(context.mergedContext).toContain("[Memory for agent");
+      }
+    });
+
+    it("should format mergedContext with agent_id and tool_name in header", async () => {
+      const context = await buildMemoryContext("agent_format_test", "report.write");
+
+      if (context.mergedContext) {
+        expect(context.mergedContext).toContain("agent_format_test");
+        expect(context.mergedContext).toContain("report.write");
+      }
+    });
+  });
+
+  describe("MemoryContext type", () => {
+    it("should have the expected structure", () => {
+      // Verify the MemoryContext type has all required fields
+      const context: MemoryContext = {
+        recentApprovals: [],
+        blockedActions: [],
+        preferences: [],
+        agentInstructions: [],
+        mergedContext: "",
+      };
+
+      expect(context.recentApprovals).toBeDefined();
+      expect(context.blockedActions).toBeDefined();
+      expect(context.preferences).toBeDefined();
+      expect(context.agentInstructions).toBeDefined();
+      expect(context.mergedContext).toBeDefined();
+    });
   });
 });

@@ -150,6 +150,7 @@ export function LiveDashboard({
   const [status, setStatus] = useState<
     "ready to deploy" | "running" | "waiting_for_approval" | "completed" | "stopped"
   >("ready to deploy");
+  const [sseSource, setSseSource] = useState<EventSource | null>(null);
   const [approvalStatus, setApprovalStatus] = useState<"pending" | "approved" | "denied">(
     "pending",
   );
@@ -167,6 +168,7 @@ export function LiveDashboard({
   const [connectingIntegration, setConnectingIntegration] = useState<string | null>(null);
   const [creatingInbox, setCreatingInbox] = useState(false);
   const [agentInbox, setAgentInbox] = useState<AgentInbox | null>(null);
+  const [pendingApprovalId, setPendingApprovalId] = useState<string | null>(null);
 
   const agentName = blueprint?.agent_name ?? "SentinelClaw";
   const isReceptionist = blueprint?.template_id === "phone_receptionist";
@@ -178,24 +180,20 @@ export function LiveDashboard({
       setMemory([]);
       setReport(null);
       setApprovalStatus("pending");
+      setPendingApprovalId(null);
       setChatReply(`Deploy ${agentName} to inspect the running agent.`);
       return;
     }
 
     setEvents([]);
     setApprovalStatus("pending");
+    setPendingApprovalId(null);
     setStatus("waiting_for_approval");
     setChatReply(
       isReceptionist
         ? `${agentName} answered the call, checked availability, and is waiting before sending a customer text.`
         : `${agentName} is reading logs inside NemoClaw and waiting at the approval gate.`,
     );
-
-    const source = new EventSource(`/api/agents/${agentId}/logs/stream`);
-    source.onmessage = (message) => {
-      setEvents((current) => [...current, JSON.parse(message.data)]);
-    };
-    source.onerror = () => source.close();
 
     fetch(`/api/agents/${agentId}/memory`)
       .then((response) => response.json())
@@ -209,9 +207,23 @@ export function LiveDashboard({
         if (data.report) onReport?.(data.report);
       })
       .catch(() => setReport(null));
-
-    return () => source.close();
   }, [agentId, agentName, isReceptionist, onReport]);
+
+  useEffect(() => {
+    if (!sseSource) return;
+    sseSource.onmessage = (message) => {
+      const event = JSON.parse(message.data);
+      if (event.type === "approval.requested") {
+        setPendingApprovalId(event.metadata?.approval_id ?? null);
+      }
+      setEvents((current) => [...current, event]);
+    };
+    sseSource.onerror = () => {
+      sseSource.close();
+      setSseSource(null);
+    };
+    return () => sseSource.close();
+  }, [sseSource]);
 
   useEffect(() => {
     fetch("/api/clawforge/brev/status")
@@ -252,7 +264,16 @@ export function LiveDashboard({
     const response = await fetch(`/api/agents/${agentId}/${nextAction}`, { method: "POST" });
     const data = await response.json();
     if (data.ok) {
-      setStatus(data.status ?? (nextAction === "start" ? "running" : "stopped"));
+      if (nextAction === "start") {
+        setStatus("running");
+        setSseSource(new EventSource(`/api/agents/${agentId}/logs/stream`));
+      } else {
+        setStatus("stopped");
+        if (sseSource) {
+          sseSource.close();
+          setSseSource(null);
+        }
+      }
       setEvents((current) => [
         ...current,
         {
@@ -268,7 +289,8 @@ export function LiveDashboard({
   }
 
   async function decide(decision: "approved" | "denied") {
-    const response = await fetch("/api/approvals/approval_shell_block_ip/decision", {
+    if (!pendingApprovalId) return;
+    const response = await fetch(`/api/approvals/${pendingApprovalId}/decision`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ decision }),
@@ -276,7 +298,12 @@ export function LiveDashboard({
     const data = await response.json();
     if (data.ok) {
       setApprovalStatus(decision);
-      if (data.runtime_status) setStatus(data.runtime_status);
+      if (data.runtime_status) {
+        setStatus(data.runtime_status);
+        if (data.runtime_status !== "waiting_for_approval") {
+          setPendingApprovalId(null);
+        }
+      }
       setChatReply(
         isReceptionist
           ? decision === "denied"
@@ -873,7 +900,7 @@ export function LiveDashboard({
               <button
                 type="button"
                 onClick={() => decide("approved")}
-                disabled={!agentId || approvalStatus !== "pending"}
+                disabled={!pendingApprovalId || approvalStatus !== "pending"}
                 className="bg-white px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-45"
               >
                 Approve Command
@@ -881,7 +908,7 @@ export function LiveDashboard({
               <button
                 type="button"
                 onClick={() => decide("denied")}
-                disabled={!agentId || approvalStatus !== "pending"}
+                disabled={!pendingApprovalId || approvalStatus !== "pending"}
                 className="border border-white/25 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
               >
                 Deny Command
