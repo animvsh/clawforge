@@ -1,17 +1,31 @@
 import type { IncidentReport, MemoryItem, RuntimeEvent } from "@/lib/clawforge/types";
 import { useEffect, useState } from "react";
 
-export function LiveDashboard({ agentId }: { agentId?: string }) {
+export function LiveDashboard({
+  agentId,
+  onReport,
+}: {
+  agentId?: string;
+  onReport?: (report: IncidentReport) => void;
+}) {
   const [events, setEvents] = useState<RuntimeEvent[]>([]);
   const [memory, setMemory] = useState<MemoryItem[]>([]);
   const [report, setReport] = useState<IncidentReport | null>(null);
+  const [status, setStatus] = useState<
+    "ready to deploy" | "running" | "waiting_for_approval" | "completed" | "stopped"
+  >("ready to deploy");
   const [approvalStatus, setApprovalStatus] = useState<"pending" | "approved" | "denied">(
     "pending",
   );
 
   useEffect(() => {
-    if (!agentId) return;
+    if (!agentId) {
+      setStatus("ready to deploy");
+      return;
+    }
     setEvents([]);
+    setApprovalStatus("pending");
+    setStatus("waiting_for_approval");
     const source = new EventSource(`/api/agents/${agentId}/logs/stream`);
     source.onmessage = (message) => {
       setEvents((current) => [...current, JSON.parse(message.data)]);
@@ -25,11 +39,34 @@ export function LiveDashboard({ agentId }: { agentId?: string }) {
 
     fetch(`/api/agents/${agentId}/report`)
       .then((response) => response.json())
-      .then((data) => setReport(data.report ?? null))
+      .then((data) => {
+        setReport(data.report ?? null);
+        if (data.report) onReport?.(data.report);
+      })
       .catch(() => setReport(null));
 
     return () => source.close();
-  }, [agentId]);
+  }, [agentId, onReport]);
+
+  async function setRuntime(nextAction: "start" | "stop") {
+    if (!agentId) return;
+    const response = await fetch(`/api/agents/${agentId}/${nextAction}`, { method: "POST" });
+    const data = await response.json();
+    if (data.ok) {
+      setStatus(data.status ?? (nextAction === "start" ? "running" : "stopped"));
+      setEvents((current) => [
+        ...current,
+        {
+          id: `runtime_${nextAction}_${Date.now()}`,
+          agent_id: agentId,
+          type: nextAction === "start" ? "agent.started" : "agent.completed",
+          message: nextAction === "start" ? "Agent runtime resumed." : "Agent runtime stopped.",
+          timestamp: new Date().toISOString(),
+          severity: nextAction === "start" ? "success" : "warning",
+        },
+      ]);
+    }
+  }
 
   async function decide(decision: "approved" | "denied") {
     const response = await fetch("/api/approvals/approval_shell_block_ip/decision", {
@@ -40,6 +77,7 @@ export function LiveDashboard({ agentId }: { agentId?: string }) {
     const data = await response.json();
     if (data.ok) {
       setApprovalStatus(decision);
+      if (data.runtime_status) setStatus(data.runtime_status);
       setMemory((current) => {
         const nextItem = data.memory_item as MemoryItem;
         if (current.some((item) => item.id === nextItem.id || item.content === nextItem.content)) {
@@ -47,17 +85,11 @@ export function LiveDashboard({ agentId }: { agentId?: string }) {
         }
         return [...current, nextItem];
       });
-      setEvents((current) => [
-        ...current,
-        {
-          id: `approval_${decision}`,
-          agent_id: agentId ?? "agent_sentinelclaw_demo",
-          type: "approval.resolved",
-          message: `User ${decision} shell execution.`,
-          timestamp: new Date().toISOString(),
-          severity: decision === "approved" ? "success" : "warning",
-        },
-      ]);
+      setEvents((current) => [...current, ...((data.events as RuntimeEvent[] | undefined) ?? [])]);
+      if (data.report) {
+        setReport(data.report);
+        onReport?.(data.report);
+      }
     }
   }
 
@@ -69,10 +101,28 @@ export function LiveDashboard({ agentId }: { agentId?: string }) {
         <div className="text-[11px] uppercase tracking-[0.24em] text-white/40">agent</div>
         <h3 className="mt-4 text-2xl font-semibold lowercase text-white">SentinelClaw</h3>
         <div className="mt-4 grid gap-2 text-sm text-white/65">
-          <div>Status: {agentId ? "running" : "ready to deploy"}</div>
+          <div>Status: {status}</div>
           <div>Agent ID: {activeAgent}</div>
           <div>Sandbox: NemoClaw</div>
           <div>Runtime: OpenClaw</div>
+        </div>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setRuntime("start")}
+            disabled={!agentId || status === "running"}
+            className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            Start
+          </button>
+          <button
+            type="button"
+            onClick={() => setRuntime("stop")}
+            disabled={!agentId || status === "stopped"}
+            className="rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            Stop
+          </button>
         </div>
       </div>
 
@@ -82,7 +132,7 @@ export function LiveDashboard({ agentId }: { agentId?: string }) {
             live agent activity
           </div>
           <div className="text-[11px] lowercase text-emerald-300/75">
-            {agentId ? "streaming" : "waiting"}
+            {agentId && status !== "stopped" && status !== "completed" ? "streaming" : "waiting"}
           </div>
         </div>
         <div className="min-h-72 p-5 font-mono text-xs leading-relaxed">
@@ -113,7 +163,7 @@ export function LiveDashboard({ agentId }: { agentId?: string }) {
             <button
               type="button"
               onClick={() => decide("approved")}
-              disabled={approvalStatus !== "pending"}
+              disabled={!agentId || approvalStatus !== "pending"}
               className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-45"
             >
               Approve Action
@@ -121,7 +171,7 @@ export function LiveDashboard({ agentId }: { agentId?: string }) {
             <button
               type="button"
               onClick={() => decide("denied")}
-              disabled={approvalStatus !== "pending"}
+              disabled={!agentId || approvalStatus !== "pending"}
               className="rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
             >
               Deny Action

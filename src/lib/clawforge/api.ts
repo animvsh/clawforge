@@ -1,7 +1,12 @@
-import { DEMO_AGENT_ID, demoApproval, createSentinelBlueprint } from "./fixtures";
-import { createApprovalMemory, listMemory } from "./memory";
-import { getIncidentReport } from "./reports";
-import { getRuntimeEvents, startRuntime, stopRuntime } from "./runtime";
+import { DEMO_AGENT_ID, demoApproval, demoReport, createSentinelBlueprint } from "./fixtures";
+import {
+  getRuntimeEvents,
+  getRuntimeMemory,
+  getRuntimeReport,
+  resolveApproval,
+  startRuntime,
+  stopRuntime,
+} from "./runtime";
 import type { ProviderMode } from "./types";
 
 function json(data: unknown, init?: ResponseInit): Response {
@@ -16,6 +21,14 @@ function json(data: unknown, init?: ResponseInit): Response {
 
 function errorResponse(message: string, status = 400): Response {
   return json({ ok: false, error: { message, status } }, { status });
+}
+
+function hasCompletedCookie(request: Request): boolean {
+  return request.headers.get("cookie")?.includes("clawforge_completed=1") ?? false;
+}
+
+function getCompletedDemoReport() {
+  return demoReport;
 }
 
 async function readJsonBody(request: Request): Promise<Record<string, unknown>> {
@@ -72,12 +85,19 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
       return errorResponse("Known demo blueprint_id is required.", 400);
     }
     startRuntime();
-    return json({
-      ok: true,
-      agent_id: DEMO_AGENT_ID,
-      status: "running",
-      message: "Agent deployed successfully inside NemoClaw.",
-    });
+    return json(
+      {
+        ok: true,
+        agent_id: DEMO_AGENT_ID,
+        status: "running",
+        message: "Agent deployed successfully inside NemoClaw.",
+      },
+      {
+        headers: {
+          "set-cookie": "clawforge_completed=; Path=/; Max-Age=0; SameSite=Lax",
+        },
+      },
+    );
   }
 
   const agentMatch = path.match(/^\/api\/agents\/([^/]+)\/([^/]+)(?:\/([^/]+))?$/);
@@ -98,11 +118,15 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
     }
 
     if (action === "memory" && request.method === "GET") {
-      return json({ ok: true, agent_id: agentId, memory: listMemory() });
+      return json({ ok: true, agent_id: agentId, memory: getRuntimeMemory() });
     }
 
     if (action === "report" && request.method === "GET") {
-      return json({ ok: true, agent_id: agentId, report: getIncidentReport() });
+      const report = getRuntimeReport();
+      if (!report && !hasCompletedCookie(request)) {
+        return errorResponse("Report is not ready until the workflow completes.", 409);
+      }
+      return json({ ok: true, agent_id: agentId, report: report ?? getCompletedDemoReport() });
     }
   }
 
@@ -113,20 +137,27 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
 
     const body = await readJsonBody(request);
     const decision = body.decision === "approved" ? "approved" : "denied";
+    const result = resolveApproval(decision);
 
-    return json({
-      ok: true,
-      approval: {
-        ...demoApproval,
-        status: decision,
-        resolved_at: new Date().toISOString(),
+    return json(
+      {
+        ok: true,
+        approval: {
+          ...demoApproval,
+          status: decision,
+          resolved_at: new Date().toISOString(),
+        },
+        memory_item: result.memory_item,
+        runtime_status: result.status,
+        events: result.events,
+        report: result.report,
       },
-      memory_item: createApprovalMemory(
-        decision === "approved"
-          ? "User approved shell execution for 185.92.XX.XX."
-          : "User denied shell execution for 185.92.XX.XX.",
-      ),
-    });
+      {
+        headers: {
+          "set-cookie": "clawforge_completed=1; Path=/; Max-Age=3600; SameSite=Lax",
+        },
+      },
+    );
   }
 
   return undefined;

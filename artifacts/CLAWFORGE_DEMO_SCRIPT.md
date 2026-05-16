@@ -8,7 +8,7 @@ Live app: https://clawforge.aalang.workers.dev/
 
 Autonomous agents are powerful, but they are still hard to build and risky to deploy with real tools.
 
-ClawForge turns one plain-English workflow into a secure OpenClaw agent powered by NVIDIA Nemotron, optionally backed by MiniMax, protected by NemoClaw policies, and visible through live audit logs.
+ClawForge turns one plain-English workflow into a NemoClaw-secured OpenClaw-compatible agent instance powered by NVIDIA Nemotron, optionally backed by MiniMax, and visible through live audit logs.
 
 Today we will generate SentinelClaw, a cybersecurity incident response agent.
 
@@ -19,12 +19,12 @@ Today we will generate SentinelClaw, a cybersecurity incident response agent.
 Show:
 
 - Hero: Build secure autonomous agents from one prompt.
-- Platform signals: OpenClaw, NemoClaw, Nemotron, MiniMax-ready.
+- Instance signals: OpenClaw-compatible runtime, NemoClaw policy guardrails, Nemotron/MiniMax reasoning, live audit logs.
 - CTA: Build an Agent.
 
 Say:
 
-ClawForge is not a single agent. It is the builder for safe autonomous agents.
+ClawForge is not a generic chat surface. It is the builder for secured autonomous agent instances.
 
 ### 2. Prompt To Blueprint
 

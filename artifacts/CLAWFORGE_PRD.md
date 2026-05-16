@@ -1,14 +1,32 @@
 # ClawForge PRD
 
 > Deployment note, May 16, 2026: Cloudflare Workers is the current canonical live demo target at https://clawforge.aalang.workers.dev/. Railway remains a backlog/alternate deployment target unless explicitly reactivated.
+>
+> PRD handoff note, May 16, 2026: the canonical Google Doc version is available at https://docs.google.com/document/d/1b1yJaS8inIQ4lXasAiC3EyjLS06qRUyT9190gyzt5uc/edit and was emailed to `aalang@ucsc.edu` through Composio MCP.
+
+## 0. Current Functional MVP Status
+
+As of May 16, 2026, the ClawForge MVP is implemented as a fully functional, deterministic hackathon demo:
+
+- The landing page is intentionally simplified: hero, builder, four-step flow, blueprint review, safety, dashboard, and final report.
+- The frontend can generate a SentinelClaw blueprint, review the generated tools/policies/memory/workflow/config, deploy the agent, stream audit events, approve or deny the gated shell action, store memory for the session, and reveal the final report only after workflow completion.
+- The backend exposes the MVP API surface: `POST /api/blueprints`, `POST /api/agents/deploy`, `POST /api/agents/{agent_id}/start`, `POST /api/agents/{agent_id}/stop`, `GET /api/agents/{agent_id}/logs/stream`, `GET /api/agents/{agent_id}/memory`, `GET /api/agents/{agent_id}/report`, and `POST /api/approvals/{approval_id}/decision`.
+- The runtime is an in-memory autonomous workflow simulator. It routes tool actions through NemoClaw-style policy checks, emits `policy.blocked`, pauses for `approval.requested`, resolves approval decisions, stores memory, creates the report, and emits `agent.completed`.
+- The current provider layer is secret-safe and demo-safe. Nemotron, MiniMax, Auto, and Mock are represented in blueprint/provider selection. Mock mode is the canonical no-secret demo path; live provider API calls remain a P1 hardening/integration task.
+- No real shell command, external alert, ticket creation, data export, or provider key is executed or exposed by the MVP.
+
+This PRD therefore defines two levels:
+
+- **Functional MVP:** the complete deterministic demo that is live now.
+- **Production hardening:** real provider calls, durable storage, real sandbox integrations, real ticket/alert integrations, and Railway as an alternate deployment target.
 
 ## 1. Executive Summary
 
-ClawForge is a one-prompt builder for secure autonomous agents. A user describes a workflow in plain English, and ClawForge generates an OpenClaw/Hermes-compatible agent blueprint, selects tools, creates persistent memory, writes NemoClaw safety policies, deploys the agent runtime, and streams every decision, tool call, policy check, approval request, and memory update into a live audit dashboard.
+ClawForge is a one-prompt builder for NemoClaw-secured autonomous agent instances. A user describes a workflow in plain English, and ClawForge generates an OpenClaw/Hermes-compatible agent blueprint, selects tools, creates persistent memory, writes NemoClaw safety policies, deploys the secured agent instance, and streams every decision, tool call, policy check, approval request, and memory update into a live audit dashboard.
 
 The hackathon MVP proves one product promise:
 
-> Describe a workflow. Get a secure running autonomous agent.
+> Describe a workflow. Get a secure running NemoClaw agent instance.
 
 The recommended demo workflow is a cybersecurity incident response agent named SentinelClaw. It monitors logs, detects suspicious behavior, maps events to MITRE ATT&CK categories, writes an incident report, and requests human approval before high-risk actions such as shell commands or external alerts.
 
@@ -16,7 +34,7 @@ The recommended demo workflow is a cybersecurity incident response agent named S
 
 ### One-Liner
 
-ClawForge lets anyone build, deploy, and safely control autonomous agents from a single prompt.
+ClawForge lets anyone generate, deploy, and control a NemoClaw-secured agent instance from a single prompt.
 
 ### Tagline
 
@@ -28,7 +46,7 @@ Everyone is building autonomous agents. ClawForge is the fastest way to create a
 
 ### Differentiation
 
-Most demos show one agent. ClawForge shows an agent factory: prompt-to-blueprint, policy generation, memory, deployment, live runtime, approval gates, and final report output.
+Most demos show one agent. ClawForge shows the lifecycle for a secured agent instance: prompt-to-blueprint, policy generation, deployment, live runtime, approval gates, memory, and final report output.
 
 ## 3. Target Users
 
@@ -70,7 +88,7 @@ A judge wants to see a working deployed agent, live tool use, multi-step reasoni
 - Complex auth system.
 - Full enterprise admin panel.
 - Full code editor.
-- Multi-user workspace permissions.
+- Multi-user admin permissions.
 - Billing.
 - Production-grade sandbox orchestration.
 
@@ -82,7 +100,7 @@ A judge wants to see a working deployed agent, live tool use, multi-step reasoni
 2. Prompt builder
 3. Streaming blueprint generation
 4. Blueprint review
-5. Deployment progress
+5. Deployment progress/status
 6. Live agent dashboard
 7. Approval gate
 8. Persistent memory panel
@@ -104,7 +122,7 @@ A judge wants to see a working deployed agent, live tool use, multi-step reasoni
 
 ### MVP Implementation Assumptions
 
-- The first build should be fully demoable in `mock` provider mode without external secrets.
+- The first build is fully demoable in `mock`/deterministic provider mode without external secrets.
 - Real provider adapters must be optional and selected only when their environment variables are present.
 - The runtime may use deterministic sample data for cybersecurity logs, tool outputs, and MITRE mapping.
 - OpenClaw/Hermes and NemoClaw compatibility can be represented through generated config shapes and event names if the real packages are unavailable during the hackathon.
@@ -148,7 +166,7 @@ User sees:
 
 Subtitle:
 
-> ClawForge generates OpenClaw/NemoClaw agents powered by NVIDIA Nemotron, connects tools, writes policies, creates memory, and deploys them with live audit logs.
+> ClawForge generates OpenClaw-compatible agent instances powered by NVIDIA Nemotron, attaches tools and memory, writes NemoClaw policies, and deploys them with live audit logs.
 
 Primary CTA:
 
@@ -232,20 +250,18 @@ Components:
 
 - Hero headline
 - Product subtitle
-- Prompt input preview
-- Example prompt chips
-- Generated agent card
-- Tool icons
-- Policy shield
-- Live log preview
+- Simple hero visual
+- Builder anchor
+- Four-step flow summary
+- Safety summary
 - Primary CTA: Build an Agent
-- Secondary CTA: View Demo Agent
+- Secondary CTA: Watch Demo
 
 Acceptance criteria:
 
 - User understands ClawForge in under 10 seconds.
 - CTA scrolls or navigates to builder.
-- Demo preview shows policy, memory, and live logs.
+- Page feels uncluttered and does not duplicate the full dashboard before the builder.
 
 ### Screen 2: Agent Builder
 
@@ -254,7 +270,7 @@ Purpose: Capture user request and generate blueprint.
 Components:
 
 - Large prompt box
-- Template selector
+- Example template chips
 - Provider selector: Nemotron, MiniMax, Auto
 - Generate button
 - Streaming generation panel
@@ -342,6 +358,7 @@ Acceptance criteria:
 - One action is approval-gated.
 - One action is blocked or denied.
 - Approval decision updates logs and memory.
+- Final report is not available until after the approval decision completes the workflow.
 
 ### Screen 6: Final Report
 
@@ -604,8 +621,8 @@ Acceptance criteria:
 
 - Blueprint records selected provider.
 - Runtime can run in `mock` mode without secrets.
-- Runtime can use Nemotron when `NVIDIA_API_KEY` is present.
-- Runtime can use MiniMax when `MINIMAX_API_KEY` and plan/model config are present.
+- Runtime can select Nemotron mode when configured.
+- Runtime can select MiniMax mode when configured.
 - Provider errors are logged without leaking secrets.
 
 ### Provider Fallback Rules

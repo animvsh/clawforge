@@ -70,6 +70,24 @@ export function createSentinelBlueprint(provider: ProviderMode = "auto"): Bluepr
         enabled: true,
       },
       {
+        id: "tool_ticket_creator",
+        name: "Ticket Creator",
+        action: "ticket.create",
+        purpose: "Creates a mock incident ticket after review.",
+        permission: "approval_required",
+        risk_level: "medium",
+        enabled: true,
+      },
+      {
+        id: "tool_external_alert",
+        name: "External Alert Sender",
+        action: "message.send_external",
+        purpose: "Sends Slack or email alerts only after approval.",
+        permission: "approval_required",
+        risk_level: "medium",
+        enabled: true,
+      },
+      {
         id: "tool_data_export",
         name: "Data Export",
         action: "data.export",
@@ -93,6 +111,20 @@ export function createSentinelBlueprint(provider: ProviderMode = "auto"): Bluepr
         action: "data.export",
         effect: "deny",
         reason: "Raw logs may contain sensitive data.",
+      },
+      {
+        id: "policy_ticket_approval",
+        name: "Require approval for ticket creation",
+        action: "ticket.create",
+        effect: "require_approval",
+        reason: "Ticket creation changes external workflow state.",
+      },
+      {
+        id: "policy_external_alert_approval",
+        name: "Require approval for external alerts",
+        action: "message.send_external",
+        effect: "require_approval",
+        reason: "External notifications can disclose incident details.",
       },
       {
         id: "policy_allow_logs",
@@ -155,6 +187,12 @@ export function createSentinelBlueprint(provider: ProviderMode = "auto"): Bluepr
         tool_id: "tool_shell_executor",
       },
       {
+        id: "step_ticket_alert",
+        title: "Prepare ticket and alert",
+        description: "Prepare external follow-up actions but keep them approval gated.",
+        tool_id: "tool_ticket_creator",
+      },
+      {
         id: "step_save_memory",
         title: "Save memory",
         description: "Store the suspicious IP and user decision for later runs.",
@@ -166,8 +204,11 @@ model: ${model}
 env:
   NVIDIA_API_KEY: ${"${NVIDIA_API_KEY}"}
   MINIMAX_API_KEY: ${"${MINIMAX_API_KEY}"}
+  MINIMAX_PLAN_KEY: ${"${MINIMAX_PLAN_KEY}"}
 policies:
   - shell.execute: require_approval
+  - ticket.create: require_approval
+  - message.send_external: require_approval
   - data.export: deny`,
   };
 }

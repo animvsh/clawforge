@@ -8,12 +8,28 @@ Live demo: https://clawforge.aalang.workers.dev/
 
 Linear project: https://linear.app/askdad/project/clawforge-c618a255248b
 
+Canonical PRD Google Doc: https://docs.google.com/document/d/1b1yJaS8inIQ4lXasAiC3EyjLS06qRUyT9190gyzt5uc/edit
+
+Composio status: Google Docs and Gmail were connected through Composio MCP. The PRD link was emailed to `aalang@ucsc.edu`.
+
 ## Current Access Reality
 
 - `pmgandhi@ucsc.edu` exists in Linear and is assigned directly.
-- `adithyaapradeep@gmail.com` is not yet a Linear user. Their ownership is recorded in Linear comments until the workspace invite is complete.
-- `edwin.giwin@gmail.com` is not yet a Linear user. Their ownership is recorded in Linear comments until the workspace invite is complete.
+- Linear currently has `adpradee@ucsc.edu`, which is assigned to Adithya's frontend lane.
+- Linear currently has `gedwinom@ucsc.edu`, which is assigned to Edwin's dashboard/memory/report lane.
+- The originally requested Gmail addresses, `adithyaapradeep@gmail.com` and `edwin.giwin@gmail.com`, still require Linear org invite/admin action if those exact identities are needed.
 - GitHub private repo access still requires GitHub usernames or GitHub sudo verification in the browser.
+
+## MVP Functional Status
+
+The current Cloudflare build is a complete deterministic MVP demo:
+
+- Prompt-to-blueprint works through `/api/blueprints`.
+- Blueprint review includes tools, policies, memory schema, workflow, and config preview.
+- Deploy initializes an in-memory runtime session.
+- SSE logs include allowed tool calls, policy checks, a blocked data export, and an approval request.
+- Approval decision resolves the paused shell action, stores session memory, emits completion logs, and unlocks the final report.
+- Report endpoint returns `409` before completion and returns the incident report after approval resolution.
 
 ## Shared Commands
 
@@ -50,7 +66,9 @@ API routing lives in `src/lib/clawforge/api.ts` and is mounted from `src/server.
 
 ## Person 1: Adithya
 
-Email: `adithyaapradeep@gmail.com`
+Requested email: `adithyaapradeep@gmail.com`
+
+Linear assignee currently used: `adpradee@ucsc.edu`
 
 Lane: Frontend product experience
 
@@ -127,7 +145,9 @@ Do not own:
 
 ## Person 3: Edwin
 
-Email: `edwin.giwin@gmail.com`
+Requested email: `edwin.giwin@gmail.com`
+
+Linear assignee currently used: `gedwinom@ucsc.edu`
 
 Lane: Memory, report, demo, deployment verification
 

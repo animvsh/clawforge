@@ -1,5 +1,5 @@
 import type { BlueprintResponse, ProviderMode } from "@/lib/clawforge/types";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export type AgentBuilderProps = {
   provider?: ProviderMode;
@@ -13,16 +13,50 @@ const loadingSteps = [
   "Understanding workflow",
   "Selecting incident response template",
   "Choosing tools",
+  "Creating memory schema",
   "Writing NemoClaw policies",
   "Preparing OpenClaw runtime",
+  "Blueprint ready",
+];
+
+const promptTemplates = [
+  {
+    label: "Security incident",
+    prompt: defaultPrompt,
+  },
+  {
+    label: "GitHub triage",
+    prompt:
+      "Create an agent that reads GitHub issues, identifies urgent bugs, drafts responses, and asks before posting.",
+  },
+  {
+    label: "Inbox assistant",
+    prompt:
+      "Create an agent that summarizes important emails, drafts replies, and asks before sending anything.",
+  },
+  {
+    label: "Research agent",
+    prompt:
+      "Create an agent that researches a topic, saves sources to memory, writes a brief, and asks before publishing.",
+  },
 ];
 
 export function AgentBuilder({ provider = "auto", onBlueprint }: AgentBuilderProps) {
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [selectedProvider, setSelectedProvider] = useState<ProviderMode>(provider);
   const [loading, setLoading] = useState(false);
+  const [activeStep, setActiveStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [blueprint, setBlueprint] = useState<BlueprintResponse | null>(null);
+
+  useEffect(() => {
+    if (!loading) return;
+    setActiveStep(0);
+    const timer = window.setInterval(() => {
+      setActiveStep((current) => Math.min(current + 1, loadingSteps.length - 1));
+    }, 220);
+    return () => window.clearInterval(timer);
+  }, [loading]);
 
   async function generateBlueprint() {
     setLoading(true);
@@ -37,6 +71,7 @@ export function AgentBuilder({ provider = "auto", onBlueprint }: AgentBuilderPro
       if (!response.ok || !data.ok) {
         throw new Error(data.error?.message || "Blueprint generation failed.");
       }
+      setActiveStep(loadingSteps.length - 1);
       setBlueprint(data.blueprint);
       onBlueprint?.(data.blueprint);
     } catch (err) {
@@ -58,6 +93,18 @@ export function AgentBuilder({ provider = "auto", onBlueprint }: AgentBuilderPro
           className="min-h-36 w-full resize-none rounded-xl border border-white/10 bg-white/[0.035] p-4 font-mono text-sm leading-relaxed text-white/85 outline-none transition placeholder:text-white/25 focus:border-white/30"
           placeholder="Describe the autonomous agent you want to create..."
         />
+        <div className="mt-3 flex flex-wrap gap-2">
+          {promptTemplates.map((template) => (
+            <button
+              key={template.label}
+              type="button"
+              onClick={() => setPrompt(template.prompt)}
+              className="rounded-full border border-white/10 px-3 py-1.5 text-xs lowercase text-white/60 transition hover:border-white/25 hover:text-white"
+            >
+              {template.label}
+            </button>
+          ))}
+        </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <select
             value={selectedProvider}
@@ -91,23 +138,25 @@ export function AgentBuilder({ provider = "auto", onBlueprint }: AgentBuilderPro
           </div>
         </div>
         <div className="grid gap-2 p-5">
-          {loadingSteps.map((step, index) => (
-            <div
-              key={step}
-              className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white/75"
-            >
-              <span
-                className={`grid h-5 w-5 place-items-center rounded-full text-[11px] ${
-                  loading || blueprint
-                    ? "bg-emerald-400/15 text-emerald-200"
-                    : "bg-white/5 text-white/30"
-                }`}
+          {loadingSteps.map((step, index) => {
+            const completed = blueprint || (loading && index <= activeStep);
+            const pending = loading && index === activeStep;
+            return (
+              <div
+                key={step}
+                className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/35 px-4 py-3 text-sm text-white/75"
               >
-                {loading || blueprint || index === 0 ? "✓" : "·"}
-              </span>
-              {step}
-            </div>
-          ))}
+                <span
+                  className={`grid h-5 w-5 place-items-center rounded-full text-[11px] ${
+                    completed ? "bg-emerald-400/15 text-emerald-200" : "bg-white/5 text-white/30"
+                  }`}
+                >
+                  {completed ? "✓" : pending ? "…" : "·"}
+                </span>
+                {step}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

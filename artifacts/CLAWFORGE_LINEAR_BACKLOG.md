@@ -2,6 +2,29 @@
 
 Development-ready backlog derived from `artifacts/CLAWFORGE_PRD.md`.
 
+Canonical PRD Google Doc: https://docs.google.com/document/d/1b1yJaS8inIQ4lXasAiC3EyjLS06qRUyT9190gyzt5uc/edit
+
+Composio handoff: Google Docs and Gmail were connected through Composio MCP, and the PRD link was sent to `aalang@ucsc.edu`.
+
+## Current Implementation Status
+
+As of May 16, 2026, the MVP is live as a deterministic, in-memory demo on Cloudflare Workers:
+
+- Product shell, simplified landing flow, prompt builder, provider selector, and template chips are implemented.
+- Blueprint generation returns a complete SentinelClaw blueprint with 7 tools, 6 policies, workflow steps, memory schema, and secret-safe config preview.
+- Blueprint review shows agent summary, tool cards, workflow, policies, memory schema, config preview, and deployment status.
+- Backend API foundation is implemented for blueprint, deploy, start, stop, SSE logs, memory, report, and approval decision.
+- Runtime executes a session-scoped workflow: allowed log read, blocked data export, allowed report draft, shell approval request, approval resolution, memory update, final report, and completion event.
+- Final report is gated until workflow completion.
+- MiniMax/Nemotron provider modes are exposed as secret-safe selectable modes; real live provider calls remain a P1 hardening task.
+- Durable storage, real OpenClaw/NemoClaw SDK integration, real external ticket/alert execution, and Railway deployment are production-hardening workstreams.
+
+Recommended Linear state split:
+
+- Mark MVP implementation issues as `Done` after verification: ANU-21 through ANU-30.
+- Keep alternate deployment/demo polish issues in `Todo` unless the team wants Railway specifically: ANU-31, ANU-32.
+- Create or keep P1 hardening issues for real provider APIs, durable persistence, and real sandbox/tool integrations.
+
 ## Recommended Linear Labels
 
 - `product`

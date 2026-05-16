@@ -38,7 +38,7 @@ Use one branch per workstream:
 
 ## Person-Owned Workstream Map
 
-Actual Linear assignment is only possible for users already in the workspace. `pmgandhi@ucsc.edu` is assigned directly. Adithya and Edwin are recorded as owners in issue comments until their Linear workspace invites are complete.
+Actual Linear assignment is only possible for users already in the Linear org. `pmgandhi@ucsc.edu` is assigned directly. Adithya and Edwin are recorded as owners in issue comments until their Linear org invites are complete.
 
 | Person                                | Lane                        | Linear Issues                  | Current Linear Status                                     |
 | ------------------------------------- | --------------------------- | ------------------------------ | --------------------------------------------------------- |

@@ -4,6 +4,7 @@ import { AgentBuilder } from "@/components/clawforge/AgentBuilder";
 import { BlueprintReview } from "@/components/clawforge/BlueprintReview";
 import { IncidentReport } from "@/components/clawforge/IncidentReport";
 import { LiveDashboard } from "@/components/clawforge/LiveDashboard";
+import heroImage from "@/assets/hero.png";
 import { useReveal } from "@/hooks/use-reveal";
 import type {
   BlueprintResponse,
@@ -17,14 +18,12 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "ClawForge generates OpenClaw agents powered by NVIDIA Nemotron, connects tools, creates memory, writes safety policies, and deploys them inside NemoClaw with live audit logs.",
+          "ClawForge generates OpenClaw-compatible agent instances powered by NVIDIA Nemotron, attaches tools and memory, writes NemoClaw policies, and deploys them with live audit logs.",
       },
     ],
   }),
   component: Index,
 });
-
-const heroStats = ["OpenClaw", "NemoClaw", "Nemotron", "MiniMax-ready"];
 
 const simpleSteps = ["Prompt", "Blueprint", "Deploy", "Audit"];
 
@@ -54,15 +53,15 @@ function Reveal({
 }
 
 function Logo({ size = "md" }: { size?: "sm" | "md" }) {
-  const s = size === "sm" ? "w-5 h-5 text-[7px]" : "w-9 h-9 text-[11px]";
+  const s = size === "sm" ? "h-5 w-5 text-[7px]" : "h-9 w-9 text-[11px]";
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-3" aria-label="ClawForge">
       <div
-        className={`${s} bg-gradient-to-br from-white to-white/70 text-black flex items-center justify-center rounded-lg shadow-[0_0_24px_-4px_rgba(255,255,255,0.35)]`}
+        className={`${s} flex items-center justify-center bg-white text-black shadow-[0_0_24px_-4px_rgba(255,255,255,0.35)]`}
       >
         <span className="translate-x-[1px]">▶</span>
       </div>
-      <span className="text-[11px] uppercase tracking-[0.32em] text-white/45 font-medium">
+      <span className="text-[11px] font-medium uppercase tracking-[0.32em] text-white/45">
         clawforge
       </span>
     </div>
@@ -104,83 +103,24 @@ function Section({
 }
 
 function HeroVisual() {
-  const nodes = [
-    { x: 18, y: 22, size: 6, delay: 0 },
-    { x: 32, y: 68, size: 4, delay: 0.4 },
-    { x: 52, y: 38, size: 8, delay: 0.8 },
-    { x: 70, y: 78, size: 5, delay: 1.2 },
-    { x: 82, y: 28, size: 6, delay: 1.6 },
-    { x: 44, y: 84, size: 4, delay: 2.0 },
-    { x: 12, y: 52, size: 5, delay: 2.4 },
-    { x: 90, y: 60, size: 6, delay: 0.6 },
-  ];
-  const edges: [number, number][] = [
-    [0, 2],
-    [1, 2],
-    [2, 3],
-    [2, 4],
-    [3, 5],
-    [6, 0],
-    [4, 7],
-    [2, 6],
-  ];
-
   return (
-    <div className="absolute inset-0">
-      <div
-        className="absolute inset-0"
-        style={{
-          background:
-            "radial-gradient(ellipse at 50% 40%, rgba(80,110,230,0.28) 0%, #0a1230 38%, #04060f 82%)",
-        }}
+    <div className="absolute inset-0 overflow-hidden bg-[#161815]">
+      <img
+        src={heroImage}
+        alt=""
+        className="h-full w-full scale-105 object-cover object-[68%_50%] opacity-70 blur-[1px] saturate-[0.85]"
       />
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[54%] aspect-square rounded-full blur-[130px] bg-indigo-500/20" />
-      <svg
-        className="absolute inset-0 h-full w-full opacity-75"
-        viewBox="0 0 100 100"
-        preserveAspectRatio="none"
-        aria-hidden
-      >
-        {edges.map(([a, b], i) => (
-          <line
-            key={i}
-            x1={nodes[a].x}
-            y1={nodes[a].y}
-            x2={nodes[b].x}
-            y2={nodes[b].y}
-            stroke="white"
-            strokeOpacity="0.14"
-            strokeWidth="0.15"
-            vectorEffect="non-scaling-stroke"
-          />
-        ))}
-        {nodes.map((n, i) => (
-          <g key={i}>
-            <circle
-              cx={n.x}
-              cy={n.y}
-              r={n.size / 3}
-              fill="rgb(170, 200, 255)"
-              opacity="0.3"
-              style={{ animation: `pulse 2.8s ease-in-out ${n.delay}s infinite` }}
-            />
-            <circle
-              cx={n.x}
-              cy={n.y}
-              r={n.size / 6}
-              fill="white"
-              opacity="0.95"
-              style={{ animation: `pulse 2.8s ease-in-out ${n.delay}s infinite` }}
-            />
-          </g>
-        ))}
-      </svg>
-
+      <div className="absolute inset-0 bg-black/35" />
+      <div className="absolute inset-y-0 left-0 w-28 bg-gradient-to-r from-black/70 to-transparent" />
+      <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/45 to-transparent" />
       <div className="absolute right-6 top-6 hidden md:block">
-        <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.28em] text-white/65 border border-white/10 bg-black/40 backdrop-blur px-3 py-1.5 rounded-full">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+        <div className="flex items-center gap-2 border border-white/10 bg-black/35 px-3 py-1.5 text-[10px] uppercase tracking-[0.28em] text-white/65 backdrop-blur">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
           sandbox live
         </div>
+      </div>
+      <div className="absolute bottom-6 left-6 hidden border border-white/10 bg-black/30 px-3 py-2 font-mono text-[10px] uppercase tracking-[0.22em] text-white/50 backdrop-blur md:block">
+        approval gate armed
       </div>
     </div>
   );
@@ -283,47 +223,38 @@ function Index() {
 
   return (
     <main className="min-h-screen bg-black text-white">
-      <div className="grid min-h-[86vh] lg:grid-cols-[0.9fr_1.1fr]">
-        <section className="relative order-2 flex flex-col p-8 animate-fade-in lg:order-1 lg:p-14">
+      <div className="grid min-h-screen lg:grid-cols-[34%_66%]">
+        <section className="relative order-2 flex min-h-[64vh] flex-col border-r border-white/[0.06] bg-black p-8 animate-fade-in lg:order-1 lg:min-h-screen lg:p-14">
           <Logo />
 
-          <div className="my-auto max-w-xl py-16 lg:py-10">
-            <div className="mb-5 text-[11px] uppercase tracking-[0.22em] text-white/45">
-              Describe an agent. Sandbox it. Run it.
-            </div>
-            <h1 className="text-5xl font-semibold leading-[1.02] tracking-tight lowercase lg:text-6xl xl:text-[4.4rem]">
-              Build secure autonomous agents from one prompt.
+          <div className="mt-auto max-w-xl pb-8 pt-16 lg:pb-12">
+            <h1 className="text-5xl font-semibold leading-[0.98] tracking-tight lowercase md:text-6xl lg:text-[4.6rem] xl:text-[5.2rem]">
+              Build NemoClaw-secured agent instances from one prompt.
             </h1>
-            <p className="mt-6 max-w-lg text-base leading-relaxed text-white/65">
-              ClawForge generates OpenClaw agents powered by NVIDIA Nemotron, connects tools,
-              creates memory, writes safety policies, and deploys them inside NemoClaw with live
-              audit logs.
+            <p className="mt-7 max-w-lg text-base leading-relaxed text-white/58 md:text-lg">
+              ClawForge generates OpenClaw-compatible agent instances powered by NVIDIA Nemotron,
+              attaches tools and memory, writes NemoClaw policies, and deploys them with live audit
+              logs.
             </p>
 
             <div className="mt-8 flex flex-wrap gap-3">
               <a
                 href="#builder"
-                className="inline-block rounded-xl bg-white px-5 py-3 text-sm font-medium lowercase text-black shadow-[0_10px_30px_-10px_rgba(255,255,255,0.45)] transition hover:bg-white/90"
+                className="inline-block bg-white px-7 py-3.5 text-sm font-semibold lowercase text-black transition hover:bg-white/90"
               >
                 Build an Agent
               </a>
               <a
                 href="#dashboard"
-                className="inline-block rounded-xl border border-white/20 px-5 py-3 text-sm font-medium lowercase text-white transition hover:bg-white/[0.05]"
+                className="inline-block border border-white/20 px-7 py-3.5 text-sm font-semibold lowercase text-white transition hover:bg-white/[0.05]"
               >
                 Watch Demo
               </a>
             </div>
-
-            <div className="mt-10 flex flex-wrap gap-x-5 gap-y-2 text-[11px] uppercase tracking-[0.16em] text-white/35">
-              {heroStats.map((stat) => (
-                <span key={stat}>{stat}</span>
-              ))}
-            </div>
           </div>
         </section>
 
-        <section className="relative order-1 min-h-[38vh] overflow-hidden bg-[#04060f] lg:order-2 lg:min-h-[86vh]">
+        <section className="relative order-1 min-h-[42vh] overflow-hidden lg:order-2 lg:min-h-screen">
           <HeroVisual />
         </section>
       </div>
@@ -371,7 +302,7 @@ function Index() {
       </Section>
 
       <Section id="dashboard" eyebrow="live dashboard" title="see every decision as it happens.">
-        <LiveDashboard agentId={agentId} />
+        <LiveDashboard agentId={agentId} onReport={setReport} />
       </Section>
 
       <Section id="report" eyebrow="final output" title="final incident output.">
