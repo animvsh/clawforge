@@ -12,7 +12,7 @@ import {
   type Connection,
   type NodeTypes,
   type NodeProps,
-  type Handle,
+  Handle,
   Position,
   MarkerType,
   useReactFlow,
