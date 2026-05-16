@@ -544,3 +544,53 @@ export function computeLayout(graph: WorkflowGraph): WorkflowGraph {
 
   return { nodes, edges: graph.edges };
 }
+
+// ---------------------------------------------------------------------------
+// Interactive canvas helpers
+// ---------------------------------------------------------------------------
+
+export function updateNodePosition(
+  graph: WorkflowGraph,
+  nodeId: string,
+  x: number,
+  y: number,
+): WorkflowGraph {
+  return {
+    ...graph,
+    nodes: graph.nodes.map((n) =>
+      n.id === nodeId ? { ...n, x, y } : n,
+    ),
+  };
+}
+
+export function addEdge(
+  graph: WorkflowGraph,
+  sourceId: string,
+  targetId: string,
+  type: WorkflowEdgeType = "execution",
+): WorkflowGraph {
+  const newEdge: WorkflowEdge = {
+    id: Date.now().toString(36),
+    sourceId,
+    targetId,
+    type,
+  };
+  return {
+    ...graph,
+    edges: [...graph.edges, newEdge],
+  };
+}
+
+export function removeEdge(graph: WorkflowGraph, edgeId: string): WorkflowGraph {
+  return {
+    ...graph,
+    edges: graph.edges.filter((e) => e.id !== edgeId),
+  };
+}
+
+export function removeNode(graph: WorkflowGraph, nodeId: string): WorkflowGraph {
+  return {
+    nodes: graph.nodes.filter((n) => n.id !== nodeId),
+    edges: graph.edges.filter((e) => e.sourceId !== nodeId && e.targetId !== nodeId),
+  };
+}

@@ -2,7 +2,7 @@ import {
   buildBlueprintWorkflowGraph,
   buildOptimisticWorkflowGraph,
 } from "@/lib/clawforge/workflow-graph";
-import type { WorkflowGraph } from "@/lib/clawforge/workflow-graph";
+import type { WorkflowGraph, WorkflowNode, WorkflowEdge } from "@/lib/clawforge/workflow-graph";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import {
   ArrowUp,
@@ -125,6 +125,18 @@ function WorkspacePage() {
   const [panel, setPanel] = useState<"files" | "policies" | "memory">("files");
   const [error, setError] = useState<string | null>(null);
   const [workflowGraph, setWorkflowGraph] = useState<WorkflowGraph>({ nodes: [], edges: [] });
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  function handleNodesChange(updatedNodes: WorkflowNode[]) {
+    setWorkflowGraph(prev => ({ ...prev, nodes: updatedNodes }));
+  }
+
+  function handleEdgesChange(newEdge: WorkflowEdge) {
+    setWorkflowGraph(prev => ({
+      ...prev,
+      edges: [...prev.edges, newEdge]
+    }));
+  }
 
   const currentStatus = project?.status ?? "draft";
   const projectName = blueprint?.agent_name ?? project?.name ?? "NemoClaw Instance";
@@ -840,6 +852,10 @@ function WorkspacePage() {
                 <WorkflowCanvas
                   graph={workflowGraph}
                   activeNodeId={workflowGraph.nodes[activeIndex]?.id}
+                  selectedNodeId={selectedNodeId}
+                  onNodeClick={(nodeId) => setSelectedNodeId(nodeId)}
+                  onNodesChange={handleNodesChange}
+                  onEdgesChange={handleEdgesChange}
                   className="h-full"
                 />
               )}
@@ -923,6 +939,46 @@ function WorkspacePage() {
             </div>
 
             <aside className="bg-black p-5">
+              {selectedNodeId && (() => {
+                const node = workflowGraph.nodes.find(n => n.id === selectedNodeId);
+                if (!node) return null;
+                const kindColors: Record<string, string> = {
+                  sentinel: "border-l-blue-400",
+                  executor: "border-l-purple-400",
+                  monitor: "border-l-emerald-400",
+                  memory: "border-l-amber-400",
+                  input: "border-l-cyan-400",
+                };
+                const kindColor = kindColors[node.kind] ?? "border-l-white/20";
+                return (
+                  <div className={`mb-5 border border-white/12 bg-white/[0.03] p-4 border-l-4 ${kindColor}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] uppercase tracking-[0.16em] text-white/34 px-2 py-0.5 border border-white/14 rounded-full">
+                            {node.kind}
+                          </span>
+                        </div>
+                        <h3 className="mt-2 text-sm font-medium text-white">{node.title}</h3>
+                        <p className="mt-1 text-xs text-white/42">{node.subtitle}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedNodeId(null)}
+                        className="text-white/28 hover:text-white transition text-lg leading-none"
+                        aria-label="Close node detail"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <div className="mt-3 flex items-center gap-2 text-xs text-white/38">
+                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-current" />
+                      Status: {node.status}
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div className="grid grid-cols-3 gap-px border border-white/12 bg-white/10 text-xs">
                 {(["files", "policies", "memory"] as const).map((item) => (
                   <button
