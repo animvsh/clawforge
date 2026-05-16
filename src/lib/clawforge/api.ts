@@ -3,11 +3,60 @@ import {
   getRuntimeEvents,
   getRuntimeMemory,
   getRuntimeReport,
+  getRuntimeState,
+  getApprovalStatus,
   resolveApproval,
   startRuntime,
   stopRuntime,
 } from "./runtime";
-import type { ProviderMode } from "./types";
+import type {
+  ProviderMode,
+  BlueprintRequest,
+  BlueprintApiResponse,
+  DeployAgentRequest,
+  DeployAgentResponse,
+  MemoryResponse,
+  RuntimeEvent,
+  ApprovalDecisionRequest,
+  ApprovalDecisionResponse,
+  IncidentReportResponse,
+} from "./types";
+
+// ============================================================
+// API Namespace: /api/v1/clawforge
+// Base URL: /api/v1/clawforge
+// All responses follow: { ok: true, ...data } | { ok: false, error: ApiError }
+// ============================================================
+
+export const API_VERSION = "v1" as const;
+export const API_NAMESPACE = "/api/v1/clawforge" as const;
+
+// ============================================================
+// Error Types
+// ============================================================
+
+export type ApiErrorCode =
+  | "INVALID_REQUEST"
+  | "MISSING_FIELD"
+  | "NOT_FOUND"
+  | "CONFLICT"
+  | "INTERNAL_ERROR"
+  | "METHOD_NOT_ALLOWED";
+
+export type ApiError = {
+  code: ApiErrorCode;
+  message: string;
+  status: number;
+  field?: string;
+};
+
+function apiError(code: ApiErrorCode, message: string, status: number, field?: string): ApiError {
+  return { code, message, status, field };
+}
+
+// ============================================================
+// Response Helpers
+// ============================================================
 
 function json(data: unknown, init?: ResponseInit): Response {
   return new Response(JSON.stringify(data), {
@@ -19,9 +68,65 @@ function json(data: unknown, init?: ResponseInit): Response {
   });
 }
 
-function errorResponse(message: string, status = 400): Response {
-  return json({ ok: false, error: { message, status } }, { status });
+function successResponse<T>(data: T, init?: ResponseInit): Response {
+  return json({ ok: true, ...data }, init);
 }
+
+function errorResponse(message: string, status = 400, code: ApiErrorCode = "INVALID_REQUEST", field?: string): Response {
+  return json({ ok: false, error: apiError(code, message, status, field) }, { status });
+}
+
+function notFoundError(resource: string): Response {
+  return errorResponse(`${resource} not found.`, 404, "NOT_FOUND");
+}
+
+function methodNotAllowedError(): Response {
+  return errorResponse("Method not allowed for this endpoint.", 405, "METHOD_NOT_ALLOWED");
+}
+
+// ============================================================
+// API Request/Response Types
+// ============================================================
+
+export type HealthResponse = {
+  ok: true;
+  app: string;
+  service: string;
+  runtime: string;
+  frontend: string;
+};
+
+export type BlueprintCreateRequest = BlueprintRequest;
+
+export type BlueprintCreateResponse = BlueprintApiResponse;
+
+export type AgentDeployRequest = DeployAgentRequest;
+
+export type AgentDeployResponse = DeployAgentResponse;
+
+export type AgentStartResponse = {
+  ok: true;
+  agent_id: string;
+  status: "running" | "waiting_for_approval" | "completed" | "stopped";
+};
+
+export type AgentStopResponse = {
+  ok: true;
+  agent_id: string;
+  status: "stopped";
+};
+
+export type AgentLogsStreamResponse = RuntimeEvent[];
+
+export type AgentMemoryResponse = MemoryResponse;
+
+export type AgentReportResponse = IncidentReportResponse;
+
+export type ApprovalDecisionResponse = ApprovalDecisionResponse;
+
+// ============================================================
+// Helper Functions
+// ============================================================
 
 function hasCompletedCookie(request: Request): boolean {
   return request.headers.get("cookie")?.includes("clawforge_completed=1") ?? false;
@@ -31,17 +136,18 @@ function getCompletedDemoReport() {
   return demoReport;
 }
 
-async function readJsonBody(request: Request): Promise<Record<string, unknown>> {
-  if (!request.body) return {};
+async function readJsonBody<T extends Record<string, unknown>>(request: Request): Promise<T> {
+  if (!request.body) return {} as T;
   const body = await request.json().catch(() => undefined);
-  if (!body || Array.isArray(body) || typeof body !== "object") return {};
-  return body as Record<string, unknown>;
+  if (!body || Array.isArray(body) || typeof body !== "object") return {} as T;
+  return body as T;
 }
 
-function normalizeProvider(value: unknown): ProviderMode {
-  return value === "nemotron" || value === "minimax" || value === "mock" || value === "auto"
-    ? value
-    : "auto";
+function normalizeProvider(value: unknown): ProviderMode | null {
+  if (value === "nemotron" || value === "minimax" || value === "mock" || value === "auto") {
+    return value;
+  }
+  return null; // Invalid provider - caller should return 400
 }
 
 function sse(events: unknown[]): Response {
@@ -64,32 +170,66 @@ function sse(events: unknown[]): Response {
   });
 }
 
+// ============================================================
+// API Handler
+// ============================================================
+
 export async function handleClawForgeApi(request: Request): Promise<Response | undefined> {
   const url = new URL(request.url);
   const path = url.pathname;
 
-  if (path === "/api/blueprints" && request.method === "POST") {
-    const body = await readJsonBody(request);
-    const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
-    if (!prompt) return errorResponse("Prompt is required.");
-
-    return json({
-      ok: true,
-      blueprint: createSentinelBlueprint(normalizeProvider(body.provider)),
-    });
+  // Normalize path: strip /api/v1/clawforge prefix if present
+  let apiPath = path;
+  if (path.startsWith(API_NAMESPACE)) {
+    apiPath = path.slice(API_NAMESPACE.length) || "/";
+  } else if (path.startsWith("/api/")) {
+    apiPath = path; // Support legacy /api/blueprints format
   }
 
-  if (path === "/api/agents/deploy" && request.method === "POST") {
-    const body = await readJsonBody(request);
-    if (body.blueprint_id !== "bp_sentinelclaw_demo") {
-      return errorResponse("Known demo blueprint_id is required.", 400);
+  // POST /api/blueprints or /api/v1/clawforge/blueprints
+  if ((apiPath === "/api/blueprints" || apiPath === "/blueprints") && request.method === "POST") {
+    const body = await readJsonBody<{ prompt?: unknown; provider?: unknown }>(request);
+
+    // Check if prompt field is truly missing (undefined/null) vs empty string
+    if (body.prompt === undefined || body.prompt === null) {
+      return errorResponse("Prompt is required.", 400, "MISSING_FIELD", "prompt");
     }
+
+    const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+    if (!prompt) {
+      // Empty string is INVALID_REQUEST, not MISSING_FIELD
+      return errorResponse("Prompt cannot be empty.", 400, "INVALID_REQUEST", "prompt");
+    }
+
+    // Validate provider - return 400 for invalid values, not auto-default
+    const provider = normalizeProvider(body.provider);
+    if (provider === null) {
+      return errorResponse("Invalid provider value. Must be one of: nemotron, minimax, mock, auto.", 400, "INVALID_REQUEST", "provider");
+    }
+
+    return successResponse({
+      blueprint: createSentinelBlueprint(provider),
+    } satisfies Pick<BlueprintCreateResponse, "blueprint">);
+  }
+
+  // POST /api/agents/deploy or /api/v1/clawforge/agents/deploy
+  if ((apiPath === "/api/agents/deploy" || apiPath === "/agents/deploy") && request.method === "POST") {
+    const body = await readJsonBody<{ blueprint_id?: unknown }>(request);
+    const blueprintId = typeof body.blueprint_id === "string" ? body.blueprint_id : "";
+
+    if (!blueprintId) {
+      return errorResponse("blueprint_id is required.", 400, "MISSING_FIELD", "blueprint_id");
+    }
+
+    if (blueprintId !== "bp_sentinelclaw_demo") {
+      return errorResponse("Known demo blueprint_id is required.", 400, "INVALID_REQUEST");
+    }
+
     startRuntime();
-    return json(
+    return successResponse(
       {
-        ok: true,
         agent_id: DEMO_AGENT_ID,
-        status: "running",
+        status: "running" as const,
         message: "Agent deployed successfully inside NemoClaw.",
       },
       {
@@ -100,48 +240,113 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
     );
   }
 
-  const agentMatch = path.match(/^\/api\/agents\/([^/]+)\/([^/]+)(?:\/([^/]+))?$/);
-  if (agentMatch) {
-    const [, agentId, action, nested] = agentMatch;
-    if (agentId !== DEMO_AGENT_ID) return errorResponse("Unknown demo agent.", 404);
+  // Agent action routes: /api/agents/:agentId/:action or /api/v1/clawforge/agents/:agentId/:action
+  // Legacy: /api/agents/([^/]+)/([^/]+)(?:/([^/]+))? -> groups: [full, agentId, action, nested]
+  // New:     (/api/v1/clawforge)?/agents/([^/]+)/([^/]+)(?:/([^/]+))? -> groups: [full, prefix, agentId, action, nested]
+  const legacyAgentMatch = path.match(/^\/api\/agents\/([^/]+)\/([^/]+)(?:\/([^/]+))?$/);
+  const newAgentMatch = path.match(/^(\/api\/v1\/clawforge)?\/agents\/([^/]+)\/([^/]+)(?:\/([^/]+))?$/);
 
+  if (legacyAgentMatch || newAgentMatch) {
+    const match = legacyAgentMatch || newAgentMatch;
+    if (!match) {
+      return methodNotAllowedError();
+    }
+    // Extract agent ID and action from appropriate capture groups
+    const agentId = legacyAgentMatch ? match[1] : match[2];
+    const action = legacyAgentMatch ? match[2] : match[3];
+    const nested = legacyAgentMatch ? match[3] : match[4];
+
+    if (agentId !== DEMO_AGENT_ID) {
+      return notFoundError("Agent");
+    }
+
+    // POST /api/agents/:id/start
     if (action === "start" && request.method === "POST") {
-      return json({ ok: true, ...startRuntime() });
+      const state = getRuntimeState();
+      if (state === "running" || state === "waiting_for_approval" || state === "paused") {
+        return errorResponse(`Agent is already ${state}.`, 409, "CONFLICT");
+      }
+      return successResponse(startRuntime());
     }
 
+    // POST /api/agents/:id/stop
     if (action === "stop" && request.method === "POST") {
-      return json({ ok: true, ...stopRuntime() });
+      const state = getRuntimeState();
+      if (state === "stopped" || state === "completed" || state === "created") {
+        return errorResponse(`Agent is not running (current state: ${state}).`, 409, "CONFLICT");
+      }
+      try {
+        return successResponse(stopRuntime());
+      } catch (e) {
+        return errorResponse(`Failed to stop agent: ${e instanceof Error ? e.message : String(e)}`, 409, "CONFLICT");
+      }
     }
 
+    // GET /api/agents/:id/logs/stream
     if (action === "logs" && nested === "stream" && request.method === "GET") {
       return sse(getRuntimeEvents());
     }
 
+    // GET /api/agents/:id/memory
     if (action === "memory" && request.method === "GET") {
-      return json({ ok: true, agent_id: agentId, memory: getRuntimeMemory() });
+      return successResponse({
+        agent_id: agentId,
+        memory: getRuntimeMemory(),
+      } satisfies AgentMemoryResponse);
     }
 
+    // GET /api/agents/:id/report
     if (action === "report" && request.method === "GET") {
       const report = getRuntimeReport();
-      if (!report && !hasCompletedCookie(request)) {
-        return errorResponse("Report is not ready until the workflow completes.", 409);
+      if (!report) {
+        // Report genuinely unavailable - return 404, not fallback
+        return notFoundError("Report");
       }
-      return json({ ok: true, agent_id: agentId, report: report ?? getCompletedDemoReport() });
+      return successResponse({
+        agent_id: agentId,
+        report: report,
+      } satisfies AgentReportResponse);
     }
+
+    return methodNotAllowedError();
   }
 
-  const approvalMatch = path.match(/^\/api\/approvals\/([^/]+)\/decision$/);
-  if (approvalMatch && request.method === "POST") {
-    const [, approvalId] = approvalMatch;
-    if (approvalId !== demoApproval.id) return errorResponse("Unknown approval request.", 404);
+  // POST /api/approvals/:id/decision or /api/v1/clawforge/approvals/:id/decision
+  // Legacy: /api/approvals/([^/]+)/decision -> groups: [full, approvalId]
+  // New:     (/api/v1/clawforge)?/approvals/([^/]+)/decision -> groups: [full, prefix, approvalId]
+  const legacyApprovalMatch = path.match(/^\/api\/approvals\/([^/]+)\/decision$/);
+  const newApprovalMatch = path.match(/^(\/api\/v1\/clawforge)?\/approvals\/([^/]+)\/decision$/);
 
-    const body = await readJsonBody(request);
-    const decision = body.decision === "approved" ? "approved" : "denied";
+  if ((legacyApprovalMatch || newApprovalMatch) && request.method === "POST") {
+    const match = legacyApprovalMatch || newApprovalMatch;
+    if (!match) {
+      return methodNotAllowedError();
+    }
+    // Extract approval ID from appropriate capture groups
+    const approvalId = legacyApprovalMatch ? match[1] : match[2];
+
+    if (approvalId !== demoApproval.id) {
+      return notFoundError("Approval");
+    }
+
+    const body = await readJsonBody<{ decision?: unknown }>(request);
+
+    // Validate decision value - must be exactly "approved" or "denied"
+    if (typeof body.decision !== "string" || (body.decision !== "approved" && body.decision !== "denied")) {
+      return errorResponse("Invalid decision value. Must be 'approved' or 'denied'.", 400, "INVALID_REQUEST", "decision");
+    }
+
+    // Check if approval is already resolved (idempotency)
+    const existingStatus = getApprovalStatus();
+    if (existingStatus !== "pending") {
+      return errorResponse(`Approval already resolved (current status: ${existingStatus}).`, 409, "CONFLICT");
+    }
+
+    const decision = body.decision as "approved" | "denied";
     const result = resolveApproval(decision);
 
-    return json(
+    return successResponse(
       {
-        ok: true,
         approval: {
           ...demoApproval,
           status: decision,
@@ -162,3 +367,17 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
 
   return undefined;
 }
+
+// Re-export types for external consumption
+export type {
+  ProviderMode,
+  BlueprintRequest,
+  BlueprintApiResponse,
+  DeployAgentRequest,
+  DeployAgentResponse,
+  MemoryResponse,
+  RuntimeEvent,
+  ApprovalDecisionRequest,
+  ApprovalDecisionResponse,
+  IncidentReportResponse,
+} from "./types";

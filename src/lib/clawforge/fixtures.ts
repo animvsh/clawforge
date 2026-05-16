@@ -140,6 +140,13 @@ export function createSentinelBlueprint(provider: ProviderMode = "auto"): Bluepr
         effect: "allow",
         reason: "Local report writing does not leave the sandbox.",
       },
+      {
+        id: "policy_allow_threat_classify",
+        name: "Allow threat classification",
+        action: "threat.classify",
+        effect: "allow",
+        reason: "Read-only threat classification is safe.",
+      },
     ],
     memory_schema: [
       {
