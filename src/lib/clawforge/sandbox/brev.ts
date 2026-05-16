@@ -481,7 +481,7 @@ export async function createBrevLaunchPlan(
   const status = await getBrevStatus();
   const integrationManifest = await buildIntegrationManifest(instanceName, options);
   const startupScript = await writeStartupScript(instanceName, integrationManifest);
-  const command = `brev create ${instanceName} --gpu-name L40S --startup-script ${
+  const command = `brev create ${instanceName} --type l40s-48gb.1x --startup-script ${
     startupScript.inline ? "<inline-clawforge-startup>" : startupScript.arg
   }`;
   const openHands = openHandsConnection();
@@ -543,7 +543,7 @@ export async function createBrevLaunchPlan(
 
 export async function createBrevInstance(
   instanceName = "clawforge-nemoclaw",
-  instanceType = "verda_L40S",
+  instanceType = "l40s-48gb.1x",
   confirmed = false,
   options: BrevIntegrationOptions = {},
 ): Promise<BrevLaunchPlan> {
@@ -563,7 +563,7 @@ export async function createBrevInstance(
         action: "brev.create",
         effect: confirmed ? "allow" : "require_approval",
         instance_type: instanceType,
-        estimated_cost: "about $1.63/hr for the current cheapest L40S option",
+        estimated_cost: "about $1.74/hr for the current cheapest L40S option",
         agent_name: integrationManifest.agent.name,
         integration_manifest: {
           integrations: integrationManifest.integrations

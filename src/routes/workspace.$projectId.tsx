@@ -385,13 +385,7 @@ function WorkspacePage() {
       throw new Error(data.error?.message || "Could not prepare Brev launch.");
     }
     setBrevLaunch(data.launch);
-    const chatInstance = saveLaunchInstance({
-      projectId,
-      prompt: project?.prompt ?? nextBlueprint.goal,
-      blueprint: nextBlueprint,
-      launch: data.launch,
-    });
-    setInstanceChatId(chatInstance.id);
+    setInstanceChatId(null);
     const launchEvents = Array.isArray(data.launch?.events) ? data.launch.events : [];
     setEvents((current) => [...current, ...launchEvents]);
     return data.launch as BrevLaunchState;
@@ -410,7 +404,7 @@ function WorkspacePage() {
         body: JSON.stringify({
           instance_name:
             launchPlan?.instanceName ?? `clawforge-${nextBlueprint.agent_name.toLowerCase()}`,
-          instance_type: "verda_L40S",
+          instance_type: "l40s-48gb.1x",
           confirmation: "CREATE_BREV_INSTANCE",
           blueprint: nextBlueprint,
         }),
@@ -420,19 +414,22 @@ function WorkspacePage() {
         throw new Error(data.error?.message || "Brev deploy failed.");
       }
       setBrevLaunch(data.launch);
-      const chatInstance = saveLaunchInstance({
-        projectId,
-        prompt: project?.prompt ?? nextBlueprint.goal,
-        blueprint: nextBlueprint,
-        launch: data.launch,
-      });
-      setInstanceChatId(chatInstance.id);
+      const createdOnBrev = data.launch?.mode === "created";
+      const chatInstance = createdOnBrev
+        ? saveLaunchInstance({
+            projectId,
+            prompt: project?.prompt ?? nextBlueprint.goal,
+            blueprint: nextBlueprint,
+            launch: data.launch,
+          })
+        : null;
+      setInstanceChatId(chatInstance?.id ?? null);
       const launchEvents = Array.isArray(data.launch?.events) ? data.launch.events : [];
       setEvents((current) => [...current, ...launchEvents]);
       const cloudStatus =
-        data.launch?.mode === "created"
+        createdOnBrev && chatInstance
           ? `Brev cloud instance creation started. The generated NemoClaw startup manifest, integrations, OpenHands connection, and secret names are attached.\n\nInstance chat: /instance/${chatInstance.id}`
-          : `${data.launch?.status?.message || "Brev launch returned a setup issue."}\n\nInstance chat preview: /instance/${chatInstance.id}`;
+          : `${data.launch?.status?.message || "Brev launch returned a setup issue."}\n\nI did not create a chat link because no live Brev instance exists yet. Refresh Brev login, then press Deploy again.`;
       setChat((current) => [...current, ["assistant", cloudStatus]]);
       setProject(
         updateProject(projectId, {

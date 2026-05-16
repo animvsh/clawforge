@@ -540,7 +540,7 @@ export async function handleClawForgeApi(
     const instanceType =
       typeof body.instance_type === "string" && body.instance_type.trim()
         ? body.instance_type.trim()
-        : "verda_L40S";
+        : "l40s-48gb.1x";
     const agentInbox =
       body.agent_inbox && typeof body.agent_inbox === "object" && !Array.isArray(body.agent_inbox)
         ? (body.agent_inbox as { email?: string; status?: string })
