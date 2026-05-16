@@ -1,27 +1,351 @@
 import { DEMO_AGENT_ID, demoApproval, demoMemory, demoReport } from "./fixtures";
 import { routeToolCall } from "./tools";
-import type { IncidentReport, MemoryItem, RuntimeEvent } from "./types";
+import type {
+  ApprovalRequest,
+  BlueprintResponse,
+  IncidentReport,
+  MemoryItem,
+  PolicyDefinition,
+  RuntimeEvent,
+  ToolDefinition,
+} from "./types";
 
-export type RuntimeState = "created" | "running" | "waiting_for_approval" | "completed" | "stopped";
+export type SessionState = "created" | "running" | "paused" | "waiting_for_approval" | "completed" | "stopped";
 
-let state: RuntimeState = "created";
-let events: RuntimeEvent[] = [];
-let memory: MemoryItem[] = [...demoMemory];
-let report: IncidentReport | null = null;
-let approvalStatus: "pending" | "approved" | "denied" = "pending";
+export type SandboxAction = {
+  action: string;
+  args?: Record<string, unknown>;
+};
+
+export type LifecycleEventType =
+  | "session.created"
+  | "session.running"
+  | "session.paused"
+  | "session.waiting_for_approval"
+  | "session.resumed"
+  | "session.completed"
+  | "session.terminated"
+  | "policy.checked"
+  | "policy.blocked"
+  | "approval.requested"
+  | "approval.resolved"
+  | "tool.executed"
+  | "tool.blocked"
+  | "memory.updated"
+  | "report.generated";
+
+export type LifecycleEvent = {
+  id: string;
+  session_id: string;
+  type: LifecycleEventType;
+  message: string;
+  timestamp: string;
+  severity: "debug" | "info" | "warning" | "error" | "success";
+  metadata?: Record<string, unknown>;
+};
+
+export type ApprovalResult = {
+  approved: boolean;
+  approval_id: string;
+  modified_command?: string;
+};
+
+function generateId(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
 
 function now(): string {
   return new Date().toISOString();
 }
 
-function event(
+function createLifecycleEvent(
+  sessionId: string,
+  type: LifecycleEventType,
+  message: string,
+  severity: LifecycleEvent["severity"] = "info",
+  metadata?: Record<string, unknown>,
+): LifecycleEvent {
+  return {
+    id: generateId("evt"),
+    session_id: sessionId,
+    type,
+    message,
+    timestamp: now(),
+    severity,
+    metadata,
+  };
+}
+
+export class NemoClawSandboxSession {
+  private sessionId: string;
+  private agentId: string;
+  private state: SessionState;
+  private blueprint: BlueprintResponse | null;
+  private tools: ToolDefinition[];
+  private policies: PolicyDefinition[];
+  private memory: MemoryItem[];
+  private events: LifecycleEvent[];
+  private report: IncidentReport | null;
+  private pendingApproval: ApprovalRequest | null;
+  private pendingAction: SandboxAction | null;
+
+  constructor() {
+    this.sessionId = generateId("session");
+    this.agentId = DEMO_AGENT_ID;
+    this.state = "created";
+    this.blueprint = null;
+    this.tools = [];
+    this.policies = [];
+    this.memory = [...demoMemory];
+    this.events = [];
+    this.report = null;
+    this.pendingApproval = null;
+    this.pendingAction = null;
+  }
+
+  private emit(event: LifecycleEvent): LifecycleEvent {
+    this.events.push(event);
+    return event;
+  }
+
+  private checkActionPolicy(action: string): { allowed: boolean; approvalRequired: boolean; policyId: string; reason: string } {
+    const policy = this.policies.find((p) => p.action === action);
+    if (!policy) {
+      return { allowed: false, approvalRequired: false, policyId: "policy_default_deny", reason: `No policy exists for ${action}.` };
+    }
+    if (policy.effect === "deny") {
+      return { allowed: false, approvalRequired: false, policyId: policy.id, reason: policy.reason };
+    }
+    if (policy.effect === "require_approval") {
+      return { allowed: false, approvalRequired: true, policyId: policy.id, reason: policy.reason };
+    }
+    return { allowed: true, approvalRequired: false, policyId: policy.id, reason: policy.reason };
+  }
+
+  getSessionId(): string {
+    return this.sessionId;
+  }
+
+  getAgentId(): string {
+    return this.agentId;
+  }
+
+  getState(): SessionState {
+    return this.state;
+  }
+
+  getEvents(): LifecycleEvent[] {
+    return [...this.events];
+  }
+
+  getMemory(): MemoryItem[] {
+    return [...this.memory];
+  }
+
+  getReport(): IncidentReport | null {
+    return this.report;
+  }
+
+  getPendingApproval(): ApprovalRequest | null {
+    return this.pendingApproval;
+  }
+
+  createSession(blueprint: BlueprintResponse): {
+    sessionId: string;
+    agentId: string;
+    status: SessionState;
+    events: LifecycleEvent[];
+  } {
+    this.blueprint = blueprint;
+    this.tools = blueprint.tools;
+    this.policies = blueprint.policies;
+    this.state = "running";
+
+    this.emit(createLifecycleEvent(this.sessionId, "session.created", `NemoClaw sandbox session created for agent ${blueprint.agent_name}.`, "success", {
+      blueprint_id: blueprint.blueprint_id,
+      agent_name: blueprint.agent_name,
+    }));
+
+    this.emit(createLifecycleEvent(this.sessionId, "session.running", "Sandbox session is now running.", "info"));
+
+    return {
+      sessionId: this.sessionId,
+      agentId: this.agentId,
+      status: this.state,
+      events: this.getEvents(),
+    };
+  }
+
+  execute(action: SandboxAction): {
+    allowed: boolean;
+    approvalRequired: boolean;
+    blocked: boolean;
+    events: LifecycleEvent[];
+    approval?: ApprovalRequest;
+  } {
+    if (this.state !== "running" && this.state !== "paused") {
+      this.emit(createLifecycleEvent(this.sessionId, "tool.blocked", `Cannot execute ${action.action}: session is ${this.state}.`, "error"));
+      return { allowed: false, approvalRequired: false, blocked: true, events: this.getEvents() };
+    }
+
+    this.emit(createLifecycleEvent(this.sessionId, "policy.checked", `Checking policy for action: ${action.action}.`, "debug", { action: action.action }));
+
+    const policyCheck = this.checkActionPolicy(action.action);
+
+    if (!policyCheck.allowed && !policyCheck.approvalRequired) {
+      this.emit(createLifecycleEvent(this.sessionId, "policy.blocked", `Blocked by ${policyCheck.policyId}: ${policyCheck.reason}`, "error", { action: action.action }));
+      this.emit(createLifecycleEvent(this.sessionId, "tool.blocked", `Action ${action.action} is blocked.`, "error", { action: action.action }));
+      return { allowed: false, approvalRequired: false, blocked: true, events: this.getEvents() };
+    }
+
+    if (policyCheck.approvalRequired) {
+      this.state = "waiting_for_approval";
+      this.pendingAction = action;
+
+      const approval: ApprovalRequest = {
+        id: generateId("approval"),
+        agent_id: this.agentId,
+        action: action.action,
+        command: typeof action.args?.command === "string" ? action.args.command : undefined,
+        reason: policyCheck.reason,
+        policy_id: policyCheck.policyId,
+        status: "pending",
+        created_at: now(),
+      };
+      this.pendingApproval = approval;
+
+      this.emit(createLifecycleEvent(this.sessionId, "approval.requested", `Approval required: ${policyCheck.reason}`, "warning", {
+        approval_id: approval.id,
+        action: action.action,
+        policy_id: policyCheck.policyId,
+      }));
+
+      this.emit(createLifecycleEvent(this.sessionId, "session.waiting_for_approval", "Session paused, waiting for approval.", "info"));
+
+      return { allowed: false, approvalRequired: true, blocked: false, events: this.getEvents(), approval };
+    }
+
+    this.emit(createLifecycleEvent(this.sessionId, "tool.executed", `Action ${action.action} executed successfully inside sandbox.`, "success", { action: action.action }));
+    return { allowed: true, approvalRequired: false, blocked: false, events: this.getEvents() };
+  }
+
+  pauseSession(): {
+    status: SessionState;
+    events: LifecycleEvent[];
+  } {
+    if (this.state !== "running") {
+      this.emit(createLifecycleEvent(this.sessionId, "session.paused", `Cannot pause: session is ${this.state}.`, "warning"));
+      return { status: this.state, events: this.getEvents() };
+    }
+
+    this.state = "paused";
+    this.emit(createLifecycleEvent(this.sessionId, "session.paused", "Sandbox session paused.", "info"));
+    return { status: this.state, events: this.getEvents() };
+  }
+
+  resumeSession(approval: ApprovalResult): {
+    status: SessionState;
+    events: LifecycleEvent[];
+    executed: boolean;
+  } {
+    if (this.state !== "waiting_for_approval") {
+      this.emit(createLifecycleEvent(this.sessionId, "session.resumed", `Cannot resume: session is ${this.state}.`, "warning"));
+      return { status: this.state, events: this.getEvents(), executed: false };
+    }
+
+    if (!approval.approved) {
+      this.state = "running";
+      const memoryItem: MemoryItem = {
+        id: generateId("memory"),
+        agent_id: this.agentId,
+        type: "approval",
+        content: this.pendingAction ? `User denied action: ${this.pendingAction.action}` : "User denied pending action.",
+        created_at: now(),
+      };
+      this.memory.push(memoryItem);
+
+      this.emit(createLifecycleEvent(this.sessionId, "approval.resolved", "Approval denied by user.", "warning"));
+      this.emit(createLifecycleEvent(this.sessionId, "memory.updated", memoryItem.content, "info"));
+      this.emit(createLifecycleEvent(this.sessionId, "session.resumed", "Sandbox session resumed after denied approval.", "info"));
+
+      this.pendingApproval = null;
+      this.pendingAction = null;
+
+      return { status: this.state, events: this.getEvents(), executed: false };
+    }
+
+    this.state = "running";
+    this.emit(createLifecycleEvent(this.sessionId, "approval.resolved", "Approval granted.", "success"));
+
+    if (this.pendingAction) {
+      this.emit(createLifecycleEvent(this.sessionId, "tool.executed", `Action ${this.pendingAction.action} executed after approval.`, "success", {
+        action: this.pendingAction.action,
+        approval_id: approval.approval_id,
+      }));
+
+      const memoryItem: MemoryItem = {
+        id: generateId("memory"),
+        agent_id: this.agentId,
+        type: "approval",
+        content: `User approved action: ${this.pendingAction.action}`,
+        created_at: now(),
+      };
+      this.memory.push(memoryItem);
+      this.emit(createLifecycleEvent(this.sessionId, "memory.updated", memoryItem.content, "success"));
+    }
+
+    this.pendingApproval = null;
+    this.pendingAction = null;
+
+    return { status: this.state, events: this.getEvents(), executed: true };
+  }
+
+  terminateSession(): {
+    status: SessionState;
+    events: LifecycleEvent[];
+  } {
+    this.state = "stopped";
+
+    this.emit(createLifecycleEvent(this.sessionId, "session.terminated", "Sandbox session terminated and cleaned up.", "warning"));
+
+    this.pendingApproval = null;
+    this.pendingAction = null;
+
+    return { status: this.state, events: this.getEvents() };
+  }
+
+  completeSession(report: IncidentReport): {
+    status: SessionState;
+    events: LifecycleEvent[];
+    report: IncidentReport;
+  } {
+    this.state = "completed";
+    this.report = report;
+
+    this.emit(createLifecycleEvent(this.sessionId, "report.generated", "Incident report generated.", "success"));
+    this.emit(createLifecycleEvent(this.sessionId, "session.completed", "Sandbox session completed successfully.", "success"));
+
+    return { status: this.state, events: this.getEvents(), report };
+  }
+}
+
+// Legacy runtime support - maintains backwards compatibility
+let legacyState: RuntimeState = "created";
+let legacyEvents: RuntimeEvent[] = [];
+let legacyMemory: MemoryItem[] = [...demoMemory];
+let legacyReport: IncidentReport | null = null;
+let legacyApprovalStatus: "pending" | "approved" | "denied" = "pending";
+
+export type RuntimeState = "created" | "running" | "waiting_for_approval" | "completed" | "stopped";
+
+function legacyEvent(
   type: RuntimeEvent["type"],
   message: string,
   severity: RuntimeEvent["severity"] = "info",
   metadata?: Record<string, unknown>,
 ): RuntimeEvent {
   return {
-    id: `event_${events.length + 1}_${Date.now()}`,
+    id: `event_${legacyEvents.length + 1}_${Date.now()}`,
     agent_id: DEMO_AGENT_ID,
     type,
     message,
@@ -31,87 +355,87 @@ function event(
   };
 }
 
-function addEvent(nextEvent: RuntimeEvent): RuntimeEvent {
-  events.push(nextEvent);
+function addLegacyEvent(nextEvent: RuntimeEvent): RuntimeEvent {
+  legacyEvents.push(nextEvent);
   return nextEvent;
 }
 
 function buildInitialEvents(): RuntimeEvent[] {
-  events = [];
-  addEvent(event("agent.started", "Agent started inside NemoClaw sandbox.", "success"));
+  legacyEvents = [];
+  addLegacyEvent(legacyEvent("agent.started", "Agent started inside NemoClaw sandbox.", "success"));
 
   const logDecision = routeToolCall("logs.read");
-  addEvent(event("policy.checked", logDecision.message, "info", { action: "logs.read" }));
-  addEvent(
-    event("tool.called", "Reading system logs from /logs/auth.log.", "info", {
+  addLegacyEvent(legacyEvent("policy.checked", logDecision.message, "info", { action: "logs.read" }));
+  addLegacyEvent(
+    legacyEvent("tool.called", "Reading system logs from /logs/auth.log.", "info", {
       tool: "Log Reader",
     }),
   );
 
-  addEvent(
-    event("agent.thinking", "Detected 47 failed SSH login attempts from 185.92.XX.XX.", "warning"),
+  addLegacyEvent(
+    legacyEvent("agent.thinking", "Detected 47 failed SSH login attempts from 185.92.XX.XX.", "warning"),
   );
-  addEvent(
-    event("agent.thinking", "Mapped behavior to MITRE ATT&CK: Credential Access.", "warning"),
+  addLegacyEvent(
+    legacyEvent("agent.thinking", "Mapped behavior to MITRE ATT&CK: Credential Access.", "warning"),
   );
 
   const exportDecision = routeToolCall("data.export");
-  addEvent(
-    event("policy.checked", "NemoClaw checked data.export against active policy.", "info", {
+  addLegacyEvent(
+    legacyEvent("policy.checked", "NemoClaw checked data.export against active policy.", "info", {
       action: "data.export",
     }),
   );
-  addEvent(event("policy.blocked", exportDecision.message, "error", { action: "data.export" }));
+  addLegacyEvent(legacyEvent("policy.blocked", exportDecision.message, "error", { action: "data.export" }));
 
   const reportDecision = routeToolCall("report.write");
-  addEvent(event("policy.checked", reportDecision.message, "info", { action: "report.write" }));
-  addEvent(
-    event("tool.called", "Writing local incident report draft inside the sandbox.", "success", {
+  addLegacyEvent(legacyEvent("policy.checked", reportDecision.message, "info", { action: "report.write" }));
+  addLegacyEvent(
+    legacyEvent("tool.called", "Writing local incident report draft inside the sandbox.", "success", {
       tool: "Report Writer",
     }),
   );
 
   const shellDecision = routeToolCall("shell.execute");
-  addEvent(
-    event("policy.checked", "NemoClaw checked shell.execute against active policy.", "info", {
+  addLegacyEvent(
+    legacyEvent("policy.checked", "NemoClaw checked shell.execute against active policy.", "info", {
       action: "shell.execute",
     }),
   );
-  addEvent(
-    event("approval.requested", shellDecision.message, "warning", {
+  addLegacyEvent(
+    legacyEvent("approval.requested", shellDecision.message, "warning", {
       approval_id: demoApproval.id,
       command: demoApproval.command,
     }),
   );
 
-  return events;
+  return legacyEvents;
 }
 
 export function startRuntime(): { agent_id: string; status: RuntimeState } {
-  state = "waiting_for_approval";
-  approvalStatus = "pending";
-  memory = [...demoMemory];
-  report = null;
+  legacyState = "waiting_for_approval";
+  legacyApprovalStatus = "pending";
+  legacyMemory = [...demoMemory];
+  legacyReport = null;
   buildInitialEvents();
-  return { agent_id: DEMO_AGENT_ID, status: state };
+  return { agent_id: DEMO_AGENT_ID, status: legacyState };
 }
 
 export function stopRuntime(): { agent_id: string; status: RuntimeState } {
-  state = "stopped";
-  addEvent(event("agent.completed", "Agent runtime stopped by user.", "warning"));
-  return { agent_id: DEMO_AGENT_ID, status: state };
+  legacyState = "stopped";
+  addLegacyEvent(legacyEvent("agent.completed", "Agent runtime stopped by user.", "warning"));
+  return { agent_id: DEMO_AGENT_ID, status: legacyState };
 }
 
 export function getRuntimeEvents(): RuntimeEvent[] {
-  return events.length ? events : buildInitialEvents();
+  return legacyEvents.length ? legacyEvents : buildInitialEvents();
 }
 
 export function getRuntimeMemory(): MemoryItem[] {
-  return memory;
+  return legacyMemory;
 }
 
 export function getRuntimeReport(): IncidentReport | null {
-  return report;
+  return legacyReport;
 }
 
 export function resolveApproval(decision: "approved" | "denied"): {
@@ -121,7 +445,7 @@ export function resolveApproval(decision: "approved" | "denied"): {
   events: RuntimeEvent[];
   report: IncidentReport;
 } {
-  approvalStatus = decision;
+  legacyApprovalStatus = decision;
   const createdAt = now();
   const memoryItem: MemoryItem = {
     id: `memory_approval_${Date.now()}`,
@@ -134,45 +458,45 @@ export function resolveApproval(decision: "approved" | "denied"): {
     created_at: createdAt,
   };
 
-  if (!memory.some((item) => item.content === memoryItem.content)) {
-    memory.push(memoryItem);
+  if (!legacyMemory.some((item) => item.content === memoryItem.content)) {
+    legacyMemory.push(memoryItem);
   }
 
   const resolvedEvents = [
-    addEvent(
-      event(
+    addLegacyEvent(
+      legacyEvent(
         "approval.resolved",
         `User ${decision} shell execution for block_ip 185.92.XX.XX.`,
         decision === "approved" ? "success" : "warning",
       ),
     ),
-    addEvent(event("memory.updated", memoryItem.content, "success")),
+    addLegacyEvent(legacyEvent("memory.updated", memoryItem.content, "success")),
   ];
 
-  report = {
+  legacyReport = {
     ...demoReport,
     approval_decisions: [
       decision === "approved"
         ? "User approved command execution."
         : "User denied command execution.",
     ],
-    memory_updates: memory.map((item) => item.content),
+    memory_updates: legacyMemory.map((item) => item.content),
   };
-  resolvedEvents.push(addEvent(event("report.created", "Incident report generated.", "success")));
+  resolvedEvents.push(addLegacyEvent(legacyEvent("report.created", "Incident report generated.", "success")));
   resolvedEvents.push(
-    addEvent(event("agent.completed", "Agent completed the workflow safely.", "success")),
+    addLegacyEvent(legacyEvent("agent.completed", "Agent completed the workflow safely.", "success")),
   );
-  state = "completed";
+  legacyState = "completed";
 
   return {
     agent_id: DEMO_AGENT_ID,
-    status: state,
+    status: legacyState,
     memory_item: memoryItem,
     events: resolvedEvents,
-    report,
+    report: legacyReport,
   };
 }
 
 export function getApprovalStatus(): "pending" | "approved" | "denied" {
-  return approvalStatus;
+  return legacyApprovalStatus;
 }
