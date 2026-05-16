@@ -343,9 +343,11 @@ async function createProviderBackedBlueprint(
     const summary = cleanProviderSummary(rawSummary);
     const fallbackSteps = blueprint.workflow_steps.map((step) => step.title);
     const providerSteps =
-      steps.length >= 4 && !steps.every((step) => /^initialize\.?$/i.test(step))
-        ? cleanProviderSteps(steps, fallbackSteps)
-        : fallbackSteps;
+      blueprint.template_id === "phone_receptionist"
+        ? fallbackSteps
+        : steps.length >= 4 && !steps.every((step) => /^initialize\.?$/i.test(step))
+          ? cleanProviderSteps(steps, fallbackSteps)
+          : fallbackSteps;
 
     return {
       ...blueprint,
