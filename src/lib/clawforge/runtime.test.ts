@@ -12,9 +12,22 @@ import {
   getRuntimeEvents,
   getRuntimeMemory,
   resetLegacyRuntime,
+  // New state machine exports
+  createRuntime,
+  startRuntimeState,
+  stopRuntimeState,
+  transitionState,
+  emitEvent,
+  routeToolCall,
+  getRuntime,
+  getRuntimeEventsByAgent,
+  resetRuntimeSystem,
+  completeRuntime,
+  errorRuntimeState,
 } from "./runtime";
 import { createSentinelBlueprint, demoApproval } from "./fixtures";
 import { listMemory, createMemoryItem, clearMemory } from "./memory";
+import type { RuntimeEventType } from "./types";
 
 describe("NemoClawSandboxSession - Runtime Lifecycle", () => {
   let session: NemoClawSandboxSession;
@@ -365,5 +378,377 @@ describe("Memory Module", () => {
 
     const incidents = listMemory().filter((m) => m.type === "incident");
     expect(incidents.length).toBe(2);
+  });
+});
+
+// =============================================================================
+// ANU-63: New Runtime State Machine Tests
+// =============================================================================
+
+describe("Runtime State Machine", () => {
+  beforeEach(() => {
+    resetRuntimeSystem();
+  });
+
+  describe("createRuntime", () => {
+    it("should create a runtime in 'created' state", () => {
+      const rt = createRuntime("test_agent_1");
+      expect(rt.state).toBe("created");
+      expect(rt.agent_id).toBe("test_agent_1");
+      expect(rt.id).toBeDefined();
+      expect(rt.events).toEqual([]);
+    });
+
+    it("should store the runtime in active runtimes", () => {
+      const rt = createRuntime("test_agent_2");
+      const retrieved = getRuntime("test_agent_2");
+      expect(retrieved).toBeDefined();
+      expect(retrieved?.id).toBe(rt.id);
+    });
+
+    it("should allow creating runtimes with a blueprint", () => {
+      const blueprint = createSentinelBlueprint("mock");
+      const rt = createRuntime("test_agent_3", blueprint);
+      expect(rt.blueprint).toBeDefined();
+      expect(rt.blueprint?.blueprint_id).toBe(blueprint.blueprint_id);
+    });
+  });
+
+  describe("startRuntime / stopRuntime / completeRuntime", () => {
+    it("should transition created → running on startRuntime", () => {
+      const rt = createRuntime("test_agent_4");
+      const started = startRuntimeState("test_agent_4");
+      expect(started.state).toBe("running");
+      expect(started.events.some((e) => e.type === "agent.started")).toBe(true);
+    });
+
+    it("should emit agent.started event with metadata", () => {
+      const rt = createRuntime("test_agent_5");
+      startRuntimeState("test_agent_5");
+      const events = getRuntimeEventsByAgent("test_agent_5");
+      const startedEvent = events.find((e) => e.type === "agent.started");
+      expect(startedEvent).toBeDefined();
+      expect(startedEvent?.metadata?.runtime_id).toBeDefined();
+    });
+
+    it("should throw when starting a runtime that is not in 'created' state", () => {
+      const rt = createRuntime("test_agent_6");
+      startRuntimeState("test_agent_6");
+      expect(() => startRuntimeState("test_agent_6")).toThrow();
+    });
+
+    it("should transition running → stopped on stopRuntime", () => {
+      const rt = createRuntime("test_agent_7");
+      startRuntimeState("test_agent_7");
+      const stopped = stopRuntimeState("test_agent_7");
+      expect(stopped.state).toBe("stopped");
+      expect(stopped.events.some((e) => e.type === "agent.completed")).toBe(true);
+    });
+
+    it("should transition running → completed on completeRuntime", () => {
+      const rt = createRuntime("test_agent_8");
+      startRuntimeState("test_agent_8");
+      const completed = completeRuntime("test_agent_8");
+      expect(completed.state).toBe("completed");
+    });
+
+    it("should throw when stopping a non-existent runtime", () => {
+      expect(() => stopRuntimeState("nonexistent")).toThrow();
+    });
+  });
+
+  describe("transitionState validation", () => {
+    it("should allow valid transitions", () => {
+      const rt = createRuntime("test_agent_9");
+      expect(() => transitionState(rt, "running")).not.toThrow();
+    });
+
+    it("should reject invalid transitions (created → completed)", () => {
+      const rt = createRuntime("test_agent_10");
+      expect(() => transitionState(rt, "completed")).toThrow();
+    });
+
+    it("should reject invalid transitions (running → created)", () => {
+      const rt = createRuntime("test_agent_11");
+      startRuntimeState("test_agent_11");
+      expect(() => transitionState(rt, "created")).toThrow();
+    });
+
+    it("should allow stopped → running (resume)", () => {
+      const rt = createRuntime("test_agent_12");
+      startRuntimeState("test_agent_12");
+      stopRuntimeState("test_agent_12");
+      expect(() => transitionState(rt, "running")).not.toThrow();
+    });
+
+    it("should allow error → running (retry)", () => {
+      const rt = createRuntime("test_agent_13");
+      startRuntimeState("test_agent_13");
+      errorRuntimeState("test_agent_13", "Test error");
+      expect(() => transitionState(rt, "running")).not.toThrow();
+    });
+  });
+
+  describe("emitEvent", () => {
+    it("should create a RuntimeEvent with id and timestamp", () => {
+      const rt = createRuntime("test_agent_14");
+      const event = emitEvent(rt, "agent.thinking", "Agent is thinking...");
+      expect(event.id).toBeDefined();
+      expect(event.agent_id).toBe("test_agent_14");
+      expect(event.type).toBe("agent.thinking");
+      expect(event.message).toBe("Agent is thinking...");
+      expect(event.timestamp).toBeDefined();
+    });
+
+    it("should append event to runtime events array", () => {
+      const rt = createRuntime("test_agent_15");
+      emitEvent(rt, "agent.thinking", "Thinking...");
+      emitEvent(rt, "tool.called", "Tool called.");
+      expect(rt.events.length).toBe(2);
+    });
+
+    it("should include metadata when provided", () => {
+      const rt = createRuntime("test_agent_16");
+      const event = emitEvent(rt, "tool.called", "LogReader called.", {
+        tool: "LogReader",
+        params: {},
+      });
+      expect(event.metadata?.tool).toBe("LogReader");
+    });
+  });
+
+  describe("errorRuntime", () => {
+    it("should transition to 'error' state and emit agent.error", () => {
+      const rt = createRuntime("test_agent_17");
+      startRuntimeState("test_agent_17");
+      const errored = errorRuntimeState("test_agent_17", "Test error");
+      expect(errored.state).toBe("error");
+      const errorEvent = errored.events.find((e) => e.type === "agent.error");
+      expect(errorEvent).toBeDefined();
+      expect(errorEvent?.message).toContain("Test error");
+    });
+  });
+
+  describe("getRuntimeEventsByAgent", () => {
+    it("should return events for a known agent", () => {
+      const rt = createRuntime("test_agent_18");
+      startRuntimeState("test_agent_18");
+      const events = getRuntimeEventsByAgent("test_agent_18");
+      expect(events.length).toBeGreaterThan(0);
+    });
+
+    it("should return empty array for unknown agent", () => {
+      const events = getRuntimeEventsByAgent("unknown_agent");
+      expect(events).toEqual([]);
+    });
+  });
+});
+
+// =============================================================================
+// Tool Router Tests
+// =============================================================================
+
+describe("Tool Router", () => {
+  beforeEach(() => {
+    resetRuntimeSystem();
+  });
+
+  describe("routeToolCall - logs.read", () => {
+    it("should allow logs.read (has allow policy)", async () => {
+      const result = await routeToolCall("logs.read", {}, { agent_id: "test_agent_router_1" });
+      expect(result.status).toBe("allowed");
+      if (result.status === "allowed") {
+        expect(result.result.success).toBe(true);
+      }
+    });
+
+    it("should emit tool.called event", async () => {
+      const result = await routeToolCall("logs.read", {}, { agent_id: "test_agent_router_2" });
+      expect(result.event.type).toBe("tool.called");
+    });
+  });
+
+  describe("routeToolCall - data.export (always blocked)", () => {
+    it("should always block data.export", async () => {
+      const result = await routeToolCall("data.export", {}, { agent_id: "test_agent_router_3" });
+      expect(result.status).toBe("blocked");
+      if (result.status === "blocked") {
+        expect(result.reason).toContain("always blocked");
+        expect(result.policy_id).toBe("policy_data_export_always_block");
+      }
+    });
+
+    it("should emit policy.blocked event for data.export", async () => {
+      const result = await routeToolCall("data.export", {}, { agent_id: "test_agent_router_4" });
+      expect(result.event.type).toBe("policy.blocked");
+    });
+  });
+
+  describe("routeToolCall - shell.execute (approval required)", () => {
+    it("should return pending_approval for shell.execute", async () => {
+      const result = await routeToolCall(
+        "shell.execute",
+        { command: "block_ip 185.92.XX.XX" },
+        { agent_id: "test_agent_router_5" },
+      );
+      expect(result.status).toBe("pending_approval");
+      if (result.status === "pending_approval") {
+        expect(result.approval_id).toBeDefined();
+        expect(result.policy_id).toBe("policy_shell_approval");
+      }
+    });
+
+    it("should emit approval.requested event for shell.execute", async () => {
+      const result = await routeToolCall(
+        "shell.execute",
+        { command: "block_ip 185.92.XX.XX" },
+        { agent_id: "test_agent_router_6" },
+      );
+      expect(result.event.type).toBe("approval.requested");
+    });
+  });
+
+  describe("routeToolCall - ticket.create (approval required)", () => {
+    it("should return pending_approval for ticket.create", async () => {
+      const result = await routeToolCall(
+        "ticket.create",
+        { title: "Test ticket", description: "Test" },
+        { agent_id: "test_agent_router_7" },
+      );
+      expect(result.status).toBe("pending_approval");
+      if (result.status === "pending_approval") {
+        expect(result.policy_id).toBe("policy_ticket_approval");
+      }
+    });
+  });
+
+  describe("routeToolCall - message.send_external (approval required)", () => {
+    it("should return pending_approval for message.send_external", async () => {
+      const result = await routeToolCall(
+        "message.send_external",
+        { channel: "slack", message: "Test" },
+        { agent_id: "test_agent_router_8" },
+      );
+      expect(result.status).toBe("pending_approval");
+    });
+  });
+
+  describe("routeToolCall - unknown tool", () => {
+    it("should return error for unknown tool", async () => {
+      const result = await routeToolCall(
+        "unknown.tool",
+        {},
+        { agent_id: "test_agent_router_9" },
+      );
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.error).toContain("Unknown tool");
+      }
+    });
+  });
+
+  describe("routeToolCall - all tools have events", () => {
+    it("should emit tool.called for allowed tools before execution", async () => {
+      const result = await routeToolCall(
+        "threat.classify",
+        { behavior: "failed SSH login" },
+        { agent_id: "test_agent_router_10" },
+      );
+      // threat.classify has allow policy
+      expect(result.status).toBe("allowed");
+      expect(result.event.type).toBe("tool.called");
+    });
+
+    it("should emit tool.called event for report.write", async () => {
+      const result = await routeToolCall(
+        "report.write",
+        { title: "Test Report", severity: "high" },
+        { agent_id: "test_agent_router_11" },
+      );
+      expect(result.status).toBe("allowed");
+      expect(result.event.type).toBe("tool.called");
+    });
+  });
+
+  describe("Policy integration via routeToolCall", () => {
+    it("should check policy before executing any tool", async () => {
+      // When tool is allowed, policy.checked should have been called internally
+      const result = await routeToolCall(
+        "logs.read",
+        {},
+        { agent_id: "test_agent_policy_1" },
+      );
+      expect(result.status).toBe("allowed");
+    });
+
+    it("should deny tools with deny policy", async () => {
+      // data.export has explicit deny
+      const result = await routeToolCall(
+        "data.export",
+        {},
+        { agent_id: "test_agent_policy_2" },
+      );
+      expect(result.status).toBe("blocked");
+    });
+
+    it("should require approval for tools with require_approval policy", async () => {
+      const result = await routeToolCall(
+        "shell.execute",
+        { command: "test" },
+        { agent_id: "test_agent_policy_3" },
+      );
+      expect(result.status).toBe("pending_approval");
+    });
+  });
+
+  describe("Tool execution with session_id context", () => {
+    it("should pass session_id through to tool execution", async () => {
+      const result = await routeToolCall(
+        "logs.read",
+        {},
+        { agent_id: "test_agent_session", session_id: "session_123" },
+      );
+      expect(result.status).toBe("allowed");
+    });
+  });
+});
+
+// =============================================================================
+// Tool Router Edge Cases
+// =============================================================================
+
+describe("Tool Router Edge Cases", () => {
+  beforeEach(() => {
+    resetRuntimeSystem();
+  });
+
+  it("should create implicit runtime when routing for unknown agent", async () => {
+    const result = await routeToolCall("logs.read", {}, { agent_id: "implicit_agent" });
+    const rt = getRuntime("implicit_agent");
+    expect(rt).toBeDefined();
+    expect(result.status).toBe("allowed");
+  });
+
+  it("should accumulate events across multiple tool calls", async () => {
+    const agent_id = "test_agent_multi_tool";
+    await routeToolCall("logs.read", {}, { agent_id });
+    await routeToolCall("threat.classify", { behavior: "test" }, { agent_id });
+    await routeToolCall("report.write", { title: "Test", severity: "low" }, { agent_id });
+
+    const events = getRuntimeEventsByAgent(agent_id);
+    // Each tool call emits tool.called event before execution, and another on success
+    expect(events.filter((e) => e.type === "tool.called").length).toBe(6);
+  });
+
+  it("should handle tool execution errors gracefully", async () => {
+    // Shell executor with invalid params should return error
+    const result = await routeToolCall(
+      "shell.execute",
+      {}, // missing required 'command'
+      { agent_id: "test_agent_error" },
+    );
+    // Shell executor requires command - validation should fail but it's approval_required
+    // So it returns pending_approval first
+    expect(result.status).toBe("pending_approval");
   });
 });

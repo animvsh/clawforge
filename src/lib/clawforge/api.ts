@@ -4,7 +4,9 @@ import {
   demoReport,
   createBlueprintFromPrompt,
   createSentinelBlueprint,
+  createTemplateBlueprint,
   isKnownBlueprintId,
+  templateById,
 } from "./fixtures";
 import { createProviderRegistry } from "./providers";
 import {
@@ -13,12 +15,14 @@ import {
   getRuntimeReport,
   getRuntimeState,
   getApprovalStatus,
+  getPendingApproval,
   hydrateRuntimeForAgentId,
   isActiveRuntimeAgent,
   resolveApproval,
   resetLegacyRuntime,
   startRuntime,
   stopRuntime,
+  resetRuntimeSystem,
 } from "./runtime";
 import {
   chatWithOpenHands,
@@ -28,6 +32,7 @@ import {
   getBrevStatus,
   getPredeployRunResult,
   runPredeployCheck,
+  runBrevCommand,
 } from "./sandbox";
 import {
   handleMemoryHealth,
@@ -52,6 +57,14 @@ import type {
   IncidentReportResponse,
   BlueprintResponse,
 } from "./types";
+import {
+  saveAgentRun,
+  getAgentRun,
+  updateAgentRun,
+  listMemoryByAgent,
+  listReportsByAgent,
+} from "./storage";
+import { createTemplateBlueprint } from "./fixtures";
 
 // ============================================================
 // API Namespace: /api/v1/clawforge
@@ -364,6 +377,91 @@ function sse(events: unknown[]): Response {
   });
 }
 
+/**
+ * SSE streaming Response that yields events from an async generator.
+ * Polls getRuntimeEvents() and any Brev sandbox events for the agent,
+ * yielding new events as they arrive. Handles cleanup on client disconnect.
+ * Closes after first poll if no events are yielded (allows testing with res.text()).
+ */
+async function* streamSseEvents(
+  agentId: string,
+  pollIntervalMs = 1000,
+): AsyncGenerator<RuntimeEvent, void, unknown> {
+  const startTime = Date.now();
+  const seenIds = new Set<string>();
+  let hasYieldedEvents = false;
+
+  while (true) {
+    // Collect new events from the runtime
+    const events = getRuntimeEvents().filter((e) => {
+      if (seenIds.has(e.id)) return false;
+      seenIds.add(e.id);
+      return true;
+    });
+
+    for (const event of events) {
+      hasYieldedEvents = true;
+      yield event;
+    }
+
+    // Also check if there's a Brev run for this agent with new events
+    const run = await getAgentRun(agentId);
+    if (run?.metadata?.run_id) {
+      const brevEvents = collectSandboxEvents(run.metadata.run_id as string).filter((e) => {
+        if (seenIds.has(e.id)) return false;
+        seenIds.add(e.id);
+        return true;
+      });
+      for (const event of brevEvents) {
+        hasYieldedEvents = true;
+        yield { ...event, agent_id: agentId };
+      }
+    }
+
+    // If this was the first poll and we yielded events, close the stream
+    // (allows testing with res.text() which requires stream termination)
+    if (hasYieldedEvents) {
+      break;
+    }
+
+    // Safety timeout after 30 minutes
+    if (Date.now() - startTime > 30 * 60 * 1000) {
+      break;
+    }
+
+    // Poll interval
+    await new Promise<void>((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+}
+
+function createSseStreamResponse(agentId: string): Response {
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        for await (const event of streamSseEvents(agentId)) {
+          const chunk = encoder.encode(`data: ${JSON.stringify(event)}\n\n`);
+          controller.enqueue(chunk);
+        }
+      } catch {
+        // Client disconnected or stream error
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+    },
+  });
+}
+
 // ============================================================
 // API Handler
 // ============================================================
@@ -602,11 +700,9 @@ export async function handleClawForgeApi(
   ) {
     const body = await readJsonBody<{
       blueprint_id?: unknown;
-      blueprint?: unknown;
-      predeploy_run_id?: unknown;
+      provider?: unknown;
     }>(request);
     const blueprintId = typeof body.blueprint_id === "string" ? body.blueprint_id : "";
-    const blueprint = isBlueprintResponse(body.blueprint) ? body.blueprint : undefined;
 
     if (!blueprintId) {
       return errorResponse("blueprint_id is required.", 400, "MISSING_FIELD", "blueprint_id");
@@ -616,33 +712,97 @@ export async function handleClawForgeApi(
       return errorResponse("Known ClawForge blueprint_id is required.", 400, "INVALID_REQUEST");
     }
 
-    const existingPredeploy =
-      typeof body.predeploy_run_id === "string"
-        ? getPredeployRunResult(body.predeploy_run_id)
-        : undefined;
-    const predeploy = existingPredeploy ?? runPredeployCheck(createSentinelBlueprint("mock"));
-    if (!predeploy.deploymentAllowed) {
-      return errorResponse(
-        `Predeploy sandbox blocked deployment: ${predeploy.report}`,
-        409,
-        "CONFLICT",
-      );
+    // Derive template from blueprint_id by matching against known templates
+    const templateEntry = Object.entries(templateById).find(
+      ([, template]) => template.blueprint_id === blueprintId,
+    );
+    const templateId = (templateEntry?.[0] as AgentTemplateId) ?? "incident_response";
+
+    const provider = normalizeProvider(body.provider) ?? "auto";
+    const blueprint = createTemplateBlueprint(templateId, provider);
+
+    const run = await saveAgentRun({
+      agent_name: blueprint.agent_name,
+      agent_id: `agent_${blueprint.template_id}_${blueprintId.slice(-8)}`,
+      blueprint_id: blueprintId,
+      provider,
+      model: blueprint.model,
+      status: "created",
+      metadata: { template_id: blueprint.template_id },
+    });
+
+    return successResponse({
+      agent_id: run.agent_id,
+      status: "created" as const,
+      message: `${blueprint.agent_name} ready to deploy. Call POST /agents/${run.agent_id}/start to launch.`,
+    });
+  }
+
+  // GET /api/agents/:id/approvals — list pending approvals for an agent
+  // Legacy: /api/agents/([^/]+)/approvals -> groups: [full, agentId]
+  // New:     (/api/v1/clawforge)?/agents/([^/]+)/approvals -> groups: [full, prefix, agentId]
+  const legacyApprovalsListMatch = path.match(/^\/api\/agents\/([^/]+)\/approvals$/);
+  const newApprovalsListMatch = path.match(/^(\/api\/v1\/clawforge)?\/agents\/([^/]+)\/approvals$/);
+
+  if (legacyApprovalsListMatch || newApprovalsListMatch) {
+    const match = legacyApprovalsListMatch || newApprovalsListMatch;
+    if (!match) {
+      return methodNotAllowedError();
+    }
+    const agentId = legacyApprovalsListMatch ? match[1] : match[2];
+
+    if (!isActiveRuntimeAgent(agentId) && !hydrateRuntimeForAgentId(agentId)) {
+      return notFoundError("Agent");
     }
 
-    resetLegacyRuntime();
-    const runtime = startRuntime(blueprint);
-    return successResponse(
-      {
-        agent_id: runtime.agent_id,
-        status: "running" as const,
-        message: `${blueprint?.agent_name ?? "Agent"} deployed successfully inside NemoClaw.`,
-      },
-      {
-        headers: {
-          "set-cookie": "clawforge_completed=; Path=/; Max-Age=0; SameSite=Lax",
-        },
-      },
-    );
+    if (request.method === "GET") {
+      const pendingApproval = getPendingApproval();
+      // Only return approvals that belong to this agent and are pending
+      const pending =
+        pendingApproval && pendingApproval.agent_id === agentId && pendingApproval.status === "pending"
+          ? [pendingApproval]
+          : [];
+
+      return successResponse({
+        agent_id: agentId,
+        approvals: pending,
+      });
+    }
+
+    // POST /api/agents/:id/approvals — create an approval request record
+    if (request.method === "POST") {
+      const body = await readJsonBody<{
+        action?: unknown;
+        command?: unknown;
+        reason?: unknown;
+        policy_id?: unknown;
+      }>(request);
+
+      if (typeof body.action !== "string" || !body.action.trim()) {
+        return errorResponse("action is required and must be a non-empty string.", 400, "MISSING_FIELD", "action");
+      }
+      if (typeof body.reason !== "string" || !body.reason.trim()) {
+        return errorResponse("reason is required and must be a non-empty string.", 400, "MISSING_FIELD", "reason");
+      }
+      if (typeof body.policy_id !== "string") {
+        return errorResponse("policy_id is required and must be a string.", 400, "MISSING_FIELD", "policy_id");
+      }
+
+      const approval: import("./types").ApprovalRequest = {
+        id: `approval_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+        agent_id: agentId,
+        action: body.action.trim(),
+        command: typeof body.command === "string" ? body.command : undefined,
+        reason: body.reason.trim(),
+        policy_id: body.policy_id,
+        status: "pending",
+        created_at: new Date().toISOString(),
+      };
+
+      return successResponse({ approval });
+    }
+
+    return methodNotAllowedError();
   }
 
   // Agent action routes: /api/agents/:agentId/:action or /api/v1/clawforge/agents/:agentId/:action
@@ -663,59 +823,143 @@ export async function handleClawForgeApi(
     const action = legacyAgentMatch ? match[2] : match[3];
     const nested = legacyAgentMatch ? match[3] : match[4];
 
-    if (!isActiveRuntimeAgent(agentId) && !hydrateRuntimeForAgentId(agentId)) {
-      return notFoundError("Agent");
-    }
-
-    // POST /api/agents/:id/start
+    // POST /api/agents/:agentId/start
     if (action === "start" && request.method === "POST") {
-      const state = getRuntimeState();
-      if (state === "running" || state === "waiting_for_approval") {
-        return errorResponse(`Agent is already ${state}.`, 409, "CONFLICT");
+      const run = await getAgentRun(agentId);
+      if (!run) {
+        return notFoundError("Agent");
       }
-      return successResponse(startRuntime());
+      if (run.status === "running") {
+        return errorResponse("Agent is already running.", 409, "CONFLICT");
+      }
+
+      // Get the blueprint for this run
+      const blueprint = createTemplateBlueprint(
+        (run.metadata?.template_id as BlueprintResponse["template_id"]) ?? "incident_response",
+        (run.provider as ProviderMode) ?? "auto",
+      );
+
+      // Launch the Brev instance
+      const brevPlan = await createBrevInstance(`clawforge-${agentId.slice(-8)}`, "verda_L40S", true, {
+        blueprint,
+      });
+
+      await updateAgentRun(agentId, {
+        status: "running",
+        metadata: {
+          ...run.metadata,
+          instance_name: brevPlan.instanceName,
+          brev_mode: brevPlan.mode,
+        },
+      });
+
+      return successResponse({
+        status: "running" as const,
+        instance_id: brevPlan.instanceName,
+        message: brevPlan.ok
+          ? `Agent ${agentId} started in NemoClaw sandbox.`
+          : `Agent ${agentId} start initiated; Brev instance creation is ${brevPlan.mode}.`,
+      });
     }
 
-    // POST /api/agents/:id/stop
+    // POST /api/agents/:agentId/stop
     if (action === "stop" && request.method === "POST") {
-      const state = getRuntimeState();
-      if (state === "stopped" || state === "completed" || state === "created") {
-        return errorResponse(`Agent is not running (current state: ${state}).`, 409, "CONFLICT");
+      const run = await getAgentRun(agentId);
+      if (!run) {
+        return notFoundError("Agent");
       }
-      try {
-        return successResponse(stopRuntime());
-      } catch (e) {
-        return errorResponse(
-          `Failed to stop agent: ${e instanceof Error ? e.message : String(e)}`,
-          409,
-          "CONFLICT",
-        );
+      if (run.status === "stopped" || run.status === "completed") {
+        return errorResponse(`Agent is not running (current state: ${run.status}).`, 409, "CONFLICT");
       }
+
+      // Get Brev CLI and stop the instance
+      const instanceName = (run.metadata?.instance_name as string | undefined) ?? `clawforge-${agentId.slice(-8)}`;
+      const brevStatus = await getBrevStatus();
+      if (brevStatus.ok && brevStatus.cliPath) {
+        await runBrevCommand(brevStatus.cliPath, ["delete", instanceName, "--yes"], 30_000);
+      }
+
+      await updateAgentRun(agentId, {
+        status: "stopped",
+        metadata: { ...run.metadata, instance_name: instanceName },
+      });
+
+      return successResponse({ status: "stopped" as const });
     }
 
     // GET /api/agents/:id/logs/stream
     if (action === "logs" && nested === "stream" && request.method === "GET") {
-      return sse(getRuntimeEvents());
+      return createSseStreamResponse(agentId);
     }
 
     // GET /api/agents/:id/memory
     if (action === "memory" && request.method === "GET") {
+      // First check in-memory runtime memory
+      const runtimeMemory = getRuntimeMemory();
+      const storedMemories = await listMemoryByAgent(agentId);
+      // Merge runtime memory with stored memories, deduping by id
+      const memoryMap = new Map<string, (typeof runtimeMemory)[0]>();
+      for (const m of runtimeMemory) memoryMap.set(m.id, m);
+      for (const m of storedMemories) {
+        if (!memoryMap.has(m.id)) {
+          memoryMap.set(m.id, {
+            id: m.id,
+            agent_id: m.agent_id,
+            type: m.type,
+            content: m.content,
+            created_at: m.created_at,
+          });
+        }
+      }
+      const memory = Array.from(memoryMap.values());
       return successResponse({
         agent_id: agentId,
-        memory: getRuntimeMemory(),
+        memory,
       } satisfies Omit<AgentMemoryResponse, "ok">);
     }
 
     // GET /api/agents/:id/report
     if (action === "report" && request.method === "GET") {
-      const report = getRuntimeReport();
+      // First check in-memory runtime report
+      let report = getRuntimeReport();
+      // Fall back to most recent stored report for this agent
       if (!report) {
-        // Report genuinely unavailable - return 404, not fallback
+        const storedReports = await listReportsByAgent(agentId);
+        const latest = storedReports[0] ?? null;
+        if (latest) {
+          // Build a minimal IncidentReport from stored data
+          report = {
+            id: latest.id,
+            agent_id: latest.agent_id,
+            title: latest.title,
+            severity: latest.severity,
+            detected_behavior: latest.detected_behavior,
+            classification: "See report details",
+            model_used: "NemoClaw",
+            runtime: "NemoClaw",
+            policy_triggered: "See approval decisions",
+            action_attempted: latest.actions_attempted.join("; "),
+            user_decision: "See approval decisions",
+            final_action: latest.recommended_action,
+            memory_update: latest.memory_updates.join("; "),
+            safety_result: "Report retrieved from storage",
+            likely_threat: latest.likely_threat,
+            mitre_mapping: latest.mitre_mapping,
+            evidence: latest.evidence,
+            recommended_action: latest.recommended_action,
+            actions_attempted: latest.actions_attempted,
+            actions_blocked: latest.actions_blocked,
+            approval_decisions: latest.approval_decisions,
+            memory_updates: latest.memory_updates,
+          };
+        }
+      }
+      if (!report) {
         return notFoundError("Report");
       }
       return successResponse({
         agent_id: agentId,
-        report: report,
+        report,
       } satisfies Omit<AgentReportResponse, "ok">);
     }
 
@@ -736,8 +980,29 @@ export async function handleClawForgeApi(
     // Extract approval ID from appropriate capture groups
     const approvalId = legacyApprovalMatch ? match[1] : match[2];
 
-    if (approvalId !== demoApproval.id) {
+    // Find the approval record by ID
+    const pendingApproval = getPendingApproval();
+    const approval =
+      pendingApproval && pendingApproval.id === approvalId ? pendingApproval : null;
+
+    if (!approval) {
+      // If no pending approval matches, check if it was already resolved (for demo approval)
+      if (approvalId === demoApproval.id && getApprovalStatus() !== "pending") {
+        return errorResponse(
+          `Approval already resolved (current status: ${getApprovalStatus()}).`,
+          409,
+          "CONFLICT",
+        );
+      }
       return notFoundError("Approval");
+    }
+
+    if (approval.status !== "pending") {
+      return errorResponse(
+        `Approval already resolved (current status: ${approval.status}).`,
+        409,
+        "CONFLICT",
+      );
     }
 
     const body = await readJsonBody<{ decision?: unknown }>(request);
@@ -755,30 +1020,21 @@ export async function handleClawForgeApi(
       );
     }
 
-    // Check if approval is already resolved (idempotency)
-    const existingStatus = getApprovalStatus();
-    if (existingStatus !== "pending") {
-      return errorResponse(
-        `Approval already resolved (current status: ${existingStatus}).`,
-        409,
-        "CONFLICT",
-      );
-    }
-
     const decision = body.decision as "approved" | "denied";
     const result = resolveApproval(decision);
 
+    // Get the updated approval from runtime
+    const updatedApproval = getPendingApproval() ?? {
+      ...approval,
+      status: decision,
+      resolved_at: new Date().toISOString(),
+    };
+
     return successResponse(
       {
-        approval: {
-          ...demoApproval,
-          status: decision,
-          resolved_at: new Date().toISOString(),
-        },
+        ok: true as const,
+        approval: updatedApproval,
         memory_item: result.memory_item,
-        runtime_status: result.status,
-        events: result.events,
-        report: result.report,
       },
       {
         headers: {

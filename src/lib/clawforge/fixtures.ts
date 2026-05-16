@@ -27,7 +27,7 @@ type BlueprintTemplate = Pick<
   | "workflow_steps"
 >;
 
-const templateById: Record<AgentTemplateId, BlueprintTemplate> = {
+export const templateById: Record<AgentTemplateId, BlueprintTemplate> = {
   incident_response: {
     blueprint_id: DEMO_BLUEPRINT_ID,
     agent_name: "SentinelClaw",
