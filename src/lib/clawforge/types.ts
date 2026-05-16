@@ -1,4 +1,9 @@
 export type ProviderMode = "auto" | "nemotron" | "minimax" | "pi" | "mock";
+export type AgentTemplateId =
+  | "incident_response"
+  | "github_triage"
+  | "inbox_approval"
+  | "research_sandbox";
 
 export type ToolPermission = "allowed" | "read_only" | "approval_required" | "blocked";
 export type RiskLevel = "low" | "medium" | "high";
@@ -162,6 +167,36 @@ export type IncidentReportResponse = {
   ok: true;
   agent_id: string;
   report: IncidentReport;
+};
+
+export type PolicyFinding = {
+  id: string;
+  action: string;
+  effect: PolicyEffect;
+  severity: "info" | "warning" | "error";
+  message: string;
+};
+
+export type ToolCallRecord = {
+  id: string;
+  action: string;
+  allowed: boolean;
+  approval_required: boolean;
+  blocked: boolean;
+  message: string;
+};
+
+export type PredeploySandboxStatus = "passed" | "failed" | "blocked" | "error";
+
+export type PredeploySandboxResult = {
+  ok: boolean;
+  runId: string;
+  status: PredeploySandboxStatus;
+  events: RuntimeEvent[];
+  policyFindings: PolicyFinding[];
+  toolCalls: ToolCallRecord[];
+  deploymentAllowed: boolean;
+  report: string;
 };
 
 // ANU-57: Capability manifest and policy broker

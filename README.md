@@ -132,6 +132,9 @@ The migration at `supabase/migrations/20260516000100_clawforge_accounts.sql` cre
 The app supports mock-mode endpoints so frontend, backend, memory/report, and demo owners can work independently.
 
 - `POST /api/blueprints`
+- `POST /api/clawforge/agents/predeploy-test`
+- `GET /api/clawforge/predeploy-runs/:run_id/events`
+- `GET /api/clawforge/predeploy-runs/:run_id/report`
 - `POST /api/agents/deploy`
 - `POST /api/agents/agent_sentinelclaw_demo/start`
 - `POST /api/agents/agent_sentinelclaw_demo/stop`
@@ -143,6 +146,18 @@ The app supports mock-mode endpoints so frontend, backend, memory/report, and de
 Namespaced API work is also present under the ClawForge backend layer and should stay backwards compatible with the mock demo routes.
 
 See `artifacts/CLAWFORGE_API_EXAMPLES.md` for curl examples.
+
+## OpenHands Predeploy
+
+OpenHands is used as an internal predeploy test harness when configured. NemoClaw stays the user-facing sandbox, policy, approval, memory, and audit layer.
+
+Local fallback mode is safe by default:
+
+```sh
+OPENHANDS_MODE=disabled
+```
+
+Set real OpenHands credentials only in local `.env` or deployment secrets, never in git.
 
 ## Team Workstreams
 

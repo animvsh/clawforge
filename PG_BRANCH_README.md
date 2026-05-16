@@ -43,3 +43,10 @@ Short notes for each UI issue commit on this branch.
 - Matched ANU-42 template chip names.
 - Added ANU-43 required summary fields.
 - Kept Edit Policies visible for ANU-43 and ANU-51.
+
+## ANU-52, ANU-53, ANU-66
+
+- Added four NemoClaw agent templates.
+- Added export buttons for policy, tools, memory, and blueprint files.
+- Added a mock-safe OpenHands predeploy test engine.
+- Added safe `.env.example` placeholders only, with no real keys.

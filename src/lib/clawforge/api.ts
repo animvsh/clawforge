@@ -10,6 +10,7 @@ import {
   startRuntime,
   stopRuntime,
 } from "./runtime";
+import { collectSandboxEvents, getPredeployRunResult, runPredeployCheck } from "./sandbox";
 import type {
   ProviderMode,
   BlueprintRequest,
@@ -150,10 +151,23 @@ async function readJsonBody<T extends Record<string, unknown>>(request: Request)
 }
 
 function normalizeProvider(value: unknown): ProviderMode | null {
-  if (value === "nemotron" || value === "minimax" || value === "mock" || value === "auto") {
+  if (
+    value === "nemotron" ||
+    value === "minimax" ||
+    value === "pi" ||
+    value === "mock" ||
+    value === "auto"
+  ) {
     return value;
   }
   return null; // Invalid provider - caller should return 400
+}
+
+function normalizePredeployScenario(
+  value: unknown,
+): "happy_path" | "raw_export" | "policy_tamper" | "timeout" {
+  if (value === "raw_export" || value === "policy_tamper" || value === "timeout") return value;
+  return "happy_path";
 }
 
 function sse(events: unknown[]): Response {
@@ -223,12 +237,45 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
     } satisfies Pick<BlueprintCreateResponse, "blueprint">);
   }
 
+  if (
+    (apiPath === "/api/clawforge/agents/predeploy-test" ||
+      apiPath === "/clawforge/agents/predeploy-test") &&
+    request.method === "POST"
+  ) {
+    const body = await readJsonBody<{
+      provider?: unknown;
+      scenario?: unknown;
+    }>(request);
+    const provider = normalizeProvider(body.provider) ?? "mock";
+    const result = runPredeployCheck(
+      createSentinelBlueprint(provider),
+      normalizePredeployScenario(body.scenario),
+    );
+    return successResponse({ predeploy: result });
+  }
+
+  const predeployEventsMatch = path.match(/^\/api\/clawforge\/predeploy-runs\/([^/]+)\/events$/);
+  if (predeployEventsMatch && request.method === "GET") {
+    const [, runId] = predeployEventsMatch;
+    return successResponse({ run_id: runId, events: collectSandboxEvents(runId) });
+  }
+
+  const predeployReportMatch = path.match(/^\/api\/clawforge\/predeploy-runs\/([^/]+)\/report$/);
+  if (predeployReportMatch && request.method === "GET") {
+    const [, runId] = predeployReportMatch;
+    const result = getPredeployRunResult(runId);
+    if (!result) return notFoundError("Predeploy run");
+    return successResponse({ run_id: runId, report: result.report, predeploy: result });
+  }
+
   // POST /api/agents/deploy or /api/v1/clawforge/agents/deploy
   if (
     (apiPath === "/api/agents/deploy" || apiPath === "/agents/deploy") &&
     request.method === "POST"
   ) {
-    const body = await readJsonBody<{ blueprint_id?: unknown }>(request);
+    const body = await readJsonBody<{ blueprint_id?: unknown; predeploy_run_id?: unknown }>(
+      request,
+    );
     const blueprintId = typeof body.blueprint_id === "string" ? body.blueprint_id : "";
 
     if (!blueprintId) {
@@ -237,6 +284,19 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
 
     if (blueprintId !== "bp_sentinelclaw_demo") {
       return errorResponse("Known demo blueprint_id is required.", 400, "INVALID_REQUEST");
+    }
+
+    const existingPredeploy =
+      typeof body.predeploy_run_id === "string"
+        ? getPredeployRunResult(body.predeploy_run_id)
+        : undefined;
+    const predeploy = existingPredeploy ?? runPredeployCheck(createSentinelBlueprint("mock"));
+    if (!predeploy.deploymentAllowed) {
+      return errorResponse(
+        `Predeploy sandbox blocked deployment: ${predeploy.report}`,
+        409,
+        "CONFLICT",
+      );
     }
 
     resetLegacyRuntime();
