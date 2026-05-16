@@ -42,9 +42,9 @@ if [ ! -f ".env" ]; then
     exit 1
 fi
 
-# Pull latest Mem0 image
-echo "Pulling latest Mem0 image..."
-docker-compose pull
+# Build Mem0 from local source
+echo "Building Mem0 from local source at $MEM0_SOURCE_DIR..."
+docker-compose build mem0
 
 # Start services
 echo "Starting Mem0 services..."
