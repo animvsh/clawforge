@@ -71,7 +71,7 @@ Advanced runtime scope:
 - `ANU-64`: Approval center, audit, and forensics.
 - `ANU-65`: Sandbox hardening verification.
 
-Supabase project reference: `mfslvyqvkutazsimsrhu`
+Supabase project reference: store it in `VITE_SUPABASE_URL`; do not commit the concrete URL or project ref.
 
 Supabase secret note: the personal access token shared in chat must not be copied into source, artifacts, or Linear. Rotate it before production use and store replacement credentials only in local/deployment secret stores.
 
