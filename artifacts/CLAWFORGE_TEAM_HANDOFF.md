@@ -22,6 +22,21 @@ Linear v2 scope:
 - `ANU-41` through `ANU-50`: P0 NemoClaw-first worktree lanes.
 - `ANU-51` through `ANU-55`: P1 follow-up features, including optional Supabase accounts.
 
+Development readiness:
+
+- Start with `ANU-44` data contracts and fixtures.
+- Then merge `ANU-45` API compatibility and `ANU-46` policy router.
+- Then merge `ANU-47` runtime and memory.
+- Frontend lanes can work in parallel as long as they stay inside their owned files and wait for shared type changes before final merge.
+- `ANU-50` is the final QA/deploy gate and should run after all P0 lanes.
+- `ANU-55` Supabase accounts is optional P1 and must not block the public NemoClaw demo.
+
+V2 owner split:
+
+- Adithya / frontend: `ANU-41`, `ANU-42`, `ANU-43`, plus P1 `ANU-51`, `ANU-52`.
+- pmgandhi / backend: `ANU-44`, `ANU-45`, `ANU-46`, `ANU-47`, plus P1 `ANU-53`, `ANU-55`.
+- Edwin / dashboard, report, QA: `ANU-48`, `ANU-49`, `ANU-50`, plus P1 `ANU-54`.
+
 Supabase project reference: `mfslvyqvkutazsimsrhu`
 
 Supabase secret note: the personal access token shared in chat must not be copied into source, artifacts, or Linear. Rotate it before production use and store replacement credentials only in local/deployment secret stores.

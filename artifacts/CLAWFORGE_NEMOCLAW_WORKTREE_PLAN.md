@@ -26,6 +26,55 @@ This plan slices the NemoClaw-first PRD into separate worktrees with low merge-c
 9. QA, docs, and deploy.
 10. Supabase accounts, only after the core NemoClaw demo path stays green.
 
+## Development Start Checklist
+
+Before anyone starts implementation:
+
+- Pull latest `main`.
+- Create a separate worktree or branch for exactly one Linear issue.
+- Use the branch name listed in the assigned issue.
+- Read this plan and the NemoClaw-first PRD.
+- Confirm the owned files for the lane.
+- Confirm blocked-by dependencies are clear in Linear.
+- Run `npm install` if dependencies are not installed.
+- Run `npm run build` on `main` before editing so local baseline is known.
+- Do not move, rename, or reformat files outside the lane.
+- Do not add Supabase/provider secrets to source or Linear.
+- Post a short Linear comment when starting work with the branch/worktree path.
+
+## Dependency Matrix
+
+| Issue  | Lane                               | Start When                              | Merge Before                           |
+| ------ | ---------------------------------- | --------------------------------------- | -------------------------------------- |
+| ANU-44 | Data contracts and fixtures        | Immediately                             | ANU-42, ANU-43, ANU-45, ANU-46, ANU-47 |
+| ANU-45 | API namespace and compatibility    | After ANU-44                            | ANU-47, ANU-50                         |
+| ANU-46 | Policy engine and tool router      | After ANU-44                            | ANU-47, ANU-48, ANU-50                 |
+| ANU-47 | Runtime sequence and memory moment | After ANU-44 and ANU-46                 | ANU-48, ANU-49, ANU-50                 |
+| ANU-42 | Prompt builder                     | After ANU-44, or use current types only | ANU-50                                 |
+| ANU-43 | Blueprint review                   | After ANU-44                            | ANU-49, ANU-51, ANU-53                 |
+| ANU-48 | Live dashboard                     | After ANU-46 and ANU-47                 | ANU-49, ANU-50, ANU-54                 |
+| ANU-49 | Approval and report UI             | After ANU-47 and ANU-48                 | ANU-50, ANU-54                         |
+| ANU-41 | Positioning and landing            | Immediately                             | ANU-50                                 |
+| ANU-50 | QA, deploy, and handoff            | After ANU-41 through ANU-49             | Final release                          |
+| ANU-55 | Supabase accounts                  | After ANU-50                            | Optional P1 release                    |
+| ANU-51 | Editable policies                  | After ANU-43 and ANU-44                 | Optional P1 release                    |
+| ANU-52 | Multiple templates                 | After ANU-42 and ANU-44                 | Optional P1 release                    |
+| ANU-53 | Config export                      | After ANU-43 and ANU-45                 | Optional P1 release                    |
+| ANU-54 | Graph and replay                   | After ANU-48 and ANU-49                 | Optional P1 release                    |
+
+## Ready-To-Start Status
+
+The project is ready for development when these are true:
+
+- Linear has one issue per worktree lane.
+- Each issue has one owner and one branch name.
+- P0 issues are in `Todo`, not hidden as completed.
+- P1 issues are separate from P0 so the hackathon demo does not sprawl.
+- Dependency relationships are visible in Linear.
+- The repo contains no real secrets.
+- `.env.example` contains placeholders only.
+- The current Cloudflare demo remains usable as the baseline.
+
 ## Lane A: NemoClaw Positioning And Landing
 
 Owner: Frontend
