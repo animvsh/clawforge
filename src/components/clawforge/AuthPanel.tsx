@@ -9,12 +9,19 @@ export function AuthPanel() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
+  const [messageTone, setMessageTone] = useState<"info" | "error">("info");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!supabase) return;
 
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    supabase.auth
+      .getSession()
+      .then(({ data }) => setSession(data.session))
+      .catch(() => {
+        setMessageTone("error");
+        setMessage("Could not load your session. You can still build in guest mode.");
+      });
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
@@ -42,18 +49,31 @@ export function AuthPanel() {
 
     setLoading(true);
     setMessage("");
-    const { error } =
+    const redirectTo = typeof window === "undefined" ? undefined : window.location.origin;
+    const { data, error } =
       mode === "signin"
         ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password });
+        : await supabase.auth.signUp({
+            email,
+            password,
+            options: redirectTo ? { emailRedirectTo: redirectTo } : undefined,
+          });
     setLoading(false);
 
     if (error) {
+      setMessageTone("error");
       setMessage(error.message);
       return;
     }
 
-    setMessage(mode === "signin" ? "Signed in." : "Check your email.");
+    setMessageTone("info");
+    setMessage(
+      mode === "signin"
+        ? "Signed in."
+        : data.session
+          ? "Account created."
+          : "Check your email to confirm your account.",
+    );
     setPassword("");
   }
 
@@ -133,6 +153,8 @@ export function AuthPanel() {
               <button
                 key={value}
                 type="button"
+                aria-label={value === "signin" ? "Switch to sign in" : "Switch to create account"}
+                aria-pressed={mode === value}
                 onClick={() => {
                   setMode(value as "signin" | "signup");
                   setMessage("");
@@ -153,6 +175,7 @@ export function AuthPanel() {
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 type="email"
+                required
                 autoComplete="email"
                 placeholder="you@example.com"
                 className="h-12 rounded-2xl border border-white/12 bg-black/70 px-4 text-base text-white outline-none placeholder:text-white/25 focus:border-white/38"
@@ -164,6 +187,8 @@ export function AuthPanel() {
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 type="password"
+                required
+                minLength={6}
                 autoComplete={mode === "signin" ? "current-password" : "new-password"}
                 placeholder={mode === "signin" ? "Your password" : "At least 6 characters"}
                 className="h-12 rounded-2xl border border-white/12 bg-black/70 px-4 text-base text-white outline-none placeholder:text-white/25 focus:border-white/38"
@@ -176,7 +201,11 @@ export function AuthPanel() {
             disabled={loading || !email || password.length < 6}
             className="mt-5 h-12 w-full rounded-full bg-white text-sm font-semibold text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-45"
           >
-            {loading ? "Working..." : mode === "signin" ? "Sign in" : "Create account"}
+            {loading
+              ? "Working..."
+              : mode === "signin"
+                ? "Sign in to ClawForge"
+                : "Create ClawForge account"}
           </button>
 
           <button
@@ -191,10 +220,25 @@ export function AuthPanel() {
           </button>
 
           {message && (
-            <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.035] p-3 text-sm text-white/62">
+            <div
+              aria-live="polite"
+              className={`mt-4 rounded-2xl border p-3 text-sm ${
+                messageTone === "error"
+                  ? "border-red-400/25 bg-red-500/10 text-red-100/78"
+                  : "border-white/10 bg-white/[0.035] text-white/62"
+              }`}
+            >
               {message}
             </div>
           )}
+
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="mt-4 w-full text-center text-sm text-white/38 transition hover:text-white/70"
+          >
+            Continue as guest
+          </button>
 
           <p className="mt-5 text-center text-xs leading-relaxed text-white/34">
             Your saved ClawForge agents and runs stay attached to this account.
