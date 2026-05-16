@@ -225,7 +225,7 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
     const provider = normalizeProvider(body.provider);
     if (provider === null) {
       return errorResponse(
-        "Invalid provider value. Must be one of: nemotron, minimax, mock, auto.",
+        "Invalid provider value. Must be one of: auto, nemotron, minimax, pi, mock.",
         400,
         "INVALID_REQUEST",
         "provider",

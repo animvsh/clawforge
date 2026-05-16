@@ -20,7 +20,9 @@ export function createSentinelBlueprint(provider: ProviderMode = "auto"): Bluepr
       ? "minimax/token-plan"
       : selectedProvider === "mock"
         ? "mock/sentinelclaw"
-        : "nvidia/nemotron";
+        : selectedProvider === "pi"
+          ? "pi-coding/default"
+          : "nvidia/nemotron";
 
   return {
     blueprint_id: DEMO_BLUEPRINT_ID,

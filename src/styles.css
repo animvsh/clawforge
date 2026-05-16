@@ -153,17 +153,6 @@
   }
 }
 
-@keyframes composer-float {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-
-  50% {
-    transform: translateY(-5px);
-  }
-}
-
 @keyframes composer-glow {
   0%,
   100% {
@@ -178,9 +167,7 @@
 }
 
 .hero-composer {
-  animation:
-    composer-float 7s ease-in-out infinite,
-    composer-glow 4.8s ease-in-out infinite;
+  animation: composer-glow 4.8s ease-in-out infinite;
 }
 
 .hero-composer:focus-within {

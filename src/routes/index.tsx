@@ -114,7 +114,7 @@ function Hero({ onBuild }: { onBuild: (prompt: string) => void }) {
                   type="submit"
                   className="grid h-11 w-11 place-items-center rounded-full bg-white text-black transition hover:bg-white/88 disabled:cursor-not-allowed disabled:opacity-45"
                   disabled={!prompt.trim()}
-                  aria-label="Build agent"
+                  aria-label="Build from hero prompt"
                 >
                   <ArrowUp className="h-5 w-5" aria-hidden="true" />
                 </button>
