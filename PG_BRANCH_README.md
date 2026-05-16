@@ -15,3 +15,10 @@ Short notes for each UI issue commit on this branch.
 - Added the required generation steps.
 - Renamed templates to match the UI lane.
 - Did not change backend or runtime files.
+
+## ANU-43
+
+- Reworked blueprint review into clear sections.
+- Added tool permissions with NemoClaw behavior.
+- Added policy pack, memory rules, and deploy checklist.
+- Kept policy editing as an MVP placeholder.
