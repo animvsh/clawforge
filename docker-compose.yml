@@ -1,0 +1,189 @@
+# =============================================================================
+# ClawForge Persistent Agent Runtime — docker-compose
+# =============================================================================
+# Spins up the full ClawForge stack:
+#   clawforge-api      — Node.js API / static-file server (port 8080)
+#   clawforge-agent    — Python agent runtime + task queue
+#   clawforge-redis    — (optional) Redis backing for the task queue
+#
+# Usage:
+#   docker compose up -d              # start everything
+#   docker compose up -d clawforge-api # start API only
+#   docker compose logs -f            # tail all logs
+#   docker compose down               # stop and remove
+#   docker compose restart            # rolling restart
+# =============================================================================
+
+services:
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # clawforge-api
+  # ─────────────────────────────────────────────────────────────────────────
+  # ClawForge Node.js API server.  Serves the built React client and handles
+  # the /api/clawforge/brev/* proxy to the Brev CLI.
+  clawforge-api:
+    image: clawforge:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.persistent
+      target: final
+      args:
+        NODE_ENV: production
+    container_name: clawforge-api
+    restart: unless-stopped
+    environment:
+      # Application
+      NODE_ENV: production
+      HOST: "0.0.0.0"
+      PORT: "8080"
+      CLAWFORGE_PORT: "8080"
+      # Brev credentials (set via .env or secrets on Brev)
+      BREV_TOKEN: ${BREV_TOKEN:-}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      NGC_CLI_API_KEY: ${NGC_CLI_API_KEY:-}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+      MINIMAX_PLAN_KEY: ${MINIMAX_PLAN_KEY:-}
+      # Supabase
+      VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-}
+      VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      # Optional integrations
+      COMPOSIO_API_KEY: ${COMPOSIO_API_KEY:-}
+      MEM0_API_URL: ${MEM0_API_URL:-}
+      MEM0_API_KEY: ${MEM0_API_KEY:-}
+      AGENTMAIL_API_KEY: ${AGENTMAIL_API_KEY:-}
+      VAPI_API_KEY: ${VAPI_API_KEY:-}
+      PIPEDREAM_ACCESS_TOKEN: ${PIPEDREAM_ACCESS_TOKEN:-}
+      PIPEDREAM_PROJECT_ID: ${PIPEDREAM_PROJECT_ID:-}
+      # Memory / workspace config
+      CLAWFORGE_MODEL: ${CLAWFORGE_MODEL:-nvidia/llama-3.1-nemotron-nano-8b-v1}
+      CLAWFORGE_AGENT_NAME: ${CLAWFORGE_AGENT_NAME:-ClawForge Agent}
+      CLAWFORGE_BLUEPRINT_ID: ${CLAWFORGE_BLUEPRINT_ID:-}
+      CLAWFORGE_INTEGRATION_MANIFEST_B64: ${CLAWFORGE_INTEGRATION_MANIFEST_B64:-}
+      CLAWFORGE_INTEGRATION_MANIFEST_PATH: /app/.runtime/integrations/active.json
+      # Runtime directories (bind mounts)
+      CLAWFORGE_ROOT: /app
+    volumes:
+      # Persist workspace memory, reports, audit logs across restarts
+      - clawforge-runtime:/app/.runtime
+      # Optional: mount host .env file (keep secret values in Brev secrets instead)
+      # - ./path/to/.env:/app/.env:ro
+    ports:
+      - "${CLAWFORGE_EXTERNAL_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    stop_grace_period: 30s
+    init: true
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # clawforge-agent
+  # ─────────────────────────────────────────────────────────────────────────
+  # Python-based persistent agent runtime.  Runs agent_service.py (the main
+  # agent loop) and task_queue.py (background job queue) supervised by
+  # a minimal supervisord inside the container.
+  #
+  # Set SERVICE_MODE=agent to run ONLY this service (no Node.js API).
+  # Set INSTALL_NEMOCLAW=1 to also install NemoClaw on first start.
+  clawforge-agent:
+    image: clawforge:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.persistent
+      target: final
+      args:
+        NODE_ENV: production
+    container_name: clawforge-agent
+    restart: unless-stopped
+    environment:
+      # Service mode: all (api+agent), api, agent
+      SERVICE_MODE: agent
+      # Agent runtime
+      CLAWFORGE_MODEL: ${CLAWFORGE_MODEL:-nvidia/llama-3.1-nemotron-nano-8b-v1}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      NGC_CLI_API_KEY: ${NGC_CLI_API_KEY:-}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+      MINIMAX_PLAN_KEY: ${MINIMAX_PLAN_KEY:-}
+      # Brev
+      BREV_TOKEN: ${BREV_TOKEN:-}
+      CLAWFORGE_AGENT_NAME: ${CLAWFORGE_AGENT_NAME:-ClawForge Agent}
+      CLAWFORGE_BLUEPRINT_ID: ${CLAWFORGE_BLUEPRINT_ID:-}
+      # NemoClaw install toggle (set to 1 on first start to install)
+      INSTALL_NEMOCLAW: "${INSTALL_NEMOCLAW:-0}"
+      # Memory / workspace
+      CLAWFORGE_INTEGRATION_MANIFEST_B64: ${CLAWFORGE_INTEGRATION_MANIFEST_B64:-}
+      CLAWFORGE_INTEGRATION_MANIFEST_PATH: /app/.runtime/integrations/active.json
+      # Optional external services
+      MEM0_API_URL: ${MEM0_API_URL:-}
+      MEM0_API_KEY: ${MEM0_API_KEY:-}
+      REDIS_URL: ${REDIS_URL:-redis://clawforge-redis:6379/0}
+      CLAWFORGE_ROOT: /app
+    volumes:
+      - clawforge-runtime:/app/.runtime
+    depends_on:
+      clawforge-api:
+        condition: service_healthy
+      # Uncomment if using Redis:
+      # clawforge-redis:
+      #   condition: service_healthy
+    healthcheck:
+      # The agent exposes a minimal HTTP health endpoint on port 8081.
+      test: ["CMD", "curl", "-sf", "http://localhost:8081/health"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+    stop_grace_period: 60s
+    init: true
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "10"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # clawforge-redis  (optional — enable by removing comments below)
+  # ─────────────────────────────────────────────────────────────────────────
+  # Lightweight Redis instance used as a backing store for task_queue.py.
+  # Remove `##` prefix on all lines to enable.
+  # Ensure REDIS_URL in clawforge-agent points to redis://clawforge-redis:6379/0
+  # -------------------------------------------------------------------------
+  # clawforge-redis:
+  #   image: redis:7-alpine
+  #   container_name: clawforge-redis
+  #   restart: unless-stopped
+  #   command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+  #   volumes:
+  #     - clawforge-redis-data:/data
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 30s
+  #     timeout: 5s
+  #     retries: 3
+  #   logging:
+  #     driver: json-file
+  #     options:
+  #       max-size: "20m"
+  #       max-file: "3"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Named volumes — persist data across container restarts and rebuilds
+# ─────────────────────────────────────────────────────────────────────────────
+volumes:
+  clawforge-runtime:
+    driver: local
+  # clawforge-redis-data:
+  #   driver: local
+
+networks:
+  default:
+    name: clawforge-net
+    driver: bridge
