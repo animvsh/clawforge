@@ -24,8 +24,9 @@ This plan slices the NemoClaw-first PRD into separate worktrees with low merge-c
 7. Final report UI.
 8. Landing positioning scrub.
 9. Brev foundation and Launchable.
-10. QA, docs, and deploy.
-11. Supabase accounts, only after the core NemoClaw demo path stays green.
+10. Pi SDK, provider compatibility, and broad sandbox execution readiness.
+11. QA, docs, and deploy.
+12. Supabase accounts, only after the core NemoClaw demo path stays green.
 
 ## Development Start Checklist
 
@@ -45,24 +46,33 @@ Before anyone starts implementation:
 
 ## Dependency Matrix
 
-| Issue  | Lane                               | Start When                              | Merge Before                           |
-| ------ | ---------------------------------- | --------------------------------------- | -------------------------------------- |
-| ANU-44 | Data contracts and fixtures        | Immediately                             | ANU-42, ANU-43, ANU-45, ANU-46, ANU-47 |
-| ANU-45 | API namespace and compatibility    | After ANU-44                            | ANU-47, ANU-50                         |
-| ANU-46 | Policy engine and tool router      | After ANU-44                            | ANU-47, ANU-48, ANU-50                 |
-| ANU-47 | Runtime sequence and memory moment | After ANU-44 and ANU-46                 | ANU-48, ANU-49, ANU-50                 |
-| ANU-42 | Prompt builder                     | After ANU-44, or use current types only | ANU-50                                 |
-| ANU-43 | Blueprint review                   | After ANU-44                            | ANU-49, ANU-51, ANU-53                 |
-| ANU-48 | Live dashboard                     | After ANU-46 and ANU-47                 | ANU-49, ANU-50, ANU-54                 |
-| ANU-49 | Approval and report UI             | After ANU-47 and ANU-48                 | ANU-50, ANU-54                         |
-| ANU-41 | Positioning and landing            | Immediately                             | ANU-50                                 |
-| ANU-56 | Brev foundation and Launchable     | After ANU-44, before final QA           | ANU-50                                 |
-| ANU-50 | QA, deploy, and handoff            | After ANU-41 through ANU-49 and ANU-56  | Final release                          |
-| ANU-55 | Supabase accounts                  | After ANU-50                            | Optional P1 release                    |
-| ANU-51 | Editable policies                  | After ANU-43 and ANU-44                 | Optional P1 release                    |
-| ANU-52 | Multiple templates                 | After ANU-42 and ANU-44                 | Optional P1 release                    |
-| ANU-53 | Config export                      | After ANU-43 and ANU-45                 | Optional P1 release                    |
-| ANU-54 | Graph and replay                   | After ANU-48 and ANU-49                 | Optional P1 release                    |
+| Issue  | Lane                                  | Start When                                      | Merge Before                           |
+| ------ | ------------------------------------- | ----------------------------------------------- | -------------------------------------- |
+| ANU-44 | Data contracts and fixtures           | Immediately                                     | ANU-42, ANU-43, ANU-45, ANU-46, ANU-47 |
+| ANU-45 | API namespace and compatibility       | After ANU-44                                    | ANU-47, ANU-50                         |
+| ANU-46 | Policy engine and tool router         | After ANU-44                                    | ANU-47, ANU-48, ANU-50                 |
+| ANU-47 | Runtime sequence and memory moment    | After ANU-44 and ANU-46                         | ANU-48, ANU-49, ANU-50                 |
+| ANU-42 | Prompt builder                        | After ANU-44, or use current types only         | ANU-50                                 |
+| ANU-43 | Blueprint review                      | After ANU-44                                    | ANU-49, ANU-51, ANU-53                 |
+| ANU-48 | Live dashboard                        | After ANU-46 and ANU-47                         | ANU-49, ANU-50, ANU-54                 |
+| ANU-49 | Approval and report UI                | After ANU-47 and ANU-48                         | ANU-50, ANU-54                         |
+| ANU-41 | Positioning and landing               | Immediately                                     | ANU-50                                 |
+| ANU-56 | Brev foundation and Launchable        | After ANU-44, before final QA                   | ANU-50                                 |
+| ANU-57 | Capability manifest and policy broker | After ANU-44                                    | ANU-61, ANU-62, ANU-63, ANU-64         |
+| ANU-58 | Secret-safe provider registry         | After ANU-44                                    | ANU-59, ANU-60, ANU-61                 |
+| ANU-59 | NVIDIA Nemotron NIM adapter           | After ANU-58                                    | ANU-50                                 |
+| ANU-60 | MiniMax Cloud model adapter           | After ANU-58                                    | ANU-50                                 |
+| ANU-61 | Pi Coding SDK runtime adapter         | After ANU-57 and ANU-58                         | ANU-50                                 |
+| ANU-62 | Broad tool brokers                    | After ANU-57                                    | ANU-63, ANU-64                         |
+| ANU-63 | NemoClaw sandbox session adapter      | After ANU-56, ANU-57, and ANU-62                | ANU-64, ANU-65                         |
+| ANU-64 | Approval center and forensics         | After ANU-62 and ANU-63                         | ANU-65                                 |
+| ANU-65 | Sandbox hardening verification        | After ANU-56, ANU-63, and ANU-64                | ANU-50                                 |
+| ANU-50 | QA, deploy, and handoff               | After ANU-41 through ANU-49, ANU-56, and ANU-65 | Final release                          |
+| ANU-55 | Supabase accounts                     | After ANU-50                                    | Optional P1 release                    |
+| ANU-51 | Editable policies                     | After ANU-43 and ANU-44                         | Optional P1 release                    |
+| ANU-52 | Multiple templates                    | After ANU-42 and ANU-44                         | Optional P1 release                    |
+| ANU-53 | Config export                         | After ANU-43 and ANU-45                         | Optional P1 release                    |
+| ANU-54 | Graph and replay                      | After ANU-48 and ANU-49                         | Optional P1 release                    |
 
 ## Ready-To-Start Status
 
@@ -379,6 +389,255 @@ Acceptance criteria:
 - Ports/tunnels are documented.
 - Launchable creation checklist exists.
 - Cloudflare is treated as optional landing/public mirror; Brev is the canonical runtime demo.
+
+## Lane L: Capability Manifest And Policy Broker
+
+Owner: Backend / Security
+
+Linear: `ANU-57`
+
+Branch: `codex/capability-policy-broker`
+
+Primary files:
+
+- `src/lib/clawforge/types.ts`
+- `src/lib/clawforge/policies.ts`
+- `src/lib/clawforge/tools.ts`
+- `src/lib/clawforge/fixtures.ts`
+- `artifacts/CLAWFORGE_PI_SANDBOX_RESEARCH.md`
+
+Goal:
+
+Compile broad user requests into least-privilege action envelopes before any tool or sandbox action runs.
+
+Acceptance criteria:
+
+- Adds `ActionEnvelope`.
+- Adds action taxonomy for files, shell, browser, GitHub, email, network, memory, and policy.
+- Every tool action receives deterministic `allow`, `read_only`, `approval_required`, or `deny`.
+- Unknown actions deny by default.
+- Policy decisions include reason, policy id, risk level, and audit metadata.
+- Existing SentinelClaw deterministic demo still works.
+
+## Lane M: Secret-Safe Provider Registry
+
+Owner: Backend / Provider
+
+Linear: `ANU-58`
+
+Branch: `codex/provider-registry-selection`
+
+Primary files:
+
+- `src/lib/clawforge/providers/index.ts`
+- `src/lib/clawforge/providers/nemotron.ts`
+- `src/lib/clawforge/providers/minimax.ts`
+- `src/lib/clawforge/types.ts`
+- `.env.example`
+
+Goal:
+
+Add a provider registry that can select Nemotron, MiniMax, Pi-compatible mode, or mock without exposing secrets.
+
+Acceptance criteria:
+
+- `auto` selects Nemotron when `NVIDIA_API_KEY` exists, then MiniMax when MiniMax credentials exist, then mock.
+- UI sends provider/model slugs only.
+- No API key or redacted key is returned from `/api/*`.
+- Provider health returns booleans and model slugs only.
+- Mock mode still works without provider keys.
+
+## Lane N: NVIDIA Nemotron NIM Adapter
+
+Owner: Backend / Provider
+
+Linear: `ANU-59`
+
+Branch: `codex/nemotron-nim-adapter`
+
+Primary files:
+
+- `src/lib/clawforge/providers/nemotron.ts`
+- `src/lib/clawforge/providers/index.ts`
+- `.env.example`
+
+Goal:
+
+Implement real NVIDIA Nemotron reasoning through OpenAI-compatible NVIDIA NIM endpoints.
+
+Acceptance criteria:
+
+- Calls OpenAI-compatible `POST /v1/chat/completions`.
+- Supports hosted NVIDIA API base URL `https://integrate.api.nvidia.com/v1`.
+- Supports local NIM base URL override for Brev.
+- Reads `NVIDIA_API_KEY`, `NVIDIA_NEMOTRON_MODEL`, and optional `NVIDIA_BASE_URL` server-side only.
+- Supports non-streaming and streaming output.
+- Maps provider errors to structured safe messages.
+
+## Lane O: MiniMax Cloud Model Adapter
+
+Owner: Backend / Provider
+
+Linear: `ANU-60`
+
+Branch: `codex/minimax-cloud-adapter`
+
+Primary files:
+
+- `src/lib/clawforge/providers/minimax.ts`
+- `src/lib/clawforge/providers/index.ts`
+- `.env.example`
+
+Goal:
+
+Implement MiniMax Cloud compatibility for ClawForge chat and agent reasoning.
+
+Acceptance criteria:
+
+- Supports MiniMax Cloud model calls.
+- Supports OpenAI-compatible API mode using `https://api.minimax.io/v1`.
+- Keeps `MINIMAX_API_KEY`, `MINIMAX_PLAN_KEY`, and `MINIMAX_MODEL` server-side only.
+- Preserves provider response state needed for multi-turn continuity.
+- Does not expose raw thinking blocks to UI by default.
+
+## Lane P: Pi Coding SDK Runtime Adapter
+
+Owner: Backend / Provider Runtime
+
+Linear: `ANU-61`
+
+Branch: `codex/pi-coding-sdk-adapter`
+
+Primary files:
+
+- `src/lib/clawforge/providers/pi.ts`
+- `src/lib/clawforge/providers/index.ts`
+- `src/lib/clawforge/runtime.ts`
+- `.env.example`
+
+Goal:
+
+Add Pi Coding Agent SDK as a server-only runtime adapter for ClawForge chat and agent sessions.
+
+Acceptance criteria:
+
+- Uses `@earendil-works/pi-coding-agent` only on server/Node runtime paths.
+- Adapter can create an in-memory Pi agent session.
+- Pi streaming events map to ClawForge audit events.
+- Raw Pi `bash`, `edit`, and `write` tools are not exposed to arbitrary prompts by default.
+- Pi tools route through the ClawForge policy broker.
+- Mock mode still works without Pi installed or configured.
+
+## Lane Q: Broad Tool Brokers
+
+Owner: Backend / Runtime
+
+Linear: `ANU-62`
+
+Branch: `codex/broad-tool-brokers`
+
+Primary files:
+
+- `src/lib/clawforge/tools.ts`
+- `src/lib/clawforge/policies.ts`
+- `src/lib/clawforge/runtime.ts`
+
+Goal:
+
+Add tool broker interfaces so the agent can take broad actions safely across shell, files, browser, GitHub, email/Slack, tickets, and reports.
+
+Acceptance criteria:
+
+- Adds broker interfaces for shell, browser, GitHub, files, email/Slack, tickets, and reports.
+- Every broker call passes through the policy broker first.
+- Shell, external send, write outside workspace, and policy edits require approval or are denied.
+- Every decision emits an audit event.
+- No provider/tool receives raw user intent directly without policy wrapping.
+
+## Lane R: NemoClaw Sandbox Session Adapter
+
+Owner: Backend / Deployment Runtime
+
+Linear: `ANU-63`
+
+Branch: `codex/nemoclaw-sandbox-session-adapter`
+
+Primary files:
+
+- `src/lib/clawforge/runtime.ts`
+- `src/lib/clawforge/api.ts`
+- `src/lib/clawforge/types.ts`
+- `scripts/brev/setup-clawforge.sh`
+- `README.md`
+
+Goal:
+
+Wire ClawForge runtime sessions to Brev-hosted NemoClaw/OpenShell sandboxes.
+
+Acceptance criteria:
+
+- Runtime can create, start, stop, and inspect NemoClaw sandbox sessions.
+- ClawForge session states map to NemoClaw/OpenShell lifecycle states.
+- Sandbox failures emit sanitized `agent.error` events.
+- Blocked network requests can be surfaced as approval events.
+- Uses `inference.local` routing for model calls inside the sandbox.
+- Mock mode still works without NemoClaw.
+
+## Lane S: Approval Center, Audit, And Forensics
+
+Owner: Dashboard / Memory / Runtime
+
+Linear: `ANU-64`
+
+Branch: `codex/approval-audit-forensics`
+
+Primary files:
+
+- `src/lib/clawforge/runtime.ts`
+- `src/lib/clawforge/memory.ts`
+- `src/lib/clawforge/reports.ts`
+- `src/components/clawforge/LiveDashboard.tsx`
+- `src/components/clawforge/MemoryTimeline.tsx`
+- `src/components/clawforge/IncidentReport.tsx`
+
+Goal:
+
+Make approvals, audit events, memory, and final reports trustworthy enough for broad sandboxed autonomous work.
+
+Acceptance criteria:
+
+- Approval requests include command, diff, or content preview; destination; risk label; timeout behavior; and policy id.
+- Side effects cannot execute without approval artifact when policy requires approval.
+- Audit events are append-only and ordered.
+- Memory stores approval/denial and later retrieval.
+- Final report cites policy, provider, sandbox, approval, and memory results.
+
+## Lane T: Sandbox Hardening Verification
+
+Owner: QA / Deployment / Security
+
+Linear: `ANU-65`
+
+Branch: `codex/sandbox-hardening-verification`
+
+Primary files:
+
+- `src/lib/clawforge/runtime.ts`
+- `src/lib/clawforge/policies.ts`
+- `artifacts/CLAWFORGE_TEAM_HANDOFF.md`
+- `README.md`
+
+Goal:
+
+Verify ClawForge only runs elevated autonomous work when sandbox hardening, secret redaction, provider isolation, and audit logging are healthy.
+
+Acceptance criteria:
+
+- Startup warns or fails when sandbox hardening is missing.
+- Health check covers gateway inference routing, network deny-by-default, forbidden path scanner, and secret redaction.
+- Logs redact authorization headers and provider keys.
+- Elevated mode requires explicit configuration and warnings.
+- No secrets appear in source, artifacts, Linear, screenshots, or logs.
 
 ## Lane K: Supabase Accounts And Auth
 

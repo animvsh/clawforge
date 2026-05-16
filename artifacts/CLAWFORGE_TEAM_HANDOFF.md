@@ -10,17 +10,24 @@ Linear project: https://linear.app/askdad/project/clawforge-c618a255248b
 
 Canonical PRD Google Doc: https://docs.google.com/document/d/1b1yJaS8inIQ4lXasAiC3EyjLS06qRUyT9190gyzt5uc/edit
 
+Linear Brev research doc: https://linear.app/askdad/document/clawforge-brev-build-research-550e03638dbf
+
+Linear Pi/sandbox research doc: https://linear.app/askdad/document/clawforge-pi-sdk-and-sandboxed-execution-research-14a9231e3ab8
+
 Composio status: Google Docs and Gmail were connected through Composio MCP. The PRD link was emailed to `aalang@ucsc.edu`.
 
 NemoClaw-first v2 artifacts:
 
 - `artifacts/CLAWFORGE_NEMOCLAW_FIRST_PRD.md`
 - `artifacts/CLAWFORGE_NEMOCLAW_WORKTREE_PLAN.md`
+- `artifacts/CLAWFORGE_BREV_BUILD_RESEARCH.md`
+- `artifacts/CLAWFORGE_PI_SANDBOX_RESEARCH.md`
 
 Linear v2 scope:
 
 - `ANU-41` through `ANU-50`: P0 NemoClaw-first worktree lanes.
 - `ANU-56`: P0 Brev foundation and Launchable lane.
+- `ANU-57` through `ANU-65`: Pi SDK, provider compatibility, broad tool execution, sandbox adapter, approvals, and hardening readiness.
 - `ANU-51` through `ANU-55`: P1 follow-up features, including optional Supabase accounts.
 
 Development readiness:
@@ -30,15 +37,30 @@ Development readiness:
 - Then merge `ANU-47` runtime and memory.
 - Frontend lanes can work in parallel as long as they stay inside their owned files and wait for shared type changes before final merge.
 - `ANU-56` makes Brev the canonical build/demo environment and should land before final QA.
-- `ANU-50` is the final QA/deploy gate and should run after all P0 lanes, including Brev.
+- `ANU-57` and `ANU-58` unlock the advanced provider/sandbox lanes.
+- `ANU-63` turns the runtime toward real Brev-hosted NemoClaw sandbox sessions.
+- `ANU-65` verifies sandbox hardening before final QA.
+- `ANU-50` is the final QA/deploy gate and should run after all P0 lanes, including Brev and sandbox hardening.
 - `ANU-55` Supabase accounts is optional P1 and must not block the public NemoClaw demo.
 
 V2 owner split:
 
 - Adithya / frontend: `ANU-41`, `ANU-42`, `ANU-43`, plus P1 `ANU-51`, `ANU-52`.
-- pmgandhi / backend: `ANU-44`, `ANU-45`, `ANU-46`, `ANU-47`, plus P1 `ANU-53`, `ANU-55`.
-- Edwin / dashboard, report, QA: `ANU-48`, `ANU-49`, `ANU-50`, plus P1 `ANU-54`.
+- pmgandhi / backend: `ANU-44`, `ANU-45`, `ANU-46`, `ANU-47`, `ANU-57`, `ANU-58`, `ANU-59`, `ANU-60`, `ANU-61`, `ANU-62`, `ANU-63`, plus P1 `ANU-53`, `ANU-55`.
+- Edwin / dashboard, report, QA: `ANU-48`, `ANU-49`, `ANU-50`, `ANU-64`, `ANU-65`, plus P1 `ANU-54`.
 - Deployment/Brev owner: `ANU-56`.
+
+Advanced runtime scope:
+
+- `ANU-57`: Capability manifest and policy broker.
+- `ANU-58`: Secret-safe provider registry.
+- `ANU-59`: NVIDIA Nemotron NIM adapter.
+- `ANU-60`: MiniMax Cloud model adapter.
+- `ANU-61`: Pi Coding SDK runtime adapter.
+- `ANU-62`: Broad tool brokers.
+- `ANU-63`: NemoClaw sandbox session adapter.
+- `ANU-64`: Approval center, audit, and forensics.
+- `ANU-65`: Sandbox hardening verification.
 
 Supabase project reference: `mfslvyqvkutazsimsrhu`
 
