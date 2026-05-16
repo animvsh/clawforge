@@ -1,0 +1,45 @@
+# pg-branch notes
+
+Short notes for each UI issue commit on this branch.
+
+## ANU-41
+
+- Updated landing page copy to be NemoClaw-first.
+- Added required hero headline and CTAs.
+- Updated metadata for the same positioning.
+- Did not change backend or runtime files.
+
+## ANU-42
+
+- Updated prompt builder copy for NemoClaw.
+- Added the required generation steps.
+- Renamed templates to match the UI lane.
+- Did not change backend or runtime files.
+
+## ANU-43
+
+- Reworked blueprint review into clear sections.
+- Added tool permissions with NemoClaw behavior.
+- Added policy pack, memory rules, and deploy checklist.
+- Kept policy editing as an MVP placeholder.
+
+## ANU-48
+
+- Reworked dashboard into three columns.
+- Added NemoClaw status cards and audit colors.
+- Added quick command buttons.
+- Updated approval buttons to approve or deny commands.
+
+## ANU-51
+
+- Added editable tool policy dropdowns.
+- Reflected edits in the config preview.
+- Sent policy overrides with deploy.
+- Kept changes in the frontend review UI.
+
+## Linear alignment
+
+- Matched ANU-41 subheadline copy.
+- Matched ANU-42 template chip names.
+- Added ANU-43 required summary fields.
+- Kept Edit Policies visible for ANU-43 and ANU-51.
