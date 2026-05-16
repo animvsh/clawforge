@@ -24,21 +24,21 @@ const loadingSteps = [
 
 const promptTemplates = [
   {
-    label: "Incident response",
+    label: "Incident response agent",
     prompt: defaultPrompt,
   },
   {
-    label: "GitHub triage",
+    label: "GitHub triage agent",
     prompt:
       "Create a NemoClaw agent that reads GitHub issues, identifies urgent bugs, drafts responses, and asks before posting.",
   },
   {
-    label: "Inbox approval",
+    label: "Inbox approval agent",
     prompt:
       "Create a NemoClaw agent that summarizes important emails, drafts replies, and asks before sending anything.",
   },
   {
-    label: "Research-only sandbox",
+    label: "Research-only sandboxed agent",
     prompt:
       "Create a NemoClaw agent that researches a topic, saves sources to memory, writes a brief, and cannot publish outside the sandbox.",
   },
@@ -103,7 +103,7 @@ export function AgentBuilder({ provider = "auto", onBlueprint }: AgentBuilderPro
               key={template.label}
               type="button"
               onClick={() => setPrompt(template.prompt)}
-              className="rounded-full border border-white/10 px-3 py-1.5 text-xs lowercase text-white/60 transition hover:border-white/25 hover:text-white"
+              className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/60 transition hover:border-white/25 hover:text-white"
             >
               {template.label}
             </button>

@@ -29,3 +29,17 @@ Short notes for each UI issue commit on this branch.
 - Added NemoClaw status cards and audit colors.
 - Added quick command buttons.
 - Updated approval buttons to approve or deny commands.
+
+## ANU-51
+
+- Added editable tool policy dropdowns.
+- Reflected edits in the config preview.
+- Sent policy overrides with deploy.
+- Kept changes in the frontend review UI.
+
+## Linear alignment
+
+- Matched ANU-41 subheadline copy.
+- Matched ANU-42 template chip names.
+- Added ANU-43 required summary fields.
+- Kept Edit Policies visible for ANU-43 and ANU-51.

@@ -1,5 +1,7 @@
 import type { BlueprintResponse } from "@/lib/clawforge/types";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+type EditablePolicyEffect = "allowed" | "approval_required" | "blocked";
 
 const deploymentSteps = [
   "NemoClaw sandbox created",
@@ -8,6 +10,12 @@ const deploymentSteps = [
   "Memory boundaries initialized",
   "Live audit stream armed",
   "Agent running inside NemoClaw",
+];
+
+const policyOptions: { label: string; value: EditablePolicyEffect }[] = [
+  { label: "Allow", value: "allowed" },
+  { label: "Approval required", value: "approval_required" },
+  { label: "Blocked", value: "blocked" },
 ];
 
 function policyLabel(effect: string) {
@@ -23,6 +31,23 @@ function toolBehavior(permission: string) {
   return "NemoClaw allows this inside policy.";
 }
 
+function permissionToPolicyLabel(permission: EditablePolicyEffect) {
+  if (permission === "blocked") return "deny";
+  if (permission === "approval_required") return "pause";
+  return "allow";
+}
+
+function createInitialPolicies(blueprint: BlueprintResponse): Record<string, EditablePolicyEffect> {
+  return Object.fromEntries(
+    blueprint.tools.map((tool) => [
+      tool.id,
+      tool.permission === "blocked" || tool.permission === "approval_required"
+        ? tool.permission
+        : "allowed",
+    ]),
+  );
+}
+
 export function BlueprintReview({
   blueprint,
   onDeployed,
@@ -31,8 +56,32 @@ export function BlueprintReview({
   onDeployed?: (agentId: string) => void;
 }) {
   const [deploying, setDeploying] = useState(false);
-  const [showPolicyNote, setShowPolicyNote] = useState(false);
+  const [showPolicyEditor, setShowPolicyEditor] = useState(true);
+  const [toolPolicies, setToolPolicies] = useState<Record<string, EditablePolicyEffect>>(() =>
+    createInitialPolicies(blueprint),
+  );
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setToolPolicies(createInitialPolicies(blueprint));
+  }, [blueprint]);
+
+  const editedPolicyPreview = blueprint.tools
+    .map(
+      (tool) =>
+        `  - ${tool.action}: ${permissionToPolicyLabel(toolPolicies[tool.id] ?? "allowed")}`,
+    )
+    .join("\n");
+  const summaryFields = [
+    ["Agent Name", blueprint.agent_name],
+    ["Workflow Type", "Incident Response"],
+    ["Runtime", "NemoClaw"],
+    ["Reasoning Model", "NVIDIA Nemotron"],
+    ["Sandbox Status", "Configured"],
+    ["Policy Mode", "Enforced"],
+    ["Memory", "Enabled"],
+    ["Audit Logs", "Enabled"],
+  ];
 
   async function deploy() {
     setDeploying(true);
@@ -41,7 +90,10 @@ export function BlueprintReview({
       const response = await fetch("/api/agents/deploy", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ blueprint_id: blueprint.blueprint_id }),
+        body: JSON.stringify({
+          blueprint_id: blueprint.blueprint_id,
+          policy_overrides: toolPolicies,
+        }),
       });
       const data = await response.json();
       if (!response.ok || !data.ok) throw new Error(data.error?.message || "Deploy failed.");
@@ -67,12 +119,7 @@ export function BlueprintReview({
             {blueprint.description}. {blueprint.goal}
           </p>
           <div className="mt-6 grid grid-cols-2 gap-2 text-xs">
-            {[
-              ["Model", blueprint.model],
-              ["Provider", blueprint.provider],
-              ["Runtime", "NemoClaw"],
-              ["Sandbox", "NemoClaw"],
-            ].map(([label, value]) => (
+            {summaryFields.map(([label, value]) => (
               <div key={label} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
                 <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">{label}</div>
                 <div className="mt-1 text-white/80">{value}</div>
@@ -90,25 +137,12 @@ export function BlueprintReview({
             </button>
             <button
               type="button"
-              onClick={() => setShowPolicyNote(true)}
+              onClick={() => setShowPolicyEditor((current) => !current)}
               className="rounded-xl border border-white/20 px-5 py-3 text-sm font-medium text-white transition hover:bg-white/[0.05]"
             >
               Edit Policies
             </button>
           </div>
-          {showPolicyNote && (
-            <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/65">
-              Policy editing is planned for ANU-51. This review keeps the generated policy pack
-              visible before deployment.
-              <button
-                type="button"
-                onClick={() => setShowPolicyNote(false)}
-                className="mt-3 block text-xs font-semibold text-white"
-              >
-                Close
-              </button>
-            </div>
-          )}
           {error && <div className="mt-3 text-sm text-rose-200">{error}</div>}
           {deploying && (
             <div className="mt-5 grid gap-2">
@@ -148,30 +182,65 @@ export function BlueprintReview({
       </div>
 
       <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-5">
-        <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">
-          tool permission map
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">
+            tool permission map
+          </div>
+          <button
+            type="button"
+            onClick={() => setToolPolicies(createInitialPolicies(blueprint))}
+            className="rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-white/65 transition hover:bg-white/[0.05]"
+          >
+            Reset Policies
+          </button>
         </div>
         <div className="mt-4 overflow-hidden rounded-xl border border-white/10">
           <div className="grid grid-cols-[1fr_0.7fr_0.7fr_1fr] border-b border-white/10 bg-white/[0.04] px-4 py-3 text-[10px] uppercase tracking-[0.16em] text-white/35">
             <div>Tool</div>
-            <div>Permission</div>
+            <div>Policy</div>
             <div>Risk</div>
-            <div>NemoClaw behavior</div>
+            <div>NemoClaw Behavior</div>
           </div>
-          {blueprint.tools.map((tool) => (
-            <div
-              key={tool.id}
-              className="grid gap-3 border-b border-white/[0.06] px-4 py-4 text-sm last:border-0 md:grid-cols-[1fr_0.7fr_0.7fr_1fr]"
-            >
-              <div>
-                <div className="font-semibold text-white/90">{tool.name}</div>
-                <div className="mt-1 text-xs leading-relaxed text-white/50">{tool.purpose}</div>
+          {showPolicyEditor ? (
+            blueprint.tools.map((tool) => (
+              <div
+                key={tool.id}
+                className="grid gap-3 border-b border-white/[0.06] px-4 py-4 text-sm last:border-0 md:grid-cols-[1fr_0.7fr_0.7fr_1fr]"
+              >
+                <div>
+                  <div className="font-semibold text-white/90">{tool.name}</div>
+                  <div className="mt-1 text-xs leading-relaxed text-white/50">{tool.purpose}</div>
+                </div>
+                <div>
+                  <select
+                    value={toolPolicies[tool.id] ?? "allowed"}
+                    onChange={(event) =>
+                      setToolPolicies((current) => ({
+                        ...current,
+                        [tool.id]: event.target.value as EditablePolicyEffect,
+                      }))
+                    }
+                    className="h-9 w-full rounded-lg border border-white/10 bg-black px-2 text-xs text-white/75 outline-none focus:border-white/30"
+                  >
+                    {policyOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="text-white/65">{tool.risk_level}</div>
+                <div className="text-white/65">
+                  {toolBehavior(toolPolicies[tool.id] ?? "allowed")}
+                </div>
               </div>
-              <div className="text-white/65">{tool.permission.replace("_", " ")}</div>
-              <div className="text-white/65">{tool.risk_level}</div>
-              <div className="text-white/65">{toolBehavior(tool.permission)}</div>
+            ))
+          ) : (
+            <div className="px-4 py-4 text-sm text-white/55">
+              Policy editor hidden. Use Edit Policies to review or change allow, pause, and deny
+              rules before deployment.
             </div>
-          ))}
+          )}
         </div>
       </div>
 
@@ -235,7 +304,7 @@ export function BlueprintReview({
           generated config preview
         </div>
         <pre className="overflow-x-auto p-5 text-xs leading-relaxed text-white/65">
-          {blueprint.config_preview}
+          {`${blueprint.config_preview}\nedited_policy_pack:\n${editedPolicyPreview}`}
         </pre>
       </div>
     </div>

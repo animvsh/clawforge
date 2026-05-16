@@ -152,9 +152,9 @@ function FinalCta() {
           </p>
           <a
             href="#builder"
-            className="mt-7 inline-block bg-white px-6 py-3 text-sm font-semibold lowercase text-black transition hover:bg-white/90"
+            className="mt-7 inline-block bg-white px-6 py-3 text-sm font-semibold text-black transition hover:bg-white/90"
           >
-            build nemoclaw agent
+            Build NemoClaw Agent
           </a>
         </div>
       </div>
@@ -183,26 +183,30 @@ function Index() {
 
           <div className="mt-auto max-w-xl pb-8 pt-16 lg:pb-12">
             <div className="mb-8 text-[11px] lowercase tracking-[0.34em] text-white/34">
-              prompt -> blueprint -> sandbox -> policy -> memory
+              prompt {"->"} blueprint {"->"} sandbox {"->"} policy {"->"} memory
             </div>
-            <h1 className="text-6xl font-semibold leading-[0.93] tracking-tight lowercase md:text-7xl lg:text-[5.6rem] xl:text-[6.2rem]">
-              build NemoClaw agents that are safe enough to run.
+            <h1 className="text-6xl font-semibold leading-[0.93] tracking-tight md:text-7xl lg:text-[5.6rem] xl:text-[6.2rem]">
+              Build NemoClaw agents that are safe enough to run.
             </h1>
             <p className="mt-7 max-w-md text-base leading-relaxed text-white/54 md:text-lg">
-              ClawForge turns one prompt into a NemoClaw blueprint, sandboxed agent, live policy
-              enforcement, approval gates, memory boundaries, and a final safety report.
+              ClawForge turns one prompt into a running NemoClaw agent with tools, memory, approval
+              gates, policy enforcement, privacy guardrails, and live audit logs.
+            </p>
+            <p className="mt-4 max-w-md text-sm leading-relaxed text-white/42">
+              The secure agent factory for NemoClaw: prompt {"->"} blueprint {"->"} sandboxed agent{" "}
+              {"->"} policy enforcement {"->"} memory {"->"} safe completion.
             </p>
 
             <div className="mt-8 flex flex-wrap gap-3">
               <a
                 href="#builder"
-                className="inline-block bg-white px-7 py-3.5 text-sm font-semibold lowercase text-black transition hover:bg-white/90"
+                className="inline-block bg-white px-7 py-3.5 text-sm font-semibold text-black transition hover:bg-white/90"
               >
                 Build NemoClaw Agent
               </a>
               <a
                 href="#dashboard"
-                className="inline-block border border-white/20 px-7 py-3.5 text-sm font-semibold lowercase text-white transition hover:bg-white/[0.05]"
+                className="inline-block border border-white/20 px-7 py-3.5 text-sm font-semibold text-white transition hover:bg-white/[0.05]"
               >
                 Watch Safety Demo
               </a>
@@ -263,7 +267,9 @@ function Index() {
 
       <footer className="flex flex-wrap justify-between gap-4 border-t border-white/[0.07] px-8 py-8 text-xs lowercase text-white/40 lg:px-16">
         <Logo size="sm" />
-        <span>prompt -> NemoClaw blueprint -> sandboxed agent -> safe completion</span>
+        <span>
+          prompt {"->"} NemoClaw blueprint {"->"} sandboxed agent {"->"} safe completion
+        </span>
       </footer>
     </main>
   );
