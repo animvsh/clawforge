@@ -29,6 +29,14 @@ import {
   getPredeployRunResult,
   runPredeployCheck,
 } from "./sandbox";
+import {
+  handleMemoryHealth,
+  handleMemorySearch,
+  handleMemoryAdd,
+  handleMemoryUpdate,
+  handleMemoryDelete,
+  handleMemoryList,
+} from "./memory/gateway";
 import { createIntegrationConnectLink, getIntegrationStatus } from "./integrations/composio";
 import { createAgentMailInbox } from "./integrations/agentmail";
 import type {
@@ -780,7 +788,68 @@ export async function handleClawForgeApi(
     );
   }
 
-  return undefined;
+  // ============================================================
+// Memory Gateway — /api/memory/*
+//
+// All memory operations are scope-isolated. user_id is derived
+// from the server session and never accepted from the client.
+// ============================================================
+
+// GET /api/memory/health — no auth required
+if (apiPath === "/api/memory/health" && request.method === "GET") {
+  return handleMemoryHealth();
+}
+
+// POST /api/memory/search
+if (apiPath === "/api/memory/search" && request.method === "POST") {
+  const body = await readJsonBody<{
+    query?: unknown;
+    project_id?: unknown;
+    agent_id?: unknown;
+    type?: unknown;
+    limit?: unknown;
+  }>(request);
+  return handleMemorySearch(body);
+}
+
+// POST /api/memory/add
+if (apiPath === "/api/memory/add" && request.method === "POST") {
+  const body = await readJsonBody<{
+    project_id?: unknown;
+    agent_id?: unknown;
+    run_id?: unknown;
+    workspace_id?: unknown;
+    content?: unknown;
+    type?: unknown;
+  }>(request);
+  return handleMemoryAdd(body);
+}
+
+// POST /api/memory/update
+if (apiPath === "/api/memory/update" && request.method === "POST") {
+  const body = await readJsonBody<{
+    id?: unknown;
+    content?: unknown;
+    metadata?: unknown;
+  }>(request);
+  return handleMemoryUpdate(body);
+}
+
+// POST /api/memory/delete
+if (apiPath === "/api/memory/delete" && request.method === "POST") {
+  const body = await readJsonBody<{
+    id?: unknown;
+    project_id?: unknown;
+  }>(request);
+  return handleMemoryDelete(body);
+}
+
+// GET /api/memory/list
+if (apiPath === "/api/memory/list" && request.method === "GET") {
+  return handleMemoryList(url.searchParams);
+}
+
+return undefined;
 }
 
 // Re-export types for external consumption
