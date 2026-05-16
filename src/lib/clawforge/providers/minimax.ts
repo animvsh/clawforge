@@ -8,6 +8,7 @@ function sanitizeError(message: string, context?: Record<string, unknown>): stri
   // Strip any key values, tokens, or sensitive patterns from error messages
   const sanitized = message
     .replace(/sk-[A-Za-z0-9]{20,}/g, "[redacted-key]")
+    .replace(/MINIMAX_API_KEY/g, "[redacted-env]")
     .replace(/MINIMAX[^"]*?:[^\s,"}]+/g, "[redacted-env]")
     .replace(/"api_key"\s*:\s*"[^"]+"/g, '"api_key":"[redacted]"')
     .replace(/"plan_key"\s*:\s*"[^"]+"/g, '"plan_key":"[redacted]"');
@@ -78,6 +79,9 @@ export function createMiniMaxProvider(
     model,
 
     async plan(input: ReasoningInput): Promise<string[]> {
+      if (!input.prompt.trim()) {
+        return ["No task provided"];
+      }
       try {
         const response = await miniMaxChatCompletion(
           effectiveKey,
@@ -86,12 +90,16 @@ export function createMiniMaxProvider(
           input.prompt,
         );
 
-        const parsed = JSON.parse(response) as unknown;
-        if (Array.isArray(parsed)) {
-          return parsed.filter((item): item is string => typeof item === "string");
+        try {
+          const parsed = JSON.parse(response) as unknown;
+          if (Array.isArray(parsed)) {
+            return parsed.filter((item): item is string => typeof item === "string");
+          }
+        } catch {
+          // Fallback: try to extract lines from non-JSON response
+          return response.split("\n").map((s) => s.replace(/^\d+[.)]\s*/, "").trim()).filter(Boolean);
         }
-        // Fallback: try to extract lines
-        return response.split("\n").map((s) => s.replace(/^\d+[.)]\s*/, "").trim()).filter(Boolean);
+        throw new Error("Invalid response format: expected JSON array");
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         throw new Error(sanitizeError(`Plan generation failed: ${message}`));

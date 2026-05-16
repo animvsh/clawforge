@@ -26,16 +26,23 @@ export function createPiProvider(
   const model = env.PI_CODING_MODEL || "pi-3-mini";
 
   if (!apiKey) {
-    return createMockProvider();
+    const mock = createMockProvider();
+    return { ...mock, mode: "mock" };
   }
 
   return {
     mode: "pi",
     model,
     async plan(input: { prompt: string; context?: Record<string, unknown> }): Promise<string[]> {
+      if (!input.prompt.trim()) {
+        return ["No task provided"];
+      }
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30_000);
       try {
         const response = await fetch(`${endpoint}/chat`, {
           method: "POST",
+          signal: controller.signal,
           headers: {
             "Authorization": `Bearer ${apiKey}`,
             "Content-Type": "application/json",
@@ -55,6 +62,7 @@ export function createPiProvider(
             max_tokens: 512,
           }),
         });
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
           const errorText = await response.text().catch(() => "Unknown error");
@@ -67,17 +75,25 @@ export function createPiProvider(
         // Parse numbered list from response
         const steps: string[] = [];
         const lines = content.split("\n");
+        let lastStepIndex = -1;
         for (const line of lines) {
-          const match = line.match(/^\s*\d+[.)]\s*(.+)/);
-          if (match) {
-            steps.push(match[1].trim());
-          } else if (line.trim() && steps.length > 0 && !line.match(/^\s*\d/)) {
-            // Continuation of previous step
-            steps[steps.length - 1] += " " + line.trim();
+          // Match various numbered formats: "1.", "1)", "1:", "1 -", etc.
+          const numMatch = line.match(/^\s*(\d+)\s*[:.\-)]\s*(.+)/);
+          if (numMatch) {
+            steps.push(numMatch[2].trim());
+            lastStepIndex = steps.length - 1;
+          } else if (line.trim() && lastStepIndex >= 0) {
+            // Continuation of previous step (no leading number)
+            steps[lastStepIndex] += " " + line.trim();
           }
         }
 
-        return steps.length > 0 ? steps : ["Analyze request", "Execute task", "Report results"];
+        if (steps.length === 0) {
+          // No steps parsed from response - use input as basis for fallback
+          const truncated = input.prompt.length > 50 ? input.prompt.slice(0, 50) + "..." : input.prompt;
+          return [`Analyze: ${truncated}`, "Execute investigation", "Report findings"];
+        }
+        return steps;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
         throw new Error(`Plan failed: ${sanitizeError(message)}`);
@@ -136,7 +152,8 @@ export function createPiProvider(
         }
 
         const data = await response.json() as { summary?: string };
-        return data?.summary ?? "Summary unavailable.";
+        const summary = data?.summary?.trim();
+        return summary ? summary : "Summary unavailable.";
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
         throw new Error(`Summarize failed: ${sanitizeError(message)}`);
