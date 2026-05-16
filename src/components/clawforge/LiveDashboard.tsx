@@ -1,6 +1,14 @@
 import type { IncidentReport, MemoryItem, RuntimeEvent } from "@/lib/clawforge/types";
 import { useEffect, useState } from "react";
 
+const approvalDetails = [
+  ["Requested Action", "shell.execute"],
+  ["Command", "block_ip 185.92.XX.XX"],
+  ["Reason", "Repeated failed login attempts detected"],
+  ["Risk Level", "High"],
+  ["Policy Triggered", "require_shell_approval"],
+];
+
 export function LiveDashboard({
   agentId,
   onReport,
@@ -154,11 +162,30 @@ export function LiveDashboard({
       <div className="rounded-2xl border border-white/10 bg-black/35 p-5">
         <div className="text-[11px] uppercase tracking-[0.24em] text-white/40">policy + memory</div>
         <div className="mt-5 rounded-xl border border-amber-400/30 bg-amber-400/[0.07] p-4 text-sm text-amber-100">
-          <div className="font-semibold lowercase">Approval Required</div>
+          <div className="text-lg font-semibold text-white">NemoClaw Approval Required</div>
           <p className="mt-2 text-xs leading-relaxed opacity-80">
-            Command: `block_ip 185.92.XX.XX`
+            SentinelClaw wants to execute a shell command. NemoClaw paused this action because
+            shell execution can change system state and requires human approval.
           </p>
-          <div className="mt-2 text-xs opacity-80">Status: {approvalStatus}</div>
+          <div className="mt-4 grid gap-px overflow-hidden rounded-xl border border-amber-300/20 bg-amber-200/10">
+            {approvalDetails.map(([label, value]) => (
+              <div
+                key={label}
+                className="grid gap-1 bg-black/50 p-3 text-xs md:grid-cols-[128px_1fr]"
+              >
+                <div className="uppercase tracking-[0.16em] text-amber-100/45">{label}</div>
+                <div className="font-medium text-amber-50">{value}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 text-xs opacity-80">Status: {approvalStatus}</div>
+          {approvalStatus === "denied" && (
+            <div className="mt-4 rounded-xl border border-emerald-300/25 bg-emerald-300/[0.08] p-3 text-xs leading-relaxed text-emerald-100">
+              <div className="font-semibold">Command denied.</div>
+              <div className="mt-1">NemoClaw kept the agent inside safe mode.</div>
+              <div>SentinelClaw will continue by writing a report only.</div>
+            </div>
+          )}
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               type="button"
@@ -166,7 +193,7 @@ export function LiveDashboard({
               disabled={!agentId || approvalStatus !== "pending"}
               className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-black disabled:cursor-not-allowed disabled:opacity-45"
             >
-              Approve Action
+              Approve Command
             </button>
             <button
               type="button"
@@ -174,7 +201,7 @@ export function LiveDashboard({
               disabled={!agentId || approvalStatus !== "pending"}
               className="rounded-lg border border-white/20 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
             >
-              Deny Action
+              Deny Command
             </button>
           </div>
         </div>

@@ -133,6 +133,15 @@ export type IncidentReport = {
   title: string;
   severity: "low" | "medium" | "high" | "critical";
   detected_behavior: string;
+  classification: string;
+  model_used: string;
+  runtime: string;
+  policy_triggered: string;
+  action_attempted: string;
+  user_decision: string;
+  final_action: string;
+  memory_update: string;
+  safety_result: string;
   likely_threat: string;
   mitre_mapping: string;
   evidence: string[];

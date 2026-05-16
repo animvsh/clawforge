@@ -81,6 +81,10 @@ function buildInitialEvents(): RuntimeEvent[] {
     event("approval.requested", shellDecision.message, "warning", {
       approval_id: demoApproval.id,
       command: demoApproval.command,
+      requested_action: demoApproval.action,
+      reason: "Repeated failed login attempts detected",
+      risk_level: "High",
+      policy_triggered: "require_shell_approval",
     }),
   );
 
@@ -130,7 +134,7 @@ export function resolveApproval(decision: "approved" | "denied"): {
     content:
       decision === "approved"
         ? "User approved shell execution for 185.92.XX.XX."
-        : "User denied shell execution for 185.92.XX.XX.",
+        : "User denied shell execution for unknown suspicious IPs. Future remediation commands against unknown IPs require explicit approval.",
     created_at: createdAt,
   };
 
@@ -142,21 +146,98 @@ export function resolveApproval(decision: "approved" | "denied"): {
     addEvent(
       event(
         "approval.resolved",
-        `User ${decision} shell execution for block_ip 185.92.XX.XX.`,
+        decision === "approved"
+          ? "User approved shell execution for block_ip 185.92.XX.XX."
+          : "Command denied.",
         decision === "approved" ? "success" : "warning",
       ),
     ),
     addEvent(event("memory.updated", memoryItem.content, "success")),
   ];
 
+  if (decision === "denied") {
+    resolvedEvents.push(
+      addEvent(
+        event(
+          "policy.checked",
+          "NemoClaw kept the agent inside safe mode.",
+          "success",
+          { action: "shell.execute", policy: "require_shell_approval" },
+        ),
+      ),
+      addEvent(
+        event(
+          "tool.called",
+          "SentinelClaw will continue by writing a report only.",
+          "info",
+          { tool: "Report Writer" },
+        ),
+      ),
+      addEvent(
+        event(
+          "agent.thinking",
+          "New suspicious source detected: 91.201.XX.XX.",
+          "warning",
+        ),
+      ),
+      addEvent(
+        event(
+          "memory.updated",
+          "Retrieved memory: user denied shell execution for unknown IPs.",
+          "success",
+        ),
+      ),
+      addEvent(
+        event(
+          "policy.checked",
+          "SentinelClaw skipped automatic remediation.",
+          "success",
+          { source_ip: "91.201.XX.XX", decision: "report_only" },
+        ),
+      ),
+      addEvent(
+        event(
+          "tool.called",
+          "Added recommendation to incident report instead.",
+          "success",
+          { tool: "Report Writer" },
+        ),
+      ),
+    );
+  }
+
+  const decisionCopy =
+    decision === "approved"
+      ? {
+          userDecision: "Approve Command.",
+          finalAction: "SentinelClaw executed the approved remediation command.",
+          safetyResult:
+            "NemoClaw recorded the approval before allowing the restricted shell action.",
+          approvalDecision: "User approved command execution.",
+        }
+      : {
+          userDecision: "Command denied.",
+          finalAction:
+            "SentinelClaw skipped automatic remediation and continued with a report-only workflow.",
+          safetyResult:
+            "NemoClaw kept the agent inside safe mode. No restricted action was executed without approval.",
+          approvalDecision: "User denied command execution.",
+        };
+
   report = {
     ...demoReport,
-    approval_decisions: [
-      decision === "approved"
-        ? "User approved command execution."
-        : "User denied command execution.",
-    ],
-    memory_updates: memory.map((item) => item.content),
+    user_decision: decisionCopy.userDecision,
+    final_action: decisionCopy.finalAction,
+    safety_result: decisionCopy.safetyResult,
+    approval_decisions: [decisionCopy.approvalDecision],
+    memory_update: memoryItem.content,
+    memory_updates:
+      decision === "denied"
+        ? [
+            ...memory.map((item) => item.content),
+            "Retrieved memory before handling 91.201.XX.XX and skipped automatic remediation.",
+          ]
+        : memory.map((item) => item.content),
   };
   resolvedEvents.push(addEvent(event("report.created", "Incident report generated.", "success")));
   resolvedEvents.push(
