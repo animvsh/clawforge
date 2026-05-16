@@ -536,6 +536,10 @@ export function getRuntimeReport(): IncidentReport | null {
   return legacyReport;
 }
 
+export function getRuntimeState(): RuntimeState {
+  return legacyState;
+}
+
 export function resolveApproval(decision: "approved" | "denied"): {
   agent_id: string;
   status: RuntimeState;

@@ -4,6 +4,45 @@ import type { ToolBroker, ToolExecuteParams, ToolExecuteResult, ToolMetadata } f
  * TicketCreatorTool - Creates mock support tickets for external follow-up.
  * Permission: approval_required (medium risk, changes external workflow state)
  */
+
+// Track recent tickets to prevent rapid duplicates
+const recentTickets: Array<{ title: string; description: string; timestamp: number }> = [];
+const DUPLICATE_WINDOW_MS = 30000; // 30 seconds window for duplicate detection
+const MAX_RECENT_TICKETS = 100; // Maximum tickets to track
+
+function cleanOldTickets(): void {
+  const now = Date.now();
+  // Remove tickets older than the duplicate window
+  while (recentTickets.length > 0 && now - recentTickets[0].timestamp > DUPLICATE_WINDOW_MS) {
+    recentTickets.shift();
+  }
+  // Also cap the total number tracked
+  while (recentTickets.length > MAX_RECENT_TICKETS) {
+    recentTickets.shift();
+  }
+}
+
+function isDuplicate(title: string, description: string): boolean {
+  cleanOldTickets();
+  const now = Date.now();
+  // Check if we have a very similar ticket recently (within window)
+  return recentTickets.some(
+    (t) =>
+      t.title === title &&
+      t.description === description &&
+      now - t.timestamp < DUPLICATE_WINDOW_MS,
+  );
+}
+
+function recordTicket(title: string, description: string): void {
+  cleanOldTickets();
+  recentTickets.push({
+    title,
+    description,
+    timestamp: Date.now(),
+  });
+}
+
 export class TicketCreatorTool implements ToolBroker {
   action = "ticket.create";
 
@@ -16,15 +55,29 @@ export class TicketCreatorTool implements ToolBroker {
       assignee?: string;
     };
 
+    const finalTitle = title || "Security Incident Report";
+    const finalDescription =
+      description ||
+      "An incident was detected by SentinelClaw agent that requires human review.";
+
+    // Check for duplicate tickets
+    if (isDuplicate(finalTitle, finalDescription)) {
+      return {
+        success: false,
+        error: "Duplicate ticket detected. A ticket with identical title and description was created within the last 30 seconds. Please wait before creating a similar ticket.",
+      };
+    }
+
+    // Record this ticket before creating
+    recordTicket(finalTitle, finalDescription);
+
     // Mock ticket creation
     const ticketId = `TICKET-${Date.now().toString(36).toUpperCase()}`;
 
     const ticket = {
       id: ticketId,
-      title: title || "Security Incident Report",
-      description:
-        description ||
-        "An incident was detected by SentinelClaw agent that requires human review.",
+      title: finalTitle,
+      description: finalDescription,
       severity: severity || "medium",
       category: category || "security-incident",
       assignee: assignee || "security-team",

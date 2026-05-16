@@ -3,6 +3,8 @@ import {
   getRuntimeEvents,
   getRuntimeMemory,
   getRuntimeReport,
+  getRuntimeState,
+  getApprovalStatus,
   resolveApproval,
   startRuntime,
   stopRuntime,
@@ -141,10 +143,11 @@ async function readJsonBody<T extends Record<string, unknown>>(request: Request)
   return body as T;
 }
 
-function normalizeProvider(value: unknown): ProviderMode {
-  return value === "nemotron" || value === "minimax" || value === "mock" || value === "auto"
-    ? value
-    : "auto";
+function normalizeProvider(value: unknown): ProviderMode | null {
+  if (value === "nemotron" || value === "minimax" || value === "mock" || value === "auto") {
+    return value;
+  }
+  return null; // Invalid provider - caller should return 400
 }
 
 function sse(events: unknown[]): Response {
@@ -186,13 +189,26 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
   // POST /api/blueprints or /api/v1/clawforge/blueprints
   if ((apiPath === "/api/blueprints" || apiPath === "/blueprints") && request.method === "POST") {
     const body = await readJsonBody<{ prompt?: unknown; provider?: unknown }>(request);
-    const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
-    if (!prompt) {
+
+    // Check if prompt field is truly missing (undefined/null) vs empty string
+    if (body.prompt === undefined || body.prompt === null) {
       return errorResponse("Prompt is required.", 400, "MISSING_FIELD", "prompt");
     }
 
+    const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
+    if (!prompt) {
+      // Empty string is INVALID_REQUEST, not MISSING_FIELD
+      return errorResponse("Prompt cannot be empty.", 400, "INVALID_REQUEST", "prompt");
+    }
+
+    // Validate provider - return 400 for invalid values, not auto-default
+    const provider = normalizeProvider(body.provider);
+    if (provider === null) {
+      return errorResponse("Invalid provider value. Must be one of: nemotron, minimax, mock, auto.", 400, "INVALID_REQUEST", "provider");
+    }
+
     return successResponse({
-      blueprint: createSentinelBlueprint(normalizeProvider(body.provider)),
+      blueprint: createSentinelBlueprint(provider),
     } satisfies Pick<BlueprintCreateResponse, "blueprint">);
   }
 
@@ -246,12 +262,24 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
 
     // POST /api/agents/:id/start
     if (action === "start" && request.method === "POST") {
+      const state = getRuntimeState();
+      if (state === "running" || state === "waiting_for_approval" || state === "paused") {
+        return errorResponse(`Agent is already ${state}.`, 409, "CONFLICT");
+      }
       return successResponse(startRuntime());
     }
 
     // POST /api/agents/:id/stop
     if (action === "stop" && request.method === "POST") {
-      return successResponse(stopRuntime());
+      const state = getRuntimeState();
+      if (state === "stopped" || state === "completed" || state === "created") {
+        return errorResponse(`Agent is not running (current state: ${state}).`, 409, "CONFLICT");
+      }
+      try {
+        return successResponse(stopRuntime());
+      } catch (e) {
+        return errorResponse(`Failed to stop agent: ${e instanceof Error ? e.message : String(e)}`, 409, "CONFLICT");
+      }
     }
 
     // GET /api/agents/:id/logs/stream
@@ -270,12 +298,13 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
     // GET /api/agents/:id/report
     if (action === "report" && request.method === "GET") {
       const report = getRuntimeReport();
-      if (!report && !hasCompletedCookie(request)) {
-        return errorResponse("Report is not ready until the workflow completes.", 409, "CONFLICT");
+      if (!report) {
+        // Report genuinely unavailable - return 404, not fallback
+        return notFoundError("Report");
       }
       return successResponse({
         agent_id: agentId,
-        report: report ?? getCompletedDemoReport(),
+        report: report,
       } satisfies AgentReportResponse);
     }
 
@@ -301,7 +330,19 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
     }
 
     const body = await readJsonBody<{ decision?: unknown }>(request);
-    const decision = body.decision === "approved" ? "approved" : "denied";
+
+    // Validate decision value - must be exactly "approved" or "denied"
+    if (typeof body.decision !== "string" || (body.decision !== "approved" && body.decision !== "denied")) {
+      return errorResponse("Invalid decision value. Must be 'approved' or 'denied'.", 400, "INVALID_REQUEST", "decision");
+    }
+
+    // Check if approval is already resolved (idempotency)
+    const existingStatus = getApprovalStatus();
+    if (existingStatus !== "pending") {
+      return errorResponse(`Approval already resolved (current status: ${existingStatus}).`, 409, "CONFLICT");
+    }
+
+    const decision = body.decision as "approved" | "denied";
     const result = resolveApproval(decision);
 
     return successResponse(
