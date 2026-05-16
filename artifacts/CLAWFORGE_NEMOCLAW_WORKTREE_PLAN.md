@@ -358,7 +358,7 @@ Acceptance criteria:
 
 Owner: Backend / Deployment
 
-Branch: `codex/nemoclaw-brev-foundation`
+Branch: `codex/anu-56-brev-foundation-launchable`
 
 Primary files:
 
@@ -389,6 +389,15 @@ Acceptance criteria:
 - Ports/tunnels are documented.
 - Launchable creation checklist exists.
 - Cloudflare is treated as optional landing/public mirror; Brev is the canonical runtime demo.
+
+Implementation notes:
+
+- Setup script path: `scripts/brev/setup-clawforge.sh`.
+- App dev command: `npm run dev -- --host 0.0.0.0 --port 5173`.
+- Production preview command: `npm run start`, which binds to `0.0.0.0`.
+- Brev port-forward baseline: app ports `5173` and `4173`, dashboard port `18789+`.
+- Keep router port `4000`, optional local NIM port `8000`, gateway tokens, and raw provider credentials private.
+- Use Brev secrets for `NVIDIA_API_KEY`, `NGC_CLI_API_KEY`, `MINIMAX_API_KEY`, `MINIMAX_PLAN_KEY`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, optional `SUPABASE_SERVICE_ROLE_KEY`, and optional `COMPOSIO_API_KEY`.
 
 ## Lane L: Capability Manifest And Policy Broker
 
@@ -659,7 +668,7 @@ Add optional Supabase-backed accounts to ClawForge without turning the product i
 
 Supabase project reference:
 
-- `mfslvyqvkutazsimsrhu`
+- Store the project reference in `VITE_SUPABASE_URL`; do not commit the concrete URL or project ref.
 
 Required secret handling:
 

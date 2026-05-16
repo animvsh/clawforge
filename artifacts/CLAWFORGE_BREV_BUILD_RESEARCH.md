@@ -1,6 +1,7 @@
 # ClawForge Brev Build Research
 
 Research date: May 16, 2026
+Implementation branch: `codex/anu-56-brev-foundation-launchable`
 
 ## Decision
 
@@ -74,54 +75,49 @@ Run these on one Brev instance for the demo:
 
 Use Brev tunnels for shareable web demos and Brev port-forward for local development.
 
-## Recommended Setup Script
+## Setup Script
 
-Create a setup script later at `scripts/brev/setup-clawforge.sh`.
+The Brev setup script now lives at `scripts/brev/setup-clawforge.sh`.
 
-It should:
+It does the following without printing secret values:
 
-1. Install/update Node.js 20+ if needed.
-2. Install repo dependencies.
-3. Install Brev/NemoClaw prerequisites that are not already present.
-4. Install NemoClaw.
-5. Verify Docker GPU access with `nvidia-smi`.
-6. Create `.env` from Brev secrets.
-7. Run `npm run build`.
-8. Print next commands for starting ClawForge and NemoClaw.
+1. Resolves the repo root from the script path.
+2. Ensures Node.js 20+ is present, installing Node.js 20 on Ubuntu when needed.
+3. Installs repo dependencies with `npm ci`.
+4. Creates `.runtime` and a secret-free `.env` from `.env.example` only when
+   `.env` is missing.
+5. Checks required Brev secret names and prints only `set` or `missing`.
+6. Verifies `nvidia-smi` when available.
+7. Verifies Docker daemon access when available.
+8. Optionally runs a Docker GPU probe with `VERIFY_DOCKER_GPU=1`.
+9. Optionally installs NemoClaw with `INSTALL_NEMOCLAW=1`.
+10. Runs `npm run build`.
+11. Prints the exact commands for app startup, port forwarding, and NemoClaw
+    onboarding.
 
-Draft shape:
+Default run:
 
 ```sh
-#!/usr/bin/env bash
-set -euo pipefail
-
-cd /home/ubuntu/workspace/clawforge
-npm ci
-npm run build
-
-if ! command -v nemoclaw >/dev/null 2>&1; then
-  curl -fsSL https://www.nvidia.com/nemoclaw.sh | bash
-fi
-
-docker run --rm --runtime=nvidia --gpus all ubuntu nvidia-smi
-
-cat <<'NEXT'
-Next:
-  npm run dev -- --host 0.0.0.0
-  NEMOCLAW_PROVIDER=routed NVIDIA_API_KEY=$NVIDIA_API_KEY nemoclaw onboard --non-interactive
-NEXT
+./scripts/brev/setup-clawforge.sh
 ```
 
-Do not commit real keys. Use Brev secrets.
+Full Brev onboarding run after Brev secrets are present:
+
+```sh
+INSTALL_NEMOCLAW=1 ./scripts/brev/setup-clawforge.sh
+NEMOCLAW_PROVIDER=routed nemoclaw onboard --non-interactive
+```
+
+Do not commit real keys. Use Brev secrets or provider deployment secrets.
 
 ## NemoClaw On Brev
 
 NemoClaw should run inside the Brev VM and manage an OpenShell sandbox.
 
-Use this as the robust path:
+Use this as the robust routed path:
 
 ```sh
-NEMOCLAW_PROVIDER=routed NVIDIA_API_KEY=$NVIDIA_API_KEY nemoclaw onboard --non-interactive
+NEMOCLAW_PROVIDER=routed nemoclaw onboard --non-interactive
 ```
 
 Important implementation notes:
@@ -190,6 +186,16 @@ Judge demo mode:
 - Expose the NemoClaw dashboard port only if needed.
 - Do not expose unauthenticated inference or gateway tokens publicly.
 
+Port map:
+
+| Service | Port | Exposure |
+| --- | --- | --- |
+| ClawForge Vite dev app | `5173` | Tunnel or forward for demos |
+| ClawForge production preview | `4173` | Tunnel or forward after `npm run start` |
+| NemoClaw/OpenClaw dashboard | `18789+` | Forward only when needed |
+| NemoClaw model router | `4000` | Host-side/private only |
+| Optional local NIM | `8000` | Forward for API tests only |
+
 ## Persistence Strategy
 
 Brev persistence rules:
@@ -224,6 +230,18 @@ Launchable settings:
 
 Add a Launch on Brev badge to README only after the Launchable exists.
 
+Checklist before sharing the Launchable:
+
+- `scripts/brev/setup-clawforge.sh` completes on a fresh Brev VM.
+- `npm run build` passes.
+- The app starts with `npm run dev -- --host 0.0.0.0 --port 5173`.
+- Brev tunnel or port-forward reaches the app.
+- NemoClaw onboard completes with routed inference.
+- Dashboard port is reachable only through an intentional forward/tunnel.
+- Gateway token, model router, local NIM, and raw provider endpoints are private.
+- Required secret names are documented by name only.
+- Cloudflare is described as an optional landing/public mirror, not the canonical runtime.
+
 ## Development Worktree Impact
 
 Add a new P0 lane before final QA.
@@ -232,7 +250,7 @@ Add a new P0 lane before final QA.
 
 Branch:
 
-`codex/nemoclaw-brev-foundation`
+`codex/anu-56-brev-foundation-launchable`
 
 Owned files:
 

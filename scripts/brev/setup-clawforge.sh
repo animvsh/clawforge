@@ -1,98 +1,165 @@
 #!/usr/bin/env bash
 set -euo pipefail
+set +x
 
-ROOT_DIR="${CLAWFORGE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-cd "$ROOT_DIR"
+umask 077
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="${CLAWFORGE_ROOT:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+cd "${REPO_ROOT}"
 
 log() {
-  printf "\n==> %s\n" "$1"
+  printf '\n[clawforge-brev] %s\n' "$*"
 }
 
-need_cmd() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    printf "Missing required command: %s\n" "$1" >&2
-    return 1
-  fi
+warn() {
+  printf '\n[clawforge-brev:warn] %s\n' "$*" >&2
 }
 
-log "ClawForge Brev setup"
-printf "Repo: %s\n" "$ROOT_DIR"
-
-log "Checking required tools"
-need_cmd npm
-need_cmd node
-
-NODE_MAJOR="$(node -p "Number(process.versions.node.split('.')[0])")"
-if [ "$NODE_MAJOR" -lt 20 ]; then
-  printf "Node.js 20+ is required. Found: %s\n" "$(node --version)" >&2
+fail() {
+  printf '\n[clawforge-brev:error] %s\n' "$*" >&2
   exit 1
+}
+
+have() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+node_major() {
+  node -p "Number(process.versions.node.split('.')[0])" 2>/dev/null || printf '0'
+}
+
+install_node_20() {
+  if [[ "${INSTALL_NODE_20:-auto}" == "0" ]]; then
+    fail "Node.js 20+ is required. Set INSTALL_NODE_20=auto or install Node 20+ before rerunning."
+  fi
+
+  have curl || fail "curl is required to install Node.js 20 on this Brev VM."
+  have sudo || fail "sudo is required to install Node.js 20 on this Brev VM."
+
+  log "Installing Node.js 20 from NodeSource"
+  curl -fsSL https://deb.nodesource.com/setup_20.x -o /tmp/clawforge-nodesource-setup.sh
+  sudo -E bash /tmp/clawforge-nodesource-setup.sh
+  sudo apt-get install -y nodejs
+  rm -f /tmp/clawforge-nodesource-setup.sh
+}
+
+log "Preparing ClawForge in ${REPO_ROOT}"
+
+have git || fail "git is required on the Brev instance."
+
+if ! have node || [[ "$(node_major)" -lt 20 ]]; then
+  install_node_20
 fi
 
-if command -v nvidia-smi >/dev/null 2>&1; then
-  log "NVIDIA GPU status"
-  nvidia-smi || true
-else
-  log "NVIDIA GPU status"
-  printf "nvidia-smi not found. This is expected on non-GPU/local machines, but Brev GPU instances should provide it.\n"
-fi
+have npm || fail "npm is required after Node.js installation."
 
-if command -v docker >/dev/null 2>&1; then
-  log "Docker status"
-  docker --version
-else
-  log "Docker status"
-  printf "docker not found. NemoClaw/OpenShell integration will need Docker on the Brev instance.\n"
-fi
+log "Using Node $(node --version) and npm $(npm --version)"
 
-log "Installing Node dependencies"
-if [ -f package-lock.json ]; then
+log "Installing JavaScript dependencies"
+if [[ -f package-lock.json ]]; then
   npm ci
 else
   npm install
 fi
 
-log "Preparing runtime directories"
+log "Creating runtime directories and a secret-free .env if needed"
 mkdir -p .runtime/reports .runtime/memory .runtime/audit
+if [[ ! -f .env ]]; then
+  cp .env.example .env
+  chmod 600 .env
+  log "Created .env from .env.example with placeholder values only."
+else
+  chmod 600 .env || true
+  log "Existing .env left unchanged."
+fi
+
+log "Checking required Brev secret names. Values are intentionally hidden."
+required_secret_names=(
+  NVIDIA_API_KEY
+  NGC_CLI_API_KEY
+  MINIMAX_API_KEY
+  MINIMAX_PLAN_KEY
+  VITE_SUPABASE_URL
+  VITE_SUPABASE_ANON_KEY
+)
+optional_secret_names=(
+  SUPABASE_SERVICE_ROLE_KEY
+  COMPOSIO_API_KEY
+  NEMOCLAW_INSTALL_URL
+)
+
+for name in "${required_secret_names[@]}"; do
+  if [[ -n "${!name:-}" ]]; then
+    printf '  %s: set\n' "${name}"
+  else
+    printf '  %s: missing\n' "${name}"
+  fi
+done
+
+for name in "${optional_secret_names[@]}"; do
+  if [[ -n "${!name:-}" ]]; then
+    printf '  %s: set (optional)\n' "${name}"
+  else
+    printf '  %s: missing (optional)\n' "${name}"
+  fi
+done
+
+log "Checking GPU and container availability"
+if have nvidia-smi; then
+  nvidia-smi || true
+else
+  warn "nvidia-smi was not found. Use a Brev GPU VM for the canonical demo."
+fi
+
+if have docker; then
+  if docker info >/dev/null 2>&1; then
+    log "Docker is available."
+    if [[ "${VERIFY_DOCKER_GPU:-0}" == "1" ]]; then
+      docker run --rm --runtime=nvidia --gpus all ubuntu nvidia-smi || warn "Docker GPU verification failed."
+    else
+      log "Skip Docker GPU container probe. Run with VERIFY_DOCKER_GPU=1 to test it."
+    fi
+  else
+    warn "Docker is installed but this shell cannot access the Docker daemon."
+  fi
+else
+  warn "Docker was not found. NemoClaw/OpenShell integration may install or require it."
+fi
+
+if [[ "${INSTALL_NEMOCLAW:-0}" == "1" ]]; then
+  have curl || fail "curl is required to install NemoClaw."
+  log "Installing NemoClaw. The installer may prompt for host setup."
+  if [[ -n "${NEMOCLAW_INSTALL_URL:-}" ]]; then
+    curl -fsSL "${NEMOCLAW_INSTALL_URL}" | bash
+  elif [[ "${NEMOCLAW_NON_INTERACTIVE:-0}" == "1" ]]; then
+    curl -fsSL https://www.nvidia.com/nemoclaw.sh | NEMOCLAW_NON_INTERACTIVE=1 NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE="${NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE:-1}" bash
+  else
+    curl -fsSL https://www.nvidia.com/nemoclaw.sh | bash
+  fi
+else
+  log "Skipping NemoClaw install. Set INSTALL_NEMOCLAW=1 when the Brev instance is ready to onboard."
+fi
 
 log "Building ClawForge"
 npm run build
 
-if [ -n "${NEMOCLAW_INSTALL_URL:-}" ]; then
-  log "Installing NemoClaw from NEMOCLAW_INSTALL_URL"
-  curl -fsSL "$NEMOCLAW_INSTALL_URL" | bash
-else
-  log "NemoClaw install"
-  printf "NEMOCLAW_INSTALL_URL is not set, so this script did not install NemoClaw.\n"
-  printf "Set it to the official pinned installer URL/path once confirmed, then rerun this script.\n"
-fi
-
-log "Secret readiness"
-for key in \
-  NVIDIA_API_KEY \
-  NGC_CLI_API_KEY \
-  MINIMAX_API_KEY \
-  MINIMAX_PLAN_KEY \
-  VITE_SUPABASE_URL \
-  VITE_SUPABASE_ANON_KEY \
-  SUPABASE_SERVICE_ROLE_KEY \
-  COMPOSIO_API_KEY
-do
-  if [ -n "${!key:-}" ]; then
-    printf "✓ %s configured\n" "$key"
-  else
-    printf "- %s not configured\n" "$key"
-  fi
-done
-
 cat <<'NEXT'
 
-Next commands on Brev:
+[clawforge-brev] Setup complete.
 
-  npm run dev -- --host 0.0.0.0
+Run ClawForge on Brev:
+  npm run dev -- --host 0.0.0.0 --port 5173
 
-Then expose the app port through Brev:
+Preview the production build on Brev:
+  npm run start
 
-  brev port-forward <instance-name> --port 5173:5173
+From your local machine, forward the app and NemoClaw dashboard:
+  brev port-forward clawforge-nemoclaw --port 5173:5173 --port 4173:4173 --port 18789:18789
 
-For NemoClaw, keep provider/gateway tokens private and expose only the ClawForge app unless the dashboard is intentionally needed for judging.
+Onboard NemoClaw with the routed model path after NVIDIA_API_KEY is set as a Brev secret:
+  INSTALL_NEMOCLAW=1 ./scripts/brev/setup-clawforge.sh
+  NEMOCLAW_PROVIDER=routed nemoclaw onboard --non-interactive
+
+Keep host-side router, gateway, and NIM ports private unless the demo explicitly needs them.
 NEXT

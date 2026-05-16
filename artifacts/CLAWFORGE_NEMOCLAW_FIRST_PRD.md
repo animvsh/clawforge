@@ -447,7 +447,7 @@ The landing page may support account controls, but ClawForge should still read a
 
 Supabase project reference:
 
-- `mfslvyqvkutazsimsrhu`
+- Store the project reference in `VITE_SUPABASE_URL`; do not commit the concrete URL or project ref.
 
 Security requirements:
 
