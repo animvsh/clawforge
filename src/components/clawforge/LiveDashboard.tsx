@@ -5,6 +5,7 @@ import type {
   ProviderMode,
   RuntimeEvent,
 } from "@/lib/clawforge/types";
+import { WorkflowGraph, AuditReplay } from "@/components/clawforge/WorkflowGraph";
 import { useEffect, useMemo, useState } from "react";
 
 type BrevPanelState = {
@@ -492,6 +493,22 @@ export function LiveDashboard({
         ))}
       </div>
 
+      <WorkflowGraph
+        currentState={status === "ready to deploy" ? "created" : (status as import("@/lib/clawforge/runtime").SessionState)}
+        reachedStates={useMemo(() => {
+          const states: Array<import("@/lib/clawforge/runtime").SessionState | "initial"> = ["initial", "created", "deployed"];
+          if (status !== "ready to deploy" && status !== "stopped" && status !== "completed") {
+            states.push("running");
+          }
+          if (status === "waiting_for_approval") states.push("waiting_for_approval");
+          if (status === "completed") states.push("completed");
+          if (status === "stopped") states.push("stopped");
+          return states;
+        }, [status])}
+        events={events}
+        compact
+      />
+
       <div className="grid gap-5 xl:grid-cols-[0.8fr_1.25fr_0.95fr]">
         <div className="border border-white/12 bg-white/[0.025]">
           <div className="border-b border-white/10 px-5 py-3 text-[11px] uppercase tracking-[0.24em] text-white/38">
@@ -913,6 +930,8 @@ export function LiveDashboard({
               Report ready: {report.title}
             </div>
           )}
+
+          <AuditReplay events={events} />
         </div>
       </div>
     </div>
