@@ -1,5 +1,5 @@
 import type { StoredMemory, StoredMemoryInput } from "./types";
-import { getSupabaseClient } from "./supabaseClient";
+import { getCurrentUserId, getSupabaseClient } from "./supabaseClient";
 
 function newId(): string {
   return `mem_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -10,11 +10,13 @@ const _memory: Map<string, StoredMemory> = new Map();
 
 export async function saveMemory(input: StoredMemoryInput): Promise<StoredMemory> {
   const client = getSupabaseClient();
+  const userId = await getCurrentUserId();
   const now = new Date().toISOString();
 
   if (!client) {
     const item: StoredMemory = {
       id: newId(),
+      user_id: userId,
       ...input,
       created_at: now,
     };
@@ -23,8 +25,8 @@ export async function saveMemory(input: StoredMemoryInput): Promise<StoredMemory
   }
 
   const { data, error } = await client
-    .from("memory")
-    .insert({ agent_id: input.agent_id, type: input.type, content: input.content })
+    .from("clawforge_memory")
+    .insert({ user_id: userId, agent_id: input.agent_id, type: input.type, content: input.content })
     .select()
     .single();
 
@@ -39,7 +41,7 @@ export async function getMemory(id: string): Promise<StoredMemory | null> {
     return _memory.get(id) ?? null;
   }
 
-  const { data, error } = await client.from("memory").select().eq("id", id).single();
+  const { data, error } = await client.from("clawforge_memory").select().eq("id", id).single();
 
   if (error) return null;
   return data as StoredMemory;
@@ -53,7 +55,7 @@ export async function listMemoryByAgent(agentId: string): Promise<StoredMemory[]
   }
 
   const { data, error } = await client
-    .from("memory")
+    .from("clawforge_memory")
     .select()
     .eq("agent_id", agentId)
     .order("created_at", { ascending: false });

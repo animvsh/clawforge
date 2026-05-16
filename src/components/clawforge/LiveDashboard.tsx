@@ -1,6 +1,27 @@
 import type { IncidentReport, MemoryItem, RuntimeEvent } from "@/lib/clawforge/types";
 import { useEffect, useMemo, useState } from "react";
 
+type BrevPanelState = {
+  status: string;
+  message: string;
+  cliPath: string | null;
+  instances: Array<Record<string, unknown>>;
+  installCommand: string;
+};
+
+type LaunchPanelState = {
+  mode: string;
+  instanceName: string;
+  command: string;
+  openHands: {
+    mode: string;
+    workspaceUrl: string | null;
+    runtimeApiUrl: string | null;
+    serverImage: string;
+    conversationId: string;
+  };
+};
+
 const policies = [
   ["allow", "Log reading allowed"],
   ["allow", "Report writing allowed"],
@@ -42,6 +63,11 @@ export function LiveDashboard({
     "pending",
   );
   const [chatReply, setChatReply] = useState("Deploy SentinelClaw to inspect the running agent.");
+  const [brevStatus, setBrevStatus] = useState<BrevPanelState | null>(null);
+  const [launchPlan, setLaunchPlan] = useState<LaunchPanelState | null>(null);
+  const [sandboxMessage, setSandboxMessage] = useState("Inspect the generated NemoClaw sandbox.");
+  const [sandboxReply, setSandboxReply] = useState("OpenHands sandbox chat is ready.");
+  const [creatingBrev, setCreatingBrev] = useState(false);
 
   useEffect(() => {
     if (!agentId) {
@@ -80,6 +106,21 @@ export function LiveDashboard({
 
     return () => source.close();
   }, [agentId, onReport]);
+
+  useEffect(() => {
+    fetch("/api/clawforge/brev/status")
+      .then((response) => response.json())
+      .then((data) => setBrevStatus(data.brev ?? null))
+      .catch(() =>
+        setBrevStatus({
+          status: "error",
+          message: "Could not reach the Brev status endpoint.",
+          cliPath: null,
+          instances: [],
+          installCommand: "brew install brevdev/homebrew-brev/brev",
+        }),
+      );
+  }, []);
 
   const statusRows = useMemo(
     () => [
@@ -139,6 +180,79 @@ export function LiveDashboard({
       if (data.report) {
         setReport(data.report);
         onReport?.(data.report);
+      }
+    }
+  }
+
+  async function prepareBrevLaunch() {
+    const response = await fetch("/api/clawforge/brev/launch-plan", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ instance_name: "clawforge-nemoclaw" }),
+    });
+    const data = await response.json();
+    if (data.ok && data.launch) {
+      setLaunchPlan(data.launch);
+      setBrevStatus(data.launch.status ?? brevStatus);
+      setEvents((current) => [
+        ...current,
+        ...((data.launch.events as RuntimeEvent[] | undefined) ?? []),
+      ]);
+    }
+  }
+
+  async function createBrevSandbox() {
+    setCreatingBrev(true);
+    try {
+      const response = await fetch("/api/clawforge/brev/instances", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          instance_name: "clawforge-nemoclaw",
+          instance_type: "verda_L40S",
+          confirmation: "CREATE_BREV_INSTANCE",
+        }),
+      });
+      const data = await response.json();
+      if (data.ok && data.launch) {
+        setLaunchPlan(data.launch);
+        setBrevStatus(data.launch.status ?? brevStatus);
+        setEvents((current) => [
+          ...current,
+          ...((data.launch.events as RuntimeEvent[] | undefined) ?? []),
+        ]);
+        setSandboxReply(
+          data.launch.ok
+            ? "Brev accepted the NemoClaw launch. Watch the instance list for the remote workspace."
+            : "Brev did not create the instance. Check the latest audit event for details.",
+        );
+      }
+    } finally {
+      setCreatingBrev(false);
+    }
+  }
+
+  async function sendSandboxMessage() {
+    const response = await fetch("/api/clawforge/openhands/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message: sandboxMessage }),
+    });
+    const data = await response.json();
+    if (data.ok && data.chat) {
+      setSandboxReply(data.chat.reply);
+      setEvents((current) => [
+        ...current,
+        ...((data.chat.events as RuntimeEvent[] | undefined) ?? []),
+      ]);
+      if (!launchPlan) {
+        setLaunchPlan({
+          mode: "dry_run",
+          instanceName: "clawforge-nemoclaw",
+          command:
+            "brev create clawforge-nemoclaw --gpu-name L40S --startup-script @scripts/brev/setup-clawforge.sh",
+          openHands: data.chat.openHands,
+        });
       }
     }
   }
@@ -255,6 +369,88 @@ export function LiveDashboard({
                   <span className="text-white/62">{label}</span>
                 </div>
               ))}
+            </div>
+          </div>
+
+          <div className="border border-white/12 bg-white/[0.025] p-5">
+            <div className="text-[11px] uppercase tracking-[0.24em] text-white/38">
+              sandbox instance
+            </div>
+            <div className="mt-4 grid gap-3 text-xs text-white/58">
+              <div className="grid grid-cols-[92px_1fr] gap-3">
+                <span className="text-white/32">Brev</span>
+                <span>{brevStatus?.status ?? "checking"}</span>
+              </div>
+              <div className="grid grid-cols-[92px_1fr] gap-3">
+                <span className="text-white/32">OpenHands</span>
+                <span>{launchPlan?.openHands.mode ?? "simulated"}</span>
+              </div>
+              <div className="grid grid-cols-[92px_1fr] gap-3">
+                <span className="text-white/32">Instance</span>
+                <span>{launchPlan?.instanceName ?? "clawforge-nemoclaw"}</span>
+              </div>
+              <div className="grid grid-cols-[92px_1fr] gap-3">
+                <span className="text-white/32">Image</span>
+                <span className="break-all">
+                  {launchPlan?.openHands.serverImage ??
+                    "ghcr.io/openhands/agent-server:main-python"}
+                </span>
+              </div>
+            </div>
+            <p className="mt-4 text-xs leading-relaxed text-white/45">
+              {brevStatus?.message ?? "Checking Brev CLI and remote sandbox readiness."}
+            </p>
+            {brevStatus?.status === "not_installed" && (
+              <code className="mt-3 block border border-white/10 bg-black p-3 text-xs text-white/58">
+                {brevStatus.installCommand}
+              </code>
+            )}
+            {launchPlan && (
+              <code className="mt-3 block break-all border border-white/10 bg-black p-3 text-xs text-white/58">
+                {launchPlan.command}
+              </code>
+            )}
+            <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap">
+              <button
+                type="button"
+                onClick={prepareBrevLaunch}
+                className="bg-white px-3 py-2 text-xs font-semibold text-black"
+              >
+                Prepare Brev
+              </button>
+              <button
+                type="button"
+                onClick={createBrevSandbox}
+                disabled={creatingBrev || brevStatus?.status !== "ready"}
+                className="border border-white/25 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                {creatingBrev ? "Creating" : "Create Brev instance"}
+              </button>
+              <span className="border border-amber-300/20 px-3 py-2 text-xs text-amber-100/72">
+                about $1.63/hr
+              </span>
+            </div>
+          </div>
+
+          <div className="border border-white/12 bg-white/[0.025] p-5">
+            <div className="text-[11px] uppercase tracking-[0.24em] text-white/38">
+              OpenHands chat
+            </div>
+            <textarea
+              value={sandboxMessage}
+              onChange={(event) => setSandboxMessage(event.target.value)}
+              className="mt-4 min-h-24 w-full resize-none border border-white/12 bg-black p-3 text-sm text-white outline-none placeholder:text-white/30"
+              placeholder="Ask OpenHands to inspect the sandbox..."
+            />
+            <button
+              type="button"
+              onClick={sendSandboxMessage}
+              className="mt-3 bg-white px-3 py-2 text-xs font-semibold text-black"
+            >
+              Send to sandbox
+            </button>
+            <div className="mt-3 border border-white/10 p-3 text-xs leading-relaxed text-white/58">
+              {sandboxReply}
             </div>
           </div>
 

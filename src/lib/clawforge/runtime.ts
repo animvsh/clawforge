@@ -784,13 +784,17 @@ export function resolveApproval(decision: "approved" | "denied"): {
   );
 
   if (decision === "denied") {
-    if (!isLegacyValidTransition(legacyState, "stopped")) {
-      throw new Error(`Invalid transition from ${legacyState} to stopped`);
+    if (!isLegacyValidTransition(legacyState, "completed")) {
+      throw new Error(`Invalid transition from ${legacyState} to completed`);
     }
-    legacyState = "stopped";
+    legacyState = "completed";
     resolvedEvents.push(
       addLegacyEvent(
-        legacyEvent("agent.completed", "Agent workflow stopped due to denied approval.", "warning"),
+        legacyEvent(
+          "agent.completed",
+          "Agent completed safely with a report-only workflow after denied approval.",
+          "success",
+        ),
       ),
     );
   } else {

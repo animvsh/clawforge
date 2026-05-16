@@ -43,6 +43,7 @@ export type WorkflowStep = {
 
 export type BlueprintResponse = {
   blueprint_id: string;
+  template_id: AgentTemplateId;
   agent_name: string;
   description: string;
   goal: string;
@@ -61,6 +62,7 @@ export type BlueprintResponse = {
 export type BlueprintRequest = {
   prompt: string;
   provider?: ProviderMode;
+  template_id?: AgentTemplateId;
 };
 
 export type BlueprintApiResponse = {

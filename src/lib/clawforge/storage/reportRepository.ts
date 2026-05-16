@@ -1,5 +1,5 @@
 import type { StoredReport, StoredReportInput } from "./types";
-import { getSupabaseClient } from "./supabaseClient";
+import { getCurrentUserId, getSupabaseClient } from "./supabaseClient";
 
 function newId(): string {
   return `rep_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -10,11 +10,13 @@ const _reports: Map<string, StoredReport> = new Map();
 
 export async function saveReport(input: StoredReportInput): Promise<StoredReport> {
   const client = getSupabaseClient();
+  const userId = await getCurrentUserId();
   const now = new Date().toISOString();
 
   if (!client) {
     const report: StoredReport = {
       id: newId(),
+      user_id: userId,
       ...input,
       created_at: now,
     };
@@ -23,8 +25,9 @@ export async function saveReport(input: StoredReportInput): Promise<StoredReport
   }
 
   const { data, error } = await client
-    .from("reports")
+    .from("clawforge_reports")
     .insert({
+      user_id: userId,
       agent_id: input.agent_id,
       title: input.title,
       severity: input.severity,
@@ -52,7 +55,7 @@ export async function getReport(id: string): Promise<StoredReport | null> {
     return _reports.get(id) ?? null;
   }
 
-  const { data, error } = await client.from("reports").select().eq("id", id).single();
+  const { data, error } = await client.from("clawforge_reports").select().eq("id", id).single();
 
   if (error) return null;
   return data as StoredReport;
@@ -66,7 +69,7 @@ export async function listReportsByAgent(agentId: string): Promise<StoredReport[
   }
 
   const { data, error } = await client
-    .from("reports")
+    .from("clawforge_reports")
     .select()
     .eq("agent_id", agentId)
     .order("created_at", { ascending: false });

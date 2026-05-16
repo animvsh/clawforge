@@ -1,5 +1,5 @@
 import type { Account, AccountInput } from "./types";
-import { getSupabaseClient, isSupabaseConfigured } from "./supabaseClient";
+import { getCurrentUserId, getSupabaseClient } from "./supabaseClient";
 
 function newId(): string {
   return `acc_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -10,11 +10,12 @@ const _memory: Map<string, Account> = new Map();
 
 export async function createAccount(input: AccountInput): Promise<Account> {
   const client = getSupabaseClient();
+  const userId = await getCurrentUserId();
   const now = new Date().toISOString();
 
-  if (!client) {
+  if (!client || !userId) {
     const account: Account = {
-      id: newId(),
+      id: userId ?? newId(),
       email: input.email,
       display_name: input.display_name,
       created_at: now,
@@ -25,8 +26,13 @@ export async function createAccount(input: AccountInput): Promise<Account> {
   }
 
   const { data, error } = await client
-    .from("accounts")
-    .insert({ email: input.email, display_name: input.display_name })
+    .from("profiles")
+    .upsert({
+      id: userId,
+      email: input.email,
+      display_name: input.display_name,
+      updated_at: now,
+    })
     .select()
     .single();
 
@@ -41,7 +47,7 @@ export async function getAccount(id: string): Promise<Account | null> {
     return _memory.get(id) ?? null;
   }
 
-  const { data, error } = await client.from("accounts").select().eq("id", id).single();
+  const { data, error } = await client.from("profiles").select().eq("id", id).single();
 
   if (error) return null;
   return data as Account;
@@ -52,9 +58,10 @@ export async function updateAccount(
   input: Partial<AccountInput>,
 ): Promise<Account | null> {
   const client = getSupabaseClient();
+  const userId = await getCurrentUserId();
   const now = new Date().toISOString();
 
-  if (!client) {
+  if (!client || userId !== id) {
     const existing = _memory.get(id);
     if (!existing) return null;
     const updated: Account = {
@@ -68,7 +75,7 @@ export async function updateAccount(
   }
 
   const { data, error } = await client
-    .from("accounts")
+    .from("profiles")
     .update({ email: input.email, display_name: input.display_name, updated_at: now })
     .eq("id", id)
     .select()

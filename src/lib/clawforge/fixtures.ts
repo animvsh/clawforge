@@ -1,6 +1,7 @@
 import type {
   ApprovalRequest,
   BlueprintResponse,
+  AgentTemplateId,
   IncidentReport,
   MemoryItem,
   ProviderMode,
@@ -13,27 +14,24 @@ export const DEMO_APPROVAL_ID = "approval_shell_block_ip";
 
 const timestamp = "2026-05-16T00:00:00.000Z";
 
-export function createSentinelBlueprint(provider: ProviderMode = "auto"): BlueprintResponse {
-  const selectedProvider = provider === "auto" ? "nemotron" : provider;
-  const model =
-    selectedProvider === "minimax"
-      ? "minimax/token-plan"
-      : selectedProvider === "mock"
-        ? "mock/sentinelclaw"
-        : selectedProvider === "pi"
-          ? "pi-coding/default"
-          : "nvidia/nemotron";
+type BlueprintTemplate = Pick<
+  BlueprintResponse,
+  | "blueprint_id"
+  | "agent_name"
+  | "description"
+  | "goal"
+  | "tools"
+  | "policies"
+  | "memory_schema"
+  | "workflow_steps"
+>;
 
-  return {
+const templateById: Record<AgentTemplateId, BlueprintTemplate> = {
+  incident_response: {
     blueprint_id: DEMO_BLUEPRINT_ID,
     agent_name: "SentinelClaw",
     description: "An autonomous cybersecurity incident response agent",
     goal: "Monitor logs, detect suspicious activity, generate incident reports, and request approval before high-risk actions.",
-    provider,
-    model,
-    fallback_provider: provider === "auto" ? "minimax" : "mock",
-    runtime: "openclaw",
-    sandbox: "nemoclaw",
     tools: [
       {
         id: "tool_log_reader",
@@ -207,19 +205,513 @@ export function createSentinelBlueprint(provider: ProviderMode = "auto"): Bluepr
         description: "Store the suspicious IP and user decision for later runs.",
       },
     ],
-    config_preview: `runtime: openclaw
+  },
+  github_triage: {
+    blueprint_id: "bp_github_triage_demo",
+    agent_name: "RepoClaw",
+    description: "A NemoClaw-governed GitHub issue and pull request triage agent",
+    goal: "Read GitHub activity, identify urgent bugs, draft labels and replies, and require approval before posting or mutating repository state.",
+    tools: [
+      {
+        id: "tool_github_issue_reader",
+        name: "GitHub Issue Reader",
+        action: "github.issues.read",
+        purpose: "Reads issues, pull requests, comments, labels, and metadata.",
+        permission: "read_only",
+        risk_level: "low",
+        enabled: true,
+      },
+      {
+        id: "tool_bug_prioritizer",
+        name: "Bug Prioritizer",
+        action: "github.issues.prioritize",
+        purpose: "Ranks issues by urgency, user impact, and regression likelihood.",
+        permission: "allowed",
+        risk_level: "low",
+        enabled: true,
+      },
+      {
+        id: "tool_response_drafter",
+        name: "Response Drafter",
+        action: "github.comments.draft",
+        purpose: "Drafts maintainer responses without publishing them.",
+        permission: "allowed",
+        risk_level: "low",
+        enabled: true,
+      },
+      {
+        id: "tool_label_manager",
+        name: "Label Manager",
+        action: "github.labels.apply",
+        purpose: "Applies repository labels after human approval.",
+        permission: "approval_required",
+        risk_level: "medium",
+        enabled: true,
+      },
+      {
+        id: "tool_comment_publisher",
+        name: "Comment Publisher",
+        action: "github.comments.post",
+        purpose: "Posts approved comments back to GitHub.",
+        permission: "approval_required",
+        risk_level: "medium",
+        enabled: true,
+      },
+      {
+        id: "tool_branch_writer",
+        name: "Branch Writer",
+        action: "github.branches.write",
+        purpose: "Attempts direct branch mutation outside triage scope.",
+        permission: "blocked",
+        risk_level: "high",
+        enabled: false,
+      },
+    ],
+    policies: [
+      {
+        id: "policy_github_read_only",
+        name: "Allow GitHub read access",
+        action: "github.issues.read",
+        effect: "allow",
+        reason: "Triage requires read-only repository context.",
+      },
+      {
+        id: "policy_github_label_approval",
+        name: "Require approval for labels",
+        action: "github.labels.apply",
+        effect: "require_approval",
+        reason: "Labels change public repository workflow state.",
+      },
+      {
+        id: "policy_github_comment_approval",
+        name: "Require approval for posted comments",
+        action: "github.comments.post",
+        effect: "require_approval",
+        reason: "Published comments represent the project externally.",
+      },
+      {
+        id: "policy_github_block_branch_write",
+        name: "Block direct branch writes",
+        action: "github.branches.write",
+        effect: "deny",
+        reason: "Triage agents must not mutate source branches.",
+      },
+    ],
+    memory_schema: [
+      {
+        id: "memory_repo_preferences",
+        name: "Repository preferences",
+        type: "preference",
+        description: "Maintainer labeling, escalation, and response preferences.",
+      },
+      {
+        id: "memory_triage_context",
+        name: "Triage context",
+        type: "context",
+        description: "Known regressions, release windows, and issue patterns.",
+      },
+      {
+        id: "memory_github_approvals",
+        name: "GitHub approvals",
+        type: "approval",
+        description: "Prior approvals for labels and outbound comments.",
+      },
+    ],
+    workflow_steps: [
+      {
+        id: "step_read_github_queue",
+        title: "Read GitHub queue",
+        description: "Inspect new issues and pull requests in read-only mode.",
+        tool_id: "tool_github_issue_reader",
+      },
+      {
+        id: "step_rank_urgent_bugs",
+        title: "Rank urgent bugs",
+        description: "Prioritize items by severity and maintainer-defined rules.",
+        tool_id: "tool_bug_prioritizer",
+      },
+      {
+        id: "step_draft_response",
+        title: "Draft response",
+        description: "Prepare a maintainer comment without publishing.",
+        tool_id: "tool_response_drafter",
+      },
+      {
+        id: "step_request_label_approval",
+        title: "Request label approval",
+        description: "Pause before applying labels or status changes.",
+        tool_id: "tool_label_manager",
+      },
+      {
+        id: "step_request_comment_approval",
+        title: "Request comment approval",
+        description: "Publish only after human review.",
+        tool_id: "tool_comment_publisher",
+      },
+    ],
+  },
+  inbox_approval: {
+    blueprint_id: "bp_inbox_approval_demo",
+    agent_name: "InboxClaw",
+    description: "A NemoClaw-governed inbox assistant for summaries and approval-gated replies",
+    goal: "Read important mail, summarize action items, draft replies, and require approval before sending, forwarding, or archiving.",
+    tools: [
+      {
+        id: "tool_inbox_reader",
+        name: "Inbox Reader",
+        action: "email.read",
+        purpose: "Reads relevant email threads and sender metadata.",
+        permission: "read_only",
+        risk_level: "low",
+        enabled: true,
+      },
+      {
+        id: "tool_email_summarizer",
+        name: "Email Summarizer",
+        action: "email.summarize",
+        purpose: "Summarizes priority messages and action items.",
+        permission: "allowed",
+        risk_level: "low",
+        enabled: true,
+      },
+      {
+        id: "tool_reply_drafter",
+        name: "Reply Drafter",
+        action: "email.reply.draft",
+        purpose: "Drafts replies without sending them.",
+        permission: "allowed",
+        risk_level: "low",
+        enabled: true,
+      },
+      {
+        id: "tool_email_sender",
+        name: "Email Sender",
+        action: "email.send",
+        purpose: "Sends approved replies.",
+        permission: "approval_required",
+        risk_level: "high",
+        enabled: true,
+      },
+      {
+        id: "tool_thread_archiver",
+        name: "Thread Archiver",
+        action: "email.archive",
+        purpose: "Archives completed threads after approval.",
+        permission: "approval_required",
+        risk_level: "medium",
+        enabled: true,
+      },
+      {
+        id: "tool_contact_export",
+        name: "Contact Export",
+        action: "contacts.export",
+        purpose: "Attempts to export contacts outside the sandbox.",
+        permission: "blocked",
+        risk_level: "high",
+        enabled: false,
+      },
+    ],
+    policies: [
+      {
+        id: "policy_email_read_only",
+        name: "Allow email reading",
+        action: "email.read",
+        effect: "allow",
+        reason: "Inbox approval workflows require read-only message context.",
+      },
+      {
+        id: "policy_email_send_approval",
+        name: "Require approval for sending mail",
+        action: "email.send",
+        effect: "require_approval",
+        reason: "Outbound email can disclose private information or commit the user.",
+      },
+      {
+        id: "policy_email_archive_approval",
+        name: "Require approval for archiving",
+        action: "email.archive",
+        effect: "require_approval",
+        reason: "Archiving changes inbox state.",
+      },
+      {
+        id: "policy_block_contact_export",
+        name: "Block contact export",
+        action: "contacts.export",
+        effect: "deny",
+        reason: "Contact export is outside the user-approved inbox workflow.",
+      },
+    ],
+    memory_schema: [
+      {
+        id: "memory_sender_context",
+        name: "Sender context",
+        type: "context",
+        description: "Known sender relationships and thread history.",
+      },
+      {
+        id: "memory_reply_preferences",
+        name: "Reply preferences",
+        type: "preference",
+        description: "Preferred tone, sign-off, and approval rules.",
+      },
+      {
+        id: "memory_email_approvals",
+        name: "Email approvals",
+        type: "approval",
+        description: "Prior decisions for sends, archives, and escalations.",
+      },
+    ],
+    workflow_steps: [
+      {
+        id: "step_read_priority_mail",
+        title: "Read priority mail",
+        description: "Inspect important threads in read-only mode.",
+        tool_id: "tool_inbox_reader",
+      },
+      {
+        id: "step_summarize_actions",
+        title: "Summarize actions",
+        description: "Extract commitments, deadlines, and reply needs.",
+        tool_id: "tool_email_summarizer",
+      },
+      {
+        id: "step_draft_reply",
+        title: "Draft reply",
+        description: "Prepare a user-style reply without sending.",
+        tool_id: "tool_reply_drafter",
+      },
+      {
+        id: "step_request_send_approval",
+        title: "Request send approval",
+        description: "Pause before sending any outbound email.",
+        tool_id: "tool_email_sender",
+      },
+      {
+        id: "step_save_inbox_preference",
+        title: "Save preference",
+        description: "Remember approved sender and reply handling preferences.",
+      },
+    ],
+  },
+  research_sandbox: {
+    blueprint_id: "bp_research_sandbox_demo",
+    agent_name: "ResearchClaw",
+    description: "A NemoClaw-governed research assistant for source-grounded briefs",
+    goal: "Collect sources, compare evidence, draft a research brief, and require approval before publishing or exporting results.",
+    tools: [
+      {
+        id: "tool_source_search",
+        name: "Source Search",
+        action: "research.search",
+        purpose: "Searches trusted sources for relevant material.",
+        permission: "allowed",
+        risk_level: "low",
+        enabled: true,
+      },
+      {
+        id: "tool_source_reader",
+        name: "Source Reader",
+        action: "research.sources.read",
+        purpose: "Reads source excerpts inside the sandbox.",
+        permission: "read_only",
+        risk_level: "low",
+        enabled: true,
+      },
+      {
+        id: "tool_brief_writer",
+        name: "Brief Writer",
+        action: "research.brief.write",
+        purpose: "Writes a source-grounded brief.",
+        permission: "allowed",
+        risk_level: "low",
+        enabled: true,
+      },
+      {
+        id: "tool_citation_checker",
+        name: "Citation Checker",
+        action: "research.citations.check",
+        purpose: "Checks claims against saved source references.",
+        permission: "allowed",
+        risk_level: "low",
+        enabled: true,
+      },
+      {
+        id: "tool_publication_sender",
+        name: "Publication Sender",
+        action: "research.publish",
+        purpose: "Publishes or shares the approved research brief.",
+        permission: "approval_required",
+        risk_level: "medium",
+        enabled: true,
+      },
+      {
+        id: "tool_source_bulk_export",
+        name: "Source Bulk Export",
+        action: "research.sources.export",
+        purpose: "Attempts to export source archives outside the sandbox.",
+        permission: "blocked",
+        risk_level: "high",
+        enabled: false,
+      },
+    ],
+    policies: [
+      {
+        id: "policy_allow_research_search",
+        name: "Allow source search",
+        action: "research.search",
+        effect: "allow",
+        reason: "Research workflows require source discovery.",
+      },
+      {
+        id: "policy_allow_brief_write",
+        name: "Allow local brief writing",
+        action: "research.brief.write",
+        effect: "allow",
+        reason: "Writing inside NemoClaw does not publish externally.",
+      },
+      {
+        id: "policy_research_publish_approval",
+        name: "Require approval for publishing",
+        action: "research.publish",
+        effect: "require_approval",
+        reason: "Publishing shares conclusions outside the sandbox.",
+      },
+      {
+        id: "policy_block_source_export",
+        name: "Block bulk source export",
+        action: "research.sources.export",
+        effect: "deny",
+        reason: "Bulk source export may violate data or copyright boundaries.",
+      },
+    ],
+    memory_schema: [
+      {
+        id: "memory_research_preferences",
+        name: "Research preferences",
+        type: "preference",
+        description: "Preferred source types, citation style, and review rules.",
+      },
+      {
+        id: "memory_saved_sources",
+        name: "Saved sources",
+        type: "context",
+        description: "Reviewed sources and claim-to-citation notes.",
+      },
+      {
+        id: "memory_publication_approvals",
+        name: "Publication approvals",
+        type: "approval",
+        description: "Prior publish and export decisions.",
+      },
+    ],
+    workflow_steps: [
+      {
+        id: "step_search_sources",
+        title: "Search sources",
+        description: "Find relevant sources inside NemoClaw.",
+        tool_id: "tool_source_search",
+      },
+      {
+        id: "step_read_sources",
+        title: "Read sources",
+        description: "Review selected source excerpts without bulk export.",
+        tool_id: "tool_source_reader",
+      },
+      {
+        id: "step_write_brief",
+        title: "Write brief",
+        description: "Draft a concise research brief with citations.",
+        tool_id: "tool_brief_writer",
+      },
+      {
+        id: "step_check_citations",
+        title: "Check citations",
+        description: "Verify claims against saved source notes.",
+        tool_id: "tool_citation_checker",
+      },
+      {
+        id: "step_request_publish_approval",
+        title: "Request publish approval",
+        description: "Pause before sharing the brief outside NemoClaw.",
+        tool_id: "tool_publication_sender",
+      },
+    ],
+  },
+};
+
+function modelForProvider(provider: ProviderMode): string {
+  const selectedProvider = provider === "auto" ? "nemotron" : provider;
+  if (selectedProvider === "minimax") return "minimax/token-plan";
+  if (selectedProvider === "mock") return "mock/nemoclaw-blueprint";
+  if (selectedProvider === "pi") return "pi-coding/default";
+  return "nvidia/nemotron";
+}
+
+function configPreview(
+  templateId: AgentTemplateId,
+  model: string,
+  policies: BlueprintResponse["policies"],
+) {
+  const policyLines = policies.map((policy) => `  - ${policy.action}: ${policy.effect}`).join("\n");
+
+  return `runtime: openclaw
 sandbox: nemoclaw
+template: ${templateId}
 model: ${model}
 env:
   NVIDIA_API_KEY: ${"${NVIDIA_API_KEY}"}
   MINIMAX_API_KEY: ${"${MINIMAX_API_KEY}"}
   MINIMAX_PLAN_KEY: ${"${MINIMAX_PLAN_KEY}"}
 policies:
-  - shell.execute: require_approval
-  - ticket.create: require_approval
-  - message.send_external: require_approval
-  - data.export: deny`,
+${policyLines}`;
+}
+
+export function selectAgentTemplate(prompt: string): AgentTemplateId {
+  const normalized = prompt.toLowerCase();
+  if (/\b(github|issue|issues|pull request|pr|repo|repository|label|comment)\b/.test(normalized)) {
+    return "github_triage";
+  }
+  if (/\b(inbox|email|emails|mail|reply|replies|send|sender|archive)\b/.test(normalized)) {
+    return "inbox_approval";
+  }
+  if (/\b(research|sources?|citations?|brief|topic|publish|publishing)\b/.test(normalized)) {
+    return "research_sandbox";
+  }
+  return "incident_response";
+}
+
+export function createTemplateBlueprint(
+  templateId: AgentTemplateId,
+  provider: ProviderMode = "auto",
+): BlueprintResponse {
+  const template = templateById[templateId];
+  const model = modelForProvider(provider);
+
+  return {
+    ...template,
+    provider,
+    template_id: templateId,
+    model,
+    fallback_provider: provider === "auto" ? "minimax" : "mock",
+    runtime: "openclaw",
+    sandbox: "nemoclaw",
+    config_preview: configPreview(templateId, model, template.policies),
   };
+}
+
+export function createBlueprintFromPrompt(
+  prompt: string,
+  provider: ProviderMode = "auto",
+): BlueprintResponse {
+  return createTemplateBlueprint(selectAgentTemplate(prompt), provider);
+}
+
+export function isKnownBlueprintId(blueprintId: string): boolean {
+  return Object.values(templateById).some((template) => template.blueprint_id === blueprintId);
+}
+
+export function createSentinelBlueprint(provider: ProviderMode = "auto"): BlueprintResponse {
+  return createTemplateBlueprint("incident_response", provider);
 }
 
 export const demoApproval: ApprovalRequest = {

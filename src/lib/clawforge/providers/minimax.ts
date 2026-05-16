@@ -1,6 +1,5 @@
 import { createMockProvider } from "./mock";
-import type { ReasoningProvider } from "./index";
-import type { ReasoningInput } from "./mock";
+import type { ReasoningInput, ReasoningProvider } from "./index";
 
 const MINIMAX_API_BASE = "https://api.minimax.chat/v1";
 
@@ -127,6 +126,7 @@ export function createMiniMaxProvider(
           "label" in parsed &&
           "severity" in parsed &&
           typeof parsed.label === "string" &&
+          typeof parsed.severity === "string" &&
           ["low", "medium", "high"].includes(parsed.severity)
         ) {
           return { label: parsed.label, severity: parsed.severity as "low" | "medium" | "high" };

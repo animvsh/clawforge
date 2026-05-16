@@ -1,5 +1,5 @@
 import type { AgentRun, AgentRunInput } from "./types";
-import { getSupabaseClient } from "./supabaseClient";
+import { getCurrentUserId, getSupabaseClient } from "./supabaseClient";
 
 function newId(): string {
   return `run_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -10,11 +10,13 @@ const _runs: Map<string, AgentRun> = new Map();
 
 export async function saveAgentRun(input: AgentRunInput): Promise<AgentRun> {
   const client = getSupabaseClient();
+  const userId = await getCurrentUserId();
   const now = new Date().toISOString();
 
   if (!client) {
     const run: AgentRun = {
       id: newId(),
+      user_id: userId,
       ...input,
       started_at: now,
       created_at: now,
@@ -24,8 +26,9 @@ export async function saveAgentRun(input: AgentRunInput): Promise<AgentRun> {
   }
 
   const { data, error } = await client
-    .from("agent_runs")
+    .from("clawforge_runs")
     .insert({
+      user_id: userId,
       agent_name: input.agent_name,
       agent_id: input.agent_id,
       blueprint_id: input.blueprint_id,
@@ -49,7 +52,7 @@ export async function getAgentRun(id: string): Promise<AgentRun | null> {
     return _runs.get(id) ?? null;
   }
 
-  const { data, error } = await client.from("agent_runs").select().eq("id", id).single();
+  const { data, error } = await client.from("clawforge_runs").select().eq("id", id).single();
 
   if (error) return null;
   return data as AgentRun;
@@ -63,7 +66,7 @@ export async function listAgentRunsByAgent(agentId: string): Promise<AgentRun[]>
   }
 
   const { data, error } = await client
-    .from("agent_runs")
+    .from("clawforge_runs")
     .select()
     .eq("agent_id", agentId)
     .order("created_at", { ascending: false });
@@ -93,7 +96,7 @@ export async function updateAgentRun(
   }
 
   const { data, error } = await client
-    .from("agent_runs")
+    .from("clawforge_runs")
     .update({
       status: input.status,
       finished_at: input.finished_at ?? now,

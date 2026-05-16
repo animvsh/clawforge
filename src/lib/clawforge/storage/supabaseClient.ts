@@ -5,7 +5,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 let _client: SupabaseClient | null = null;
-let _fallback = false;
+let _configured = false;
 
 export function getSupabaseClient(): SupabaseClient | null {
   if (_client) return _client;
@@ -17,10 +17,11 @@ export function getSupabaseClient(): SupabaseClient | null {
     import.meta.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!url || !anonKey || url === "replace-with-supabase-url") {
-    _fallback = true;
+    _configured = false;
     return null;
   }
 
+  _configured = true;
   _client = createClient(url, anonKey, {
     auth: { persistSession: false },
   });
@@ -29,5 +30,14 @@ export function getSupabaseClient(): SupabaseClient | null {
 
 export function isSupabaseConfigured(): boolean {
   getSupabaseClient(); // ensure we check once
-  return !_fallback;
+  return _configured;
+}
+
+export async function getCurrentUserId(): Promise<string | null> {
+  const client = getSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client.auth.getUser();
+  if (error) return null;
+  return data.user?.id ?? null;
 }

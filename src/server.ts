@@ -94,7 +94,10 @@ export default {
       return healthResponse();
     }
 
-    const clawForgeApiResponse = await handleClawForgeApi(request);
+    const clawForgeApiResponse = await handleClawForgeApi(
+      request,
+      env as Record<string, string | undefined>,
+    );
     if (clawForgeApiResponse) {
       return clawForgeApiResponse;
     }

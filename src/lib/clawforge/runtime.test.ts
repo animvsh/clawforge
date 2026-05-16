@@ -58,6 +58,15 @@ describe("NemoClawSandboxSession - Runtime Lifecycle", () => {
         title: "Test Report",
         severity: "high",
         detected_behavior: "test",
+        classification: "test",
+        model_used: "mock/nemoclaw-blueprint",
+        runtime: "NemoClaw",
+        policy_triggered: "policy_test",
+        action_attempted: "test",
+        user_decision: "test",
+        final_action: "test",
+        memory_update: "test",
+        safety_result: "test",
         likely_threat: "test",
         mitre_mapping: "test",
         evidence: [],
@@ -314,7 +323,7 @@ describe("Legacy Runtime Functions", () => {
     it("should allow resolveApproval for denied", () => {
       startRuntime();
       const result = resolveApproval("denied");
-      expect(result.status).toBe("stopped");
+      expect(result.status).toBe("completed");
       expect(result.memory_item.type).toBe("approval");
     });
 

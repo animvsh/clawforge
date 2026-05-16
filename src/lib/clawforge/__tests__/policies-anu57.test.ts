@@ -304,7 +304,6 @@ describe("ANU-57: generateSentinelClawManifest()", () => {
 
   describe("missing agent_id", () => {
     it("uses default agent_id when undefined", () => {
-      // @ts-expect-error - testing runtime behavior with undefined
       const manifest = generateSentinelClawManifest(undefined, "1.0.0");
       expect(manifest.agent_id).toBe("agent_sentinelclaw_demo");
     });

@@ -6,7 +6,7 @@ import type { MemorySchemaItem, IncidentReport, MemoryItem } from "../types";
 export interface Account {
   id: string;
   email: string;
-  display_name?: string;
+  display_name?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -21,6 +21,7 @@ export interface AccountInput {
  */
 export interface AgentRun {
   id: string;
+  user_id?: string | null;
   agent_name: string;
   agent_id: string;
   blueprint_id: string;
@@ -48,6 +49,7 @@ export interface AgentRunInput {
  */
 export interface StoredMemory {
   id: string;
+  user_id?: string | null;
   agent_id: string;
   type: MemorySchemaItem["type"];
   content: string;
@@ -65,6 +67,7 @@ export interface StoredMemoryInput {
  */
 export interface StoredReport {
   id: string;
+  user_id?: string | null;
   agent_id: string;
   title: string;
   severity: IncidentReport["severity"];
