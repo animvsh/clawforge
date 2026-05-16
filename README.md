@@ -28,6 +28,26 @@ npm run dev -- --host 0.0.0.0
 
 Configure secrets through Brev/deployment secret stores or a local uncommitted env file. Use `.env.example` for variable names only.
 
+## Supabase Accounts
+
+ClawForge has an optional Supabase account layer. Anonymous users can still run the demo, while configured Supabase projects enable sign up, sign in, and future saved blueprints/runs.
+
+Local setup:
+
+```sh
+cp .env.example .env.local
+```
+
+Then set `VITE_SUPABASE_ANON_KEY` in `.env.local`. Keep personal access tokens and service-role keys out of source control.
+
+Database setup:
+
+```sh
+supabase db push --project-ref mfslvyqvkutazsimsrhu
+```
+
+The migration at `supabase/migrations/20260516000100_clawforge_accounts.sql` creates profiles, saved blueprint scaffolding, saved run scaffolding, and row-level security policies.
+
 ## Functional Demo API
 
 The app supports mock-mode endpoints so frontend, backend, memory/report, and demo owners can work independently.

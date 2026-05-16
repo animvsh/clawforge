@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { AgentBuilder } from "@/components/clawforge/AgentBuilder";
+import { AuthPanel } from "@/components/clawforge/AuthPanel";
 import { BlueprintReview } from "@/components/clawforge/BlueprintReview";
 import { IncidentReport } from "@/components/clawforge/IncidentReport";
 import { LiveDashboard } from "@/components/clawforge/LiveDashboard";
@@ -68,6 +69,9 @@ function Hero() {
     <section className="grid min-h-screen bg-black lg:grid-cols-[34%_66%]">
       <div className="order-2 flex min-h-[68vh] flex-col border-r border-white/10 px-7 py-8 md:px-10 lg:order-1 lg:min-h-screen lg:px-14">
         <Logo />
+        <div className="mt-8 max-w-sm">
+          <AuthPanel />
+        </div>
 
         <div className="mt-auto max-w-xl pb-8 pt-16">
           <div className="mb-8 text-[11px] uppercase tracking-[0.34em] text-white/35">

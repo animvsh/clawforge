@@ -130,6 +130,41 @@ Status:
 - Planned.
 - Blocked by P0 implementation lanes.
 
+### Optional Supabase Accounts Slice
+
+Goal:
+
+Add lightweight accounts without changing the public demo path.
+
+Completed:
+
+- Added optional Supabase client setup.
+- Added a quiet account panel to the landing shell.
+- Added sign up, sign in, sign out, and session detection.
+- Added database migration for profiles, saved blueprints, saved runs, and RLS policies.
+- Kept anonymous demo mode working when Supabase env vars are missing.
+
+Local setup:
+
+```sh
+cp .env.example .env.local
+```
+
+Then set `VITE_SUPABASE_ANON_KEY` in `.env.local`.
+
+Database setup:
+
+```sh
+supabase db push --project-ref mfslvyqvkutazsimsrhu
+```
+
+Notes:
+
+- The Supabase personal access token was not committed.
+- Supabase CLI login, project link, and remote migration push completed locally.
+- `.env.local` was populated for local testing and remains ignored by Git.
+- Rotate any personal access token pasted into chat before production use.
+
 ## Brev Instance Start Plan
 
 Use this when ready to create the actual GPU workspace:
