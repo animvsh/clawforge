@@ -24,6 +24,7 @@ This plan slices the NemoClaw-first PRD into separate worktrees with low merge-c
 7. Final report UI.
 8. Landing positioning scrub.
 9. QA, docs, and deploy.
+10. Supabase accounts, only after the core NemoClaw demo path stays green.
 
 ## Lane A: NemoClaw Positioning And Landing
 
@@ -290,3 +291,41 @@ Acceptance criteria:
 - Cloudflare live URL is updated.
 - Linear issues match worktree lanes.
 - No secrets are present in repo, docs, Linear descriptions, or logs.
+
+## Lane K: Supabase Accounts And Auth
+
+Owner: Backend / Frontend
+
+Branch: `codex/nemoclaw-supabase-accounts`
+
+Primary files:
+
+- `src/lib/supabase/client.ts`
+- `src/lib/supabase/server.ts`
+- `src/components/clawforge/AuthPanel.tsx`
+- `src/routes/index.tsx`
+- `.env.example`
+
+Goal:
+
+Add optional Supabase-backed accounts to ClawForge without turning the product into a generic workspace or blocking the public demo. Auth should support saving user-owned NemoClaw blueprints, runs, memory, and reports later, but the hackathon demo must remain usable without login.
+
+Supabase project reference:
+
+- `mfslvyqvkutazsimsrhu`
+
+Required secret handling:
+
+- Store `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` as deployment secrets or local `.env` values.
+- Store management tokens and service-role keys only in secure provider/CI secret stores.
+- Never commit personal access tokens, anon keys, service-role keys, JWT secrets, or refresh tokens.
+- The currently shared personal access token must be rotated before production use.
+
+Acceptance criteria:
+
+- `.env.example` documents only variable names and safe placeholders.
+- Supabase client reads from environment variables.
+- Landing page may show sign in/sign out, but the primary CTA still builds a NemoClaw agent.
+- Anonymous users can run the demo.
+- Authenticated users can be associated with future saved blueprints/runs without breaking current APIs.
+- No token values appear in source, artifacts, Linear, build logs, browser logs, or screenshots.

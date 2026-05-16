@@ -439,9 +439,33 @@ Acceptance criteria:
 - Visual workflow graph
 - Replay audit trail
 
+## Optional Accounts Layer
+
+Supabase-backed accounts are useful for saving generated NemoClaw blueprints, agent runs, audit trails, memory, and reports. They should not change the core product story or block the public hackathon demo.
+
+The landing page may support account controls, but ClawForge should still read as a secure agent factory for NemoClaw, not an AI workspace.
+
+Supabase project reference:
+
+- `mfslvyqvkutazsimsrhu`
+
+Security requirements:
+
+- Store Supabase URL and anon key in environment variables.
+- Store personal access tokens and service-role keys only in secure secret stores.
+- Never put Supabase personal access tokens in source, docs, Linear, screenshots, or logs.
+- Rotate any personal access token that was pasted into chat before production use.
+
+Acceptance criteria:
+
+- Anonymous users can still run the demo.
+- Authenticated users can later own saved blueprints, runs, memory, and reports.
+- The primary CTA remains "Build NemoClaw Agent."
+- Auth never reframes ClawForge as a generic workspace product.
+
 ## P2 Features To Avoid During Hackathon
 
-- Authentication
+- Full authentication/admin system beyond lightweight optional Supabase accounts
 - Billing
 - Team permissions
 - Marketplace

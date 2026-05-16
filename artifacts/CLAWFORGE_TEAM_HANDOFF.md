@@ -20,7 +20,11 @@ NemoClaw-first v2 artifacts:
 Linear v2 scope:
 
 - `ANU-41` through `ANU-50`: P0 NemoClaw-first worktree lanes.
-- `ANU-51` through `ANU-54`: P1 follow-up features.
+- `ANU-51` through `ANU-55`: P1 follow-up features, including optional Supabase accounts.
+
+Supabase project reference: `mfslvyqvkutazsimsrhu`
+
+Supabase secret note: the personal access token shared in chat must not be copied into source, artifacts, or Linear. Rotate it before production use and store replacement credentials only in local/deployment secret stores.
 
 ## Current Access Reality
 
