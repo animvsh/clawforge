@@ -37,10 +37,11 @@ export function AgentPromptComposer({
   const [isTyping, setIsTyping] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Animated typing effect
+  // Animated typing effect — only starts after a delay to show "Describe your project..." first
   useEffect(() => {
     if (value) {
       setIsTyping(false);
+      setTypingText("");
       return;
     }
 
@@ -53,7 +54,6 @@ export function AgentPromptComposer({
       return () => clearTimeout(timeout);
     }
 
-    setIsTyping(true);
     const timeout = setTimeout(() => {
       setTypingText(current.slice(0, typingText.length + 1));
     }, 40 + Math.random() * 30);
@@ -61,12 +61,21 @@ export function AgentPromptComposer({
     return () => clearTimeout(timeout);
   }, [typingText, suggestionIndex, value, suggestions]);
 
+  // Start typing animation after initial delay
+  useEffect(() => {
+    if (value) return;
+    const delayTimer = window.setTimeout(() => {
+      setIsTyping(true);
+    }, 1200);
+    return () => clearTimeout(delayTimer);
+  }, [suggestions, value]);
+
   function handleSubmit() {
     if (!value.trim() || disabled) return;
     onSubmit?.();
   }
 
-  const showPlaceholder = !value && typingText;
+  const showPlaceholder = !value;
 
   return (
     <div className="flex flex-col gap-3 w-full">
@@ -81,9 +90,20 @@ export function AgentPromptComposer({
             className="pointer-events-none absolute inset-0 flex items-start px-6 pt-5 pb-16"
             aria-hidden="true"
           >
-            <span className="text-base text-white/25 leading-relaxed whitespace-pre-wrap">
-              {typingText}
-              <span className="inline-block w-0.5 h-4 bg-white/40 ml-0.5 animate-pulse" />
+            <span className="text-base text-white/40 leading-relaxed">
+              Describe your project
+              {typingText ? (
+                <span className="text-white/25">
+                  {" — "}
+                  {typingText}
+                  <span className="inline-block w-0.5 h-4 bg-white/40 ml-0.5 animate-pulse" />
+                </span>
+              ) : isTyping ? (
+                <span className="text-white/25">
+                  {" — "}
+                  <span className="inline-block w-0.5 h-4 bg-white/40 ml-0.5 animate-pulse" />
+                </span>
+              ) : null}
             </span>
           </div>
         )}
