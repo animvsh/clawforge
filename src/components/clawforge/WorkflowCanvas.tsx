@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   ReactFlow,
   Controls,
@@ -33,6 +33,8 @@ import type {
 
 const COL_SPACING = 200;
 const ROW_SPACING = 120;
+type WorkflowNodeData = WorkflowNode & Record<string, unknown>;
+type WorkflowFlowNode = Node<WorkflowNodeData>;
 
 const KIND_COLORS: Record<WorkflowNodeKind, string> = {
   input: "#22c55e",
@@ -103,11 +105,7 @@ interface WorkflowCanvasProps {
 // Data mapping helpers
 // ---------------------------------------------------------------------------
 
-function graphNodesToFlowNodes(
-  graph: WorkflowGraph,
-  selectedNodeId?: string,
-  activeNodeId?: string,
-): Node<WorkflowNode>[] {
+function graphNodesToFlowNodes(graph: WorkflowGraph, selectedNodeId?: string): WorkflowFlowNode[] {
   return graph.nodes.map((node) => {
     const x = node.x !== undefined ? node.x * COL_SPACING : 0;
     const y = node.y !== undefined ? node.y * ROW_SPACING : 0;
@@ -115,7 +113,7 @@ function graphNodesToFlowNodes(
       id: node.id,
       type: "workflow",
       position: { x, y },
-      data: node,
+      data: node as WorkflowNodeData,
       selected: node.id === selectedNodeId,
     };
   });
@@ -174,8 +172,8 @@ function computeDefaultPositions(graph: WorkflowGraph): WorkflowNode[] {
 // WorkflowNodeCard component
 // ---------------------------------------------------------------------------
 
-function WorkflowNodeCard({ data }: NodeProps<WorkflowNode>) {
-  const node = data;
+function WorkflowNodeCard({ data }: NodeProps) {
+  const node = data as WorkflowNodeData;
   const statusStyle = STATUS_STYLES[node.status] ?? STATUS_STYLES.idle;
   const kindColor = KIND_COLORS[node.kind] ?? "#71717a";
 
@@ -303,13 +301,13 @@ interface CanvasInnerProps {
 
 function CanvasInner({
   graph,
-  activeNodeId,
   selectedNodeId,
   onNodeClick,
   onNodesChange,
   onEdgesChange,
 }: CanvasInnerProps) {
   const { fitView } = useReactFlow();
+  const lastTopologySignatureRef = useRef<string | null>(null);
 
   // Apply default layout to nodes without positions
   const layoutedGraph = useMemo(() => {
@@ -318,66 +316,84 @@ function CanvasInner({
   }, [graph]);
 
   const initialNodes = useMemo(
-    () => graphNodesToFlowNodes(layoutedGraph, selectedNodeId, activeNodeId),
-    [layoutedGraph, selectedNodeId, activeNodeId],
+    () => graphNodesToFlowNodes(layoutedGraph, selectedNodeId),
+    [layoutedGraph, selectedNodeId],
   );
 
   const initialEdges = useMemo(() => graphEdgesToFlowEdges(layoutedGraph), [layoutedGraph]);
+  const topologySignature = useMemo(
+    () =>
+      JSON.stringify({
+        nodes: layoutedGraph.nodes.map((node) => [node.id, node.kind]),
+        edges: layoutedGraph.edges.map((edge) => [
+          edge.id,
+          edge.sourceId,
+          edge.targetId,
+          edge.type,
+        ]),
+      }),
+    [layoutedGraph],
+  );
 
-  const [nodes, setNodes, onNodesChangeInternal] = useNodesState(initialNodes);
+  const [nodes, setNodes, onNodesChangeInternal] = useNodesState<WorkflowFlowNode>(initialNodes);
   const [edges, setEdges, onEdgesChangeInternal] = useEdgesState(initialEdges);
 
-  // Sync when graph changes (e.g. new nodes added)
+  // Remount the React Flow graph only when topology changes. Position/status-only
+  // updates should not fight an in-progress drag or recenter the viewport.
   useEffect(() => {
+    if (lastTopologySignatureRef.current === topologySignature) return;
+    lastTopologySignatureRef.current = topologySignature;
+
     const layouted = computeDefaultPositions(graph);
     const layoutedGraphAdjusted = { ...graph, nodes: layouted };
-    setNodes(graphNodesToFlowNodes(layoutedGraphAdjusted, selectedNodeId, activeNodeId));
+    setNodes(graphNodesToFlowNodes(layoutedGraphAdjusted, selectedNodeId));
     setEdges(graphEdgesToFlowEdges(layoutedGraphAdjusted));
-    // Fit view after graph changes
     setTimeout(() => {
       fitView({ padding: 0.3, duration: 200 });
     }, 50);
-  }, [graph, selectedNodeId, activeNodeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fitView, graph, selectedNodeId, setEdges, setNodes, topologySignature]);
 
-  // Sync active/selected state changes without re-mapping all positions
+  // Sync selected/status data without replacing node positions.
   useEffect(() => {
+    const latestById = new Map(layoutedGraph.nodes.map((node) => [node.id, node]));
     setNodes((nds) =>
       nds.map((n) => ({
         ...n,
+        data: (latestById.get(n.id) ?? n.data) as WorkflowNodeData,
         selected: n.id === selectedNodeId,
       })),
     );
-  }, [selectedNodeId, setNodes]);
+  }, [layoutedGraph.nodes, selectedNodeId, setNodes]);
 
-  // Keep nodes in sync with parent
   const handleNodesChange = useCallback(
     (changes: Parameters<typeof onNodesChangeInternal>[0]) => {
       onNodesChangeInternal(changes);
-      // Extract position changes and sync back to parent as WorkflowNode[]
-      const positionChanges = changes.filter(
-        (
-          c,
-        ): c is {
-          type: "position";
-          id: string;
-          position: { x: number; y: number };
-          draggable: boolean;
-        } => c.type === "position",
-      );
-      if (positionChanges.length > 0 && onNodesChange) {
-        const updated = nodes.map((n) => {
-          const change = positionChanges.find((c) => c.id === n.id);
-          if (change) {
-            const x = Math.round(change.position.x / COL_SPACING);
-            const y = Math.round(change.position.y / ROW_SPACING);
-            return { ...n.data, x, y };
-          }
-          return n.data;
-        });
-        onNodesChange(updated);
-      }
     },
-    [onNodesChange, onNodesChangeInternal, nodes],
+    [onNodesChangeInternal],
+  );
+
+  const handleNodeDragStop = useCallback(
+    (_: React.MouseEvent, draggedNode: Node, currentNodes: Node[]) => {
+      if (!onNodesChange) return;
+      const flowNodes = currentNodes.length > 0 ? currentNodes : nodes;
+      onNodesChange(
+        flowNodes.map((node) => {
+          const data = node.data as WorkflowNodeData;
+          return {
+            ...data,
+            x:
+              node.id === draggedNode.id
+                ? draggedNode.position.x / COL_SPACING
+                : node.position.x / COL_SPACING,
+            y:
+              node.id === draggedNode.id
+                ? draggedNode.position.y / ROW_SPACING
+                : node.position.y / ROW_SPACING,
+          };
+        }),
+      );
+    },
+    [nodes, onNodesChange],
   );
 
   const handleEdgesChange = useCallback(
@@ -420,8 +436,8 @@ function CanvasInner({
       onEdgesChange={handleEdgesChange}
       onConnect={handleConnect}
       onNodeClick={handleNodeClick}
+      onNodeDragStop={handleNodeDragStop}
       nodeTypes={nodeTypes}
-      fitView
       fitViewOptions={{ padding: 0.3 }}
       defaultEdgeOptions={{
         markerEnd: { type: MarkerType.ArrowClosed },
@@ -440,7 +456,7 @@ function CanvasInner({
         }}
       />
       <MiniMap
-        nodeColor={(n) => KIND_COLORS[(n.data as WorkflowNode)?.kind] ?? "#71717a"}
+        nodeColor={(n) => KIND_COLORS[(n.data as WorkflowNodeData)?.kind] ?? "#71717a"}
         style={{ background: "#141414" }}
         maskColor="rgba(0,0,0,0.6)"
       />
