@@ -1,5 +1,6 @@
 import { DEMO_AGENT_ID } from "../fixtures";
 import { getIntegrationStatus, type IntegrationConfig } from "../integrations/composio";
+import { getPipedreamStatus } from "../integrations/pipedream";
 import { createProviderRegistry } from "../providers";
 import type { BlueprintResponse, ProviderMode, RuntimeEvent } from "../types";
 
@@ -61,6 +62,16 @@ export type NemoClawIntegrationManifest = {
     blueprint_id: string | null;
     template_id: string | null;
     goal: string | null;
+    model: string | null;
+    provider: ProviderMode | null;
+  };
+  memory: {
+    engine: "mem0";
+    hosted_on: "brev";
+    embedding_model: string;
+    reasoning_model: string | null;
+    scope: "workspace";
+    status: "configured";
   };
   integrations: Array<{
     id: string;
@@ -73,6 +84,18 @@ export type NemoClawIntegrationManifest = {
     required: boolean;
     connectable: boolean;
   }>;
+  pipedream: {
+    configured: boolean;
+    project_id: string | null;
+    environment: string;
+    connections: Array<{
+      id: string;
+      label: string;
+      app: string;
+      required: boolean;
+      status: string;
+    }>;
+  };
   inbox: {
     email: string | null;
     status: string;
@@ -81,7 +104,11 @@ export type NemoClawIntegrationManifest = {
     agentphone: boolean;
     voice_agent: boolean;
     agent_inbox: boolean;
-    docs_sheets_gmail: boolean;
+    calendar: boolean;
+    gmail: boolean;
+    google_docs: boolean;
+    google_drive: boolean;
+    google_sheets: boolean;
   };
   secret_names: string[];
 };
@@ -132,6 +159,14 @@ function readEnv(name: string): string {
   return processEnv?.[name] ?? viteEnv[name] ?? "";
 }
 
+function hasNodeRuntime(): boolean {
+  return (
+    typeof process !== "undefined" &&
+    typeof process.versions === "object" &&
+    typeof process.versions.node === "string"
+  );
+}
+
 function base64Encode(value: string): string {
   if (typeof Buffer !== "undefined") return Buffer.from(value, "utf8").toString("base64");
   return btoa(value);
@@ -178,6 +213,10 @@ async function buildIntegrationManifest(
   options: BrevIntegrationOptions = {},
 ): Promise<NemoClawIntegrationManifest> {
   const integrationStatus = await getIntegrationStatus(options.workerEnv ?? {});
+  const pipedreamStatus = await getPipedreamStatus(
+    options.workerEnv ?? {},
+    options.blueprint?.integration_requirements ?? [],
+  );
   const requiredIds = requiredIntegrationIds(options.blueprint);
   const integrations = integrationStatus.auth_configs.map((integration) => ({
     id: integration.id,
@@ -203,8 +242,30 @@ async function buildIntegrationManifest(
       blueprint_id: options.blueprint?.blueprint_id ?? null,
       template_id: options.blueprint?.template_id ?? null,
       goal: options.blueprint?.goal ?? null,
+      model: options.blueprint?.model ?? null,
+      provider: options.blueprint?.provider ?? null,
+    },
+    memory: {
+      engine: "mem0",
+      hosted_on: "brev",
+      embedding_model: "nvidia/nv-embedqa-e5-v5",
+      reasoning_model: options.blueprint?.model ?? null,
+      scope: "workspace",
+      status: "configured",
     },
     integrations,
+    pipedream: {
+      configured: pipedreamStatus.configured,
+      project_id: pipedreamStatus.project_id,
+      environment: pipedreamStatus.environment,
+      connections: pipedreamStatus.connections.map((connection) => ({
+        id: connection.id,
+        label: connection.label,
+        app: connection.app,
+        required: connection.required,
+        status: connection.status,
+      })),
+    },
     inbox: {
       email: options.agentInbox?.email ?? null,
       status: options.agentInbox?.status ?? (options.agentInbox?.email ? "ready" : "not_created"),
@@ -214,7 +275,11 @@ async function buildIntegrationManifest(
       voice_agent:
         requiredIds.has("phone_sms") || options.blueprint?.template_id === "phone_receptionist",
       agent_inbox: Boolean(options.agentInbox?.email) || requiredIds.has("email"),
-      docs_sheets_gmail: requiredIds.has("email") || requiredIds.has("calendar"),
+      calendar: requiredIds.has("calendar"),
+      gmail: requiredIds.has("email"),
+      google_docs: requiredIds.has("google_docs"),
+      google_drive: requiredIds.has("google_drive"),
+      google_sheets: requiredIds.has("google_sheets"),
     },
     secret_names: secretNamesForIntegrations(integrationStatus.auth_configs),
   };
@@ -229,14 +294,32 @@ async function writeStartupScript(
   const secretNames = manifest.secret_names.join(",");
   const script = `#!/usr/bin/env bash
 set -euo pipefail
+set +x
+export CLAWFORGE_REPO_URL="\${CLAWFORGE_REPO_URL:-https://github.com/animvsh/clawforge.git}"
+export CLAWFORGE_ROOT="\${CLAWFORGE_ROOT:-/home/ubuntu/workspace/clawforge}"
 export CLAWFORGE_INTEGRATION_MANIFEST_B64=${shellQuote(manifestB64)}
 export CLAWFORGE_REQUIRED_SECRET_NAMES=${shellQuote(secretNames)}
 export CLAWFORGE_AGENT_NAME=${shellQuote(manifest.agent.name)}
 export CLAWFORGE_BLUEPRINT_ID=${shellQuote(manifest.agent.blueprint_id ?? "")}
+export CLAWFORGE_MODEL=${shellQuote(manifest.agent.model ?? "")}
+export CLAWFORGE_PROVIDER=${shellQuote(manifest.agent.provider ?? "")}
+export CLAWFORGE_MEMORY_ENGINE="mem0"
+export CLAWFORGE_MEMORY_HOST="brev"
+if ! command -v git >/dev/null 2>&1; then
+  sudo apt-get update
+  sudo apt-get install -y git
+fi
+mkdir -p "$(dirname "\${CLAWFORGE_ROOT}")"
+if [[ ! -d "\${CLAWFORGE_ROOT}/.git" ]]; then
+  git clone "\${CLAWFORGE_REPO_URL}" "\${CLAWFORGE_ROOT}"
+else
+  git -C "\${CLAWFORGE_ROOT}" pull --ff-only || true
+fi
+cd "\${CLAWFORGE_ROOT}"
 ./scripts/brev/setup-clawforge.sh
 `;
 
-  if (import.meta.env.SSR === true && typeof process !== "undefined") {
+  if (hasNodeRuntime()) {
     try {
       const fs = await import("node:fs/promises");
       const path = await import("node:path");
@@ -258,7 +341,7 @@ export async function runCommand(
   args: string[],
   timeoutMs = 8_000,
 ): Promise<CommandResult> {
-  if (import.meta.env.SSR !== true) {
+  if (!hasNodeRuntime()) {
     return { ok: false, stdout: "", stderr: "Server runtime unavailable.", exitCode: null };
   }
 
@@ -385,16 +468,55 @@ export async function getBrevStatus(): Promise<BrevStatus> {
   };
 }
 
-export function openHandsConnection(): OpenHandsConnection {
-  const workspaceUrl = readEnv("OPENHANDS_WORKSPACE_URL") || readEnv("NEMOCLAW_OPENHANDS_URL");
-  const runtimeApiUrl = readEnv("OPENHANDS_RUNTIME_API_URL") || readEnv("RUNTIME_API_URL");
+function envOrRuntime(env: Record<string, string | undefined>, name: string): string {
+  return env[name] ?? readEnv(name);
+}
+
+export function openHandsConnection(
+  env: Record<string, string | undefined> = {},
+): OpenHandsConnection {
+  const workspaceUrl =
+    envOrRuntime(env, "OPENHANDS_WORKSPACE_URL") || envOrRuntime(env, "NEMOCLAW_OPENHANDS_URL");
+  const runtimeApiUrl =
+    envOrRuntime(env, "OPENHANDS_RUNTIME_API_URL") || envOrRuntime(env, "RUNTIME_API_URL");
   return {
     mode: workspaceUrl ? "remote" : runtimeApiUrl ? "remote" : "simulated",
     workspaceUrl: workspaceUrl || null,
     runtimeApiUrl: runtimeApiUrl || null,
-    serverImage: readEnv("OPENHANDS_SERVER_IMAGE") || DEFAULT_SERVER_IMAGE,
+    serverImage: envOrRuntime(env, "OPENHANDS_SERVER_IMAGE") || DEFAULT_SERVER_IMAGE,
     conversationId: `clawforge_${DEMO_AGENT_ID}`,
   };
+}
+
+async function proxyRemoteRuntimeChat(
+  openHands: OpenHandsConnection,
+  message: string,
+  provider: ProviderMode,
+): Promise<OpenHandsChatResponse | null> {
+  if (!openHands.runtimeApiUrl) return null;
+  try {
+    const endpoint = new URL("/api/clawforge/remote-chat", openHands.runtimeApiUrl);
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message,
+        provider,
+        conversation_id: openHands.conversationId,
+      }),
+    });
+    const data = (await response.json()) as {
+      ok?: boolean;
+      chat?: OpenHandsChatResponse;
+      error?: { message?: string };
+    };
+    if (!response.ok || !data.ok || !data.chat) {
+      throw new Error(data.error?.message || "Remote NemoClaw runtime did not accept the chat.");
+    }
+    return data.chat;
+  } catch {
+    return null;
+  }
 }
 
 export async function createBrevLaunchPlan(
@@ -404,7 +526,7 @@ export async function createBrevLaunchPlan(
   const status = await getBrevStatus();
   const integrationManifest = await buildIntegrationManifest(instanceName, options);
   const startupScript = await writeStartupScript(instanceName, integrationManifest);
-  const command = `brev create ${instanceName} --gpu-name L40S --startup-script ${
+  const command = `brev create ${instanceName} --type l40s-48gb.1x --startup-script ${
     startupScript.inline ? "<inline-clawforge-startup>" : startupScript.arg
   }`;
   const openHands = openHandsConnection();
@@ -466,7 +588,7 @@ export async function createBrevLaunchPlan(
 
 export async function createBrevInstance(
   instanceName = "clawforge-nemoclaw",
-  instanceType = "verda_L40S",
+  instanceType = "l40s-48gb.1x",
   confirmed = false,
   options: BrevIntegrationOptions = {},
 ): Promise<BrevLaunchPlan> {
@@ -486,7 +608,7 @@ export async function createBrevInstance(
         action: "brev.create",
         effect: confirmed ? "allow" : "require_approval",
         instance_type: instanceType,
-        estimated_cost: "about $1.63/hr for the current cheapest L40S option",
+        estimated_cost: "about $1.74/hr for the current cheapest L40S option",
         agent_name: integrationManifest.agent.name,
         integration_manifest: {
           integrations: integrationManifest.integrations
@@ -611,8 +733,27 @@ export async function chatWithOpenHands(
   env: Record<string, string | undefined> = {},
   provider: ProviderMode = "auto",
 ): Promise<OpenHandsChatResponse> {
-  const openHands = openHandsConnection();
+  const openHands = openHandsConnection(env);
   const normalized = message.trim() || "Inspect the NemoClaw sandbox.";
+  if (env.CLAWFORGE_ALLOW_REMOTE_OPENHANDS !== "0") {
+    const remote = await proxyRemoteRuntimeChat(openHands, normalized, provider);
+    if (remote) {
+      return {
+        ...remote,
+        events: [
+          runtimeEvent(
+            "tool.called",
+            "Forwarded chat to the deployed NemoClaw runtime.",
+            "success",
+            {
+              runtime_api_url: openHands.runtimeApiUrl,
+            },
+          ),
+          ...remote.events,
+        ],
+      };
+    }
+  }
   const isReceptionistRequest =
     /\b(phone|call|calls|receptionist|sms|text|calendar|schedule|appointment|booking)\b/i.test(
       normalized,

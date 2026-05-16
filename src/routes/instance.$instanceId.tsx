@@ -3,7 +3,14 @@ import { ArrowLeft, ArrowUp, Check, Copy, Server, Shield, Sparkles } from "lucid
 import { useEffect, useMemo, useState } from "react";
 import { AuthPanel } from "@/components/clawforge/AuthPanel";
 import { ClawForgeLogo } from "@/components/clawforge/ClawForgeFrame";
+import { useClawForgeAuth } from "@/lib/clawforge/auth";
 import { getInstance, type ClawForgeInstance } from "@/lib/clawforge/instances";
+import {
+  chatModelOptions,
+  modelKey,
+  parseModelKey,
+  recommendModelForTemplate,
+} from "@/lib/clawforge/models";
 import type { ProviderMode, RuntimeEvent } from "@/lib/clawforge/types";
 
 export const Route = createFileRoute("/instance/$instanceId")({
@@ -18,27 +25,6 @@ export const Route = createFileRoute("/instance/$instanceId")({
   }),
   component: InstanceChatPage,
 });
-
-const modelOptions: Array<{
-  provider: ProviderMode;
-  model: string;
-  label: string;
-}> = [
-  { provider: "auto", model: "auto", label: "Auto" },
-  {
-    provider: "nemotron",
-    model: "nvidia/llama-3.1-nemotron-ultra-253b-v1",
-    label: "Nemotron Ultra",
-  },
-  {
-    provider: "nemotron",
-    model: "nvidia/llama-3.3-nemotron-super-49b-v1",
-    label: "Nemotron Super",
-  },
-  { provider: "nemotron", model: "nvidia/llama-3.1-nemotron-70b-instruct", label: "Nemotron 70B" },
-  { provider: "minimax", model: "minimax-text-01", label: "MiniMax Text" },
-  { provider: "pi", model: "pi-coding-agent", label: "Pi Coding SDK" },
-];
 
 function timeLabel(value: string) {
   if (!value) return "now";
@@ -62,6 +48,7 @@ function statusCopy(instance: ClawForgeInstance) {
 
 function InstanceChatPage() {
   const { instanceId } = Route.useParams();
+  const auth = useClawForgeAuth();
   const [loaded, setLoaded] = useState(false);
   const [instance, setInstance] = useState<ClawForgeInstance | null>(null);
   const [message, setMessage] = useState("");
@@ -73,11 +60,13 @@ function InstanceChatPage() {
   const [chat, setChat] = useState<Array<[string, string]>>([]);
 
   useEffect(() => {
+    if (!auth.isAuthenticated) return;
     const stored = getInstance(instanceId);
     setInstance(stored);
     if (stored) {
-      setProvider(stored.blueprint?.provider ?? "auto");
-      setModel(stored.blueprint?.model ?? "auto");
+      const recommended = recommendModelForTemplate(stored.blueprint?.template_id);
+      setProvider(stored.blueprint?.provider ?? recommended.provider);
+      setModel(stored.blueprint?.model ?? recommended.model);
       setEvents([
         {
           id: `instance_loaded_${stored.id}`,
@@ -96,7 +85,7 @@ function InstanceChatPage() {
       ]);
     }
     setLoaded(true);
-  }, [instanceId]);
+  }, [auth.isAuthenticated, instanceId]);
 
   const shareUrl = useMemo(() => {
     if (typeof window === "undefined") return `/instance/${instanceId}`;
@@ -180,7 +169,7 @@ function InstanceChatPage() {
   }
 
   function selectModel(value: string) {
-    const selected = modelOptions.find((option) => `${option.provider}:${option.model}` === value);
+    const selected = parseModelKey(value);
     if (!selected) return;
     setProvider(selected.provider);
     setModel(selected.model);
@@ -191,6 +180,14 @@ function InstanceChatPage() {
     await navigator.clipboard.writeText(shareUrl);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1400);
+  }
+
+  if (!auth.isAuthenticated) {
+    return (
+      <main className="min-h-screen bg-black text-white">
+        <AuthPanel forceOpen locked />
+      </main>
+    );
   }
 
   if (!loaded) {
@@ -311,23 +308,6 @@ function InstanceChatPage() {
                   </div>
                   <h2 className="mt-2 text-2xl font-semibold text-white">{instance.agentName}</h2>
                 </div>
-                <label className="flex items-center gap-2 text-sm text-white/48">
-                  Model
-                  <select
-                    value={`${provider}:${model}`}
-                    onChange={(event) => selectModel(event.target.value)}
-                    className="rounded-full border border-white/12 bg-black px-3 py-2 text-sm text-white outline-none"
-                  >
-                    {modelOptions.map((option) => (
-                      <option
-                        key={`${option.provider}:${option.model}`}
-                        value={`${option.provider}:${option.model}`}
-                      >
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
               </div>
             </div>
 
@@ -369,25 +349,50 @@ function InstanceChatPage() {
                   event.preventDefault();
                   void sendChat();
                 }}
-                className="flex items-center gap-2 rounded-[24px] border border-white/14 bg-[#20201e] p-2"
+                className="overflow-hidden rounded-[26px] border border-white/14 bg-[#20201e] shadow-[0_18px_70px_rgba(0,0,0,0.35)] transition focus-within:border-white/32"
               >
                 <input
                   value={message}
                   onChange={(event) => setMessage(event.target.value)}
-                  className="min-w-0 flex-1 bg-transparent px-3 text-sm text-white outline-none placeholder:text-white/25"
+                  className="min-h-16 w-full bg-transparent px-5 pt-4 text-sm text-white outline-none placeholder:text-white/25"
                   placeholder={
                     loading ? "The instance is thinking..." : "Talk to this NemoClaw instance..."
                   }
                   disabled={loading}
                 />
-                <button
-                  type="submit"
-                  className="grid h-10 w-10 place-items-center rounded-full bg-white text-black disabled:opacity-50"
-                  aria-label="Send instance message"
-                  disabled={loading}
-                >
-                  <ArrowUp className="h-4 w-4" aria-hidden="true" />
-                </button>
+                <div className="flex items-center justify-between gap-2 px-2 pb-2">
+                  <label className="flex min-w-0 items-center gap-2 rounded-full border border-white/10 bg-black/38 px-3 py-2 text-xs text-white/48">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" aria-hidden="true" />
+                    <span className="sr-only">Model</span>
+                    <select
+                      aria-label="Choose instance chat model"
+                      value={modelKey({ provider, model })}
+                      onChange={(event) => selectModel(event.target.value)}
+                      className="max-w-[160px] bg-transparent text-xs text-white outline-none"
+                    >
+                      {chatModelOptions.map((option) => (
+                        <option
+                          key={modelKey(option)}
+                          value={modelKey(option)}
+                          className="bg-black"
+                        >
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <span className="hidden min-w-0 flex-1 truncate text-xs text-white/32 sm:block">
+                    Model applies to this instance chat.
+                  </span>
+                  <button
+                    type="submit"
+                    className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-black transition hover:bg-white/88 disabled:opacity-50"
+                    aria-label="Send instance message"
+                    disabled={loading}
+                  >
+                    <ArrowUp className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </div>
               </form>
             </div>
           </div>

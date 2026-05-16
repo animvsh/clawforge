@@ -4,6 +4,8 @@ ClawForge is a one-prompt builder for secure autonomous agents. The current repo
 
 Live app: https://clawforge.aalang.workers.dev/
 
+Canonical app host: Railway Node service
+
 Backend health: https://clawforge.aalang.workers.dev/api/health
 
 GitHub repo: https://github.com/animvsh/clawforge
@@ -24,6 +26,31 @@ For local browser testing on the requested port:
 ```sh
 npm run dev -- --host 0.0.0.0 --port 8080
 ```
+
+## Railway App Host
+
+Railway is the primary host for the full ClawForge app/API because it runs a
+normal Node container. The Docker image builds the TanStack app, installs the
+Brev CLI, serves `dist/client` assets, and routes every API/SSR request through
+`dist/server/index.js`.
+
+Required Railway variables:
+
+- `BREV_TOKEN` - lets Railway call `brev create` for generated NemoClaw instances.
+- `NVIDIA_API_KEY` - Nemotron/NIM reasoning.
+- `MINIMAX_API_KEY` and `MINIMAX_PLAN_KEY` - MiniMax fallback.
+- `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` - account UI.
+- `COMPOSIO_API_KEY`, `AGENTMAIL_API_KEY`, and `VAPI_API_KEY` when integrations are enabled.
+
+Deploy shape:
+
+```sh
+railway init --name clawforge
+railway up
+railway domain
+```
+
+Railway health check path is `/api/health`.
 
 ## App Pages
 
@@ -60,7 +87,7 @@ Create secrets in Brev by name only. Do not paste real values into Git, docs, sc
 - `SUPABASE_SERVICE_ROLE_KEY` only if server-side persistence is enabled
 - `COMPOSIO_API_KEY` only if the integration provider is used from Brev
 
-Start from the repo with the Brev setup script:
+Start from the repo with the Brev setup script on the created Brev VM:
 
 ```sh
 scripts/brev/setup-clawforge.sh

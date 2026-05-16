@@ -88,6 +88,8 @@ const fs = require("node:fs");
 const manifest = JSON.parse(fs.readFileSync(".runtime/integrations/active.json", "utf8"));
 console.log(`  agent: ${manifest.agent?.name || "ClawForge Agent"}`);
 console.log(`  blueprint: ${manifest.agent?.blueprint_id || "none"}`);
+console.log(`  model: ${manifest.agent?.model || process.env.CLAWFORGE_MODEL || "auto"}`);
+console.log(`  memory: ${manifest.memory?.engine || "mem0"} on ${manifest.memory?.hosted_on || "brev"}`);
 console.log(`  inbox: ${manifest.inbox?.email || "not created"}`);
 for (const integration of manifest.integrations || []) {
   if (integration.required || integration.connected_account_id || integration.auth_config_id) {
@@ -98,6 +100,19 @@ NODE
 else
   log "No custom integration manifest supplied."
 fi
+
+log "Configuring workspace memory"
+cat > .runtime/memory/mem0-runtime.json <<EOF
+{
+  "engine": "mem0",
+  "hosted_on": "brev",
+  "scope": "workspace",
+  "reasoning_model": "${CLAWFORGE_MODEL:-nvidia/llama-3.1-nemotron-nano-8b-v1}",
+  "embedding_model": "nvidia/nv-embedqa-e5-v5",
+  "storage_path": ".runtime/memory"
+}
+EOF
+chmod 600 .runtime/memory/mem0-runtime.json
 
 log "Checking required Brev secret names. Values are intentionally hidden."
 required_secret_names=(
@@ -111,6 +126,8 @@ required_secret_names=(
 optional_secret_names=(
   SUPABASE_SERVICE_ROLE_KEY
   COMPOSIO_API_KEY
+  MEM0_API_URL
+  MEM0_API_KEY
   NEMOCLAW_INSTALL_URL
   AGENTMAIL_API_KEY
   VAPI_API_KEY
@@ -181,11 +198,57 @@ fi
 log "Building ClawForge"
 npm run build
 
+log "Writing NemoClaw instance runtime manifest"
+mkdir -p .runtime/nemoclaw
+cat > .runtime/nemoclaw/instance.json <<JSON
+{
+  "ok": true,
+  "agent_name": "${CLAWFORGE_AGENT_NAME:-ClawForge Agent}",
+  "blueprint_id": "${CLAWFORGE_BLUEPRINT_ID:-}",
+  "runtime": "NemoClaw",
+  "policy_mode": "enforced",
+  "chat_web_ui": "http://0.0.0.0:${CLAWFORGE_WEB_PORT:-5173}",
+  "health_url": "http://127.0.0.1:${CLAWFORGE_WEB_PORT:-5173}/api/health",
+  "integration_manifest": "${CLAWFORGE_INTEGRATION_MANIFEST_PATH:-}",
+  "created_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+}
+JSON
+chmod 600 .runtime/nemoclaw/instance.json
+
+if [[ "${START_CLAWFORGE_WEB:-1}" == "1" ]]; then
+  port="${CLAWFORGE_WEB_PORT:-5173}"
+  log "Starting ClawForge chat web UI on 0.0.0.0:${port}"
+  if [[ -f .runtime/clawforge-web.pid ]]; then
+    old_pid="$(cat .runtime/clawforge-web.pid || true)"
+    if [[ -n "${old_pid}" ]] && kill -0 "${old_pid}" >/dev/null 2>&1; then
+      log "ClawForge web UI already running with pid ${old_pid}."
+    else
+      rm -f .runtime/clawforge-web.pid
+    fi
+  fi
+
+  if [[ ! -f .runtime/clawforge-web.pid ]]; then
+    nohup npm run dev -- --host 0.0.0.0 --port "${port}" > .runtime/clawforge-web.log 2>&1 &
+    echo "$!" > .runtime/clawforge-web.pid
+    sleep 5
+  fi
+
+  if curl -fsS "http://127.0.0.1:${port}/api/health" >/tmp/clawforge-health.json; then
+    log "ClawForge chat web UI is healthy."
+    cat /tmp/clawforge-health.json
+    rm -f /tmp/clawforge-health.json
+  else
+    warn "ClawForge web UI did not pass health check yet. Inspect .runtime/clawforge-web.log on the Brev VM."
+  fi
+else
+  log "Skipping web UI start because START_CLAWFORGE_WEB=0."
+fi
+
 cat <<'NEXT'
 
 [clawforge-brev] Setup complete.
 
-Run ClawForge on Brev:
+If the setup did not auto-start it, run ClawForge on Brev:
   npm run dev -- --host 0.0.0.0 --port 5173
 
 Preview the production build on Brev:

@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { AgentBuilder } from "@/components/clawforge/AgentBuilder";
 import { ClawForgeFrame, PageShell } from "@/components/clawforge/ClawForgeFrame";
+import { createProject } from "@/lib/clawforge/projects";
 import type { BlueprintResponse } from "@/lib/clawforge/types";
 
 export const Route = createFileRoute("/builder")({
@@ -33,7 +34,11 @@ function BuilderPage() {
         <AgentBuilder
           onBlueprint={(blueprint) => {
             storeBlueprint(blueprint);
-            void navigate({ to: "/blueprint" });
+            const project = createProject(blueprint.custom_goal || blueprint.goal);
+            void navigate({
+              to: "/workspace/$projectId",
+              params: { projectId: project.id },
+            });
           }}
         />
       </PageShell>

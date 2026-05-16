@@ -4,6 +4,9 @@ export type IntegrationId =
   | "email"
   | "crm"
   | "github"
+  | "google_docs"
+  | "google_drive"
+  | "google_sheets"
   | "linear"
   | "slack"
   | "agent_email"
@@ -99,6 +102,27 @@ const integrationDefinitions: Array<{
     label: "Email",
     toolkit: "gmail",
     purpose: "Send approved confirmations, intake follow-ups, and call summaries.",
+    connectable: true,
+  },
+  {
+    id: "google_docs",
+    label: "Docs",
+    toolkit: "googledocs",
+    purpose: "Read, draft, and update approved documents for the agent workflow.",
+    connectable: true,
+  },
+  {
+    id: "google_sheets",
+    label: "Sheets",
+    toolkit: "googlesheets",
+    purpose: "Read and update approved spreadsheets, trackers, and structured records.",
+    connectable: true,
+  },
+  {
+    id: "google_drive",
+    label: "Drive",
+    toolkit: "googledrive",
+    purpose: "Find and store approved documents, sheets, and generated reports.",
     connectable: true,
   },
   {

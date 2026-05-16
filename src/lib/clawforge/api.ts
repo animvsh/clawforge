@@ -42,6 +42,7 @@ import {
   handleMemoryList,
 } from "./memory/gateway";
 import { createIntegrationConnectLink, getIntegrationStatus } from "./integrations/composio";
+import { createPipedreamConnectToken, getPipedreamStatus } from "./integrations/pipedream";
 import { createAgentMailInbox } from "./integrations/agentmail";
 import { saveAgentRun, saveMemory } from "./storage";
 import type {
@@ -308,7 +309,11 @@ async function createProviderBackedBlueprint(
   if (provider === "mock") return blueprint;
 
   try {
-    const registry = createProviderRegistry(runtimeEnv(workerEnv));
+    const modelProvider: ProviderMode = provider === "auto" ? "nemotron" : provider;
+    const registry = createProviderRegistry({
+      ...runtimeEnv(workerEnv),
+      ...providerModelEnvOverride(modelProvider, blueprint.model),
+    });
     const liveProvider = registry.getProvider(provider);
     if (liveProvider.mode === "mock") {
       return {
@@ -334,6 +339,7 @@ async function createProviderBackedBlueprint(
 
     return {
       ...blueprint,
+      provider: liveProvider.mode,
       model: liveModel,
       description: summary || blueprint.description,
       workflow_steps: providerSteps.slice(0, 6).map((step, index) => ({
@@ -554,6 +560,35 @@ export async function handleClawForgeApi(
   }
 
   if (
+    (apiPath === "/api/clawforge/pipedream/status" || apiPath === "/clawforge/pipedream/status") &&
+    request.method === "POST"
+  ) {
+    const body = await readJsonBody<{ blueprint?: unknown }>(request);
+    const blueprint = isBlueprintResponse(body.blueprint) ? body.blueprint : undefined;
+    return successResponse({
+      pipedream: await getPipedreamStatus(workerEnv, blueprint?.integration_requirements ?? []),
+    });
+  }
+
+  if (
+    (apiPath === "/api/clawforge/pipedream/connect" ||
+      apiPath === "/clawforge/pipedream/connect") &&
+    request.method === "POST"
+  ) {
+    try {
+      return successResponse({
+        connect: await createPipedreamConnectToken(request.clone(), workerEnv),
+      });
+    } catch (error) {
+      return errorResponse(
+        error instanceof Error ? error.message : "Could not create tool connect link.",
+        400,
+        "INVALID_REQUEST",
+      );
+    }
+  }
+
+  if (
     (apiPath === "/api/clawforge/integrations/connect" ||
       apiPath === "/clawforge/integrations/connect") &&
     request.method === "POST"
@@ -633,7 +668,7 @@ export async function handleClawForgeApi(
     const instanceType =
       typeof body.instance_type === "string" && body.instance_type.trim()
         ? body.instance_type.trim()
-        : "verda_L40S";
+        : "l40s-48gb.1x";
     const agentInbox =
       body.agent_inbox && typeof body.agent_inbox === "object" && !Array.isArray(body.agent_inbox)
         ? (body.agent_inbox as { email?: string; status?: string })
@@ -705,6 +740,36 @@ export async function handleClawForgeApi(
         {
           ...runtimeEnv(workerEnv),
           ...providerModelEnvOverride(provider, body.model),
+        },
+        provider,
+      ),
+    });
+  }
+
+  if (
+    (apiPath === "/api/clawforge/remote-chat" || apiPath === "/clawforge/remote-chat") &&
+    request.method === "POST"
+  ) {
+    const body = await readJsonBody<{ message?: unknown; provider?: unknown; model?: unknown }>(
+      request,
+    );
+    const message = typeof body.message === "string" ? body.message : "";
+    const provider = normalizeProvider(body.provider);
+    if (provider === null) {
+      return errorResponse(
+        "Invalid provider value. Must be one of: auto, nemotron, minimax, pi, mock.",
+        400,
+        "INVALID_REQUEST",
+        "provider",
+      );
+    }
+    return successResponse({
+      chat: await chatWithOpenHands(
+        message,
+        {
+          ...runtimeEnv(workerEnv),
+          ...providerModelEnvOverride(provider, body.model),
+          CLAWFORGE_ALLOW_REMOTE_OPENHANDS: "0",
         },
         provider,
       ),
@@ -1077,67 +1142,67 @@ export async function handleClawForgeApi(
   }
 
   // ============================================================
-// Memory Gateway — /api/memory/*
-//
-// All memory operations are scope-isolated. user_id is derived
-// from the server session and never accepted from the client.
-// ============================================================
+  // Memory Gateway — /api/memory/*
+  //
+  // All memory operations are scope-isolated. user_id is derived
+  // from the server session and never accepted from the client.
+  // ============================================================
 
-// GET /api/memory/health — no auth required
-if (apiPath === "/api/memory/health" && request.method === "GET") {
-  return handleMemoryHealth();
-}
+  // GET /api/memory/health — no auth required
+  if (apiPath === "/api/memory/health" && request.method === "GET") {
+    return handleMemoryHealth();
+  }
 
-// POST /api/memory/search
-if (apiPath === "/api/memory/search" && request.method === "POST") {
-  const body = await readJsonBody<{
-    query?: unknown;
-    project_id?: unknown;
-    agent_id?: unknown;
-    type?: unknown;
-    limit?: unknown;
-  }>(request);
-  return handleMemorySearch(body);
-}
+  // POST /api/memory/search
+  if (apiPath === "/api/memory/search" && request.method === "POST") {
+    const body = await readJsonBody<{
+      query?: unknown;
+      project_id?: unknown;
+      agent_id?: unknown;
+      type?: unknown;
+      limit?: unknown;
+    }>(request);
+    return handleMemorySearch(body);
+  }
 
-// POST /api/memory/add
-if (apiPath === "/api/memory/add" && request.method === "POST") {
-  const body = await readJsonBody<{
-    project_id?: unknown;
-    agent_id?: unknown;
-    run_id?: unknown;
-    workspace_id?: unknown;
-    content?: unknown;
-    type?: unknown;
-  }>(request);
-  return handleMemoryAdd(body);
-}
+  // POST /api/memory/add
+  if (apiPath === "/api/memory/add" && request.method === "POST") {
+    const body = await readJsonBody<{
+      project_id?: unknown;
+      agent_id?: unknown;
+      run_id?: unknown;
+      workspace_id?: unknown;
+      content?: unknown;
+      type?: unknown;
+    }>(request);
+    return handleMemoryAdd(body);
+  }
 
-// POST /api/memory/update
-if (apiPath === "/api/memory/update" && request.method === "POST") {
-  const body = await readJsonBody<{
-    id?: unknown;
-    content?: unknown;
-    metadata?: unknown;
-  }>(request);
-  return handleMemoryUpdate(body);
-}
+  // POST /api/memory/update
+  if (apiPath === "/api/memory/update" && request.method === "POST") {
+    const body = await readJsonBody<{
+      id?: unknown;
+      content?: unknown;
+      metadata?: unknown;
+    }>(request);
+    return handleMemoryUpdate(body);
+  }
 
-// POST /api/memory/delete
-if (apiPath === "/api/memory/delete" && request.method === "POST") {
-  const body = await readJsonBody<{
-    id?: unknown;
-    project_id?: unknown;
-  }>(request);
-  return handleMemoryDelete(body);
-}
+  // POST /api/memory/delete
+  if (apiPath === "/api/memory/delete" && request.method === "POST") {
+    const body = await readJsonBody<{
+      id?: unknown;
+      project_id?: unknown;
+    }>(request);
+    return handleMemoryDelete(body);
+  }
 
-// GET /api/memory/list
-if (apiPath === "/api/memory/list" && request.method === "GET") {
-  return handleMemoryList(url.searchParams);
-}
+  // GET /api/memory/list
+  if (apiPath === "/api/memory/list" && request.method === "GET") {
+    return handleMemoryList(url.searchParams);
+  }
 
-return undefined;
+  return undefined;
 }
 
 // Re-export types for external consumption

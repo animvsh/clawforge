@@ -8,7 +8,8 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
-    "start": "serve dist/client -s -l tcp://0.0.0.0:${PORT:-4173}",
+    "start": "node scripts/railway/serve-clawforge.mjs",
+    "start:railway": "node scripts/railway/serve-clawforge.mjs",
     "lint": "eslint .",
     "format": "prettier --write ."
   },
@@ -67,6 +68,7 @@
     "recharts": "^2.15.4",
     "serve": "^14.2.6",
     "sonner": "^2.0.7",
+    "srvx": "^0.11.15",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.1",
     "tw-animate-css": "^1.3.4",

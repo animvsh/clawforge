@@ -8,6 +8,7 @@ import type {
   ProviderMode,
   RuntimeEvent,
 } from "./types";
+import { recommendModelForTemplate } from "./models";
 
 export const DEMO_AGENT_ID = "agent_sentinelclaw_demo";
 export const DEMO_BLUEPRINT_ID = "bp_sentinelclaw_demo";
@@ -800,12 +801,13 @@ export const templateById: Record<AgentTemplateId, BlueprintTemplate> = {
   },
 };
 
-function modelForProvider(provider: ProviderMode): string {
+function modelForProvider(provider: ProviderMode, templateId?: AgentTemplateId): string {
+  if (provider === "auto") return recommendModelForTemplate(templateId).model;
   const selectedProvider = provider === "auto" ? "nemotron" : provider;
   if (selectedProvider === "minimax") return "minimax/token-plan";
   if (selectedProvider === "mock") return "mock/nemoclaw-blueprint";
   if (selectedProvider === "pi") return "pi-coding/default";
-  return "nvidia/nemotron";
+  return recommendModelForTemplate(templateId).model;
 }
 
 function configPreview(
@@ -903,6 +905,42 @@ function integrationRequirementsForGoal(prompt: string): IntegrationRequirement[
       status: "required",
     });
   }
+  if (/\b(doc|docs|document|documents|google doc|writeup|brief)\b/.test(normalized)) {
+    add({
+      id: "google_docs",
+      label: "Docs",
+      purpose: "Draft, review, and update approved documents for this workflow.",
+      status: "required",
+    });
+    add({
+      id: "google_drive",
+      label: "Drive",
+      purpose: "Find and store approved documents and generated reports.",
+      status: "optional",
+    });
+  }
+  if (/\b(sheet|sheets|spreadsheet|spread spreadsheets|tracker|row|rows)\b/.test(normalized)) {
+    add({
+      id: "google_sheets",
+      label: "Sheets",
+      purpose: "Read and update approved spreadsheets or trackers.",
+      status: "required",
+    });
+    add({
+      id: "google_drive",
+      label: "Drive",
+      purpose: "Find and store approved spreadsheets and generated reports.",
+      status: "optional",
+    });
+  }
+  if (/\b(slack|channel|channels|team notification|internal notification)\b/.test(normalized)) {
+    add({
+      id: "slack",
+      label: "Slack",
+      purpose: "Send approved internal updates and team handoffs.",
+      status: "required",
+    });
+  }
   if (/\b(customer|lead|crm|contact|contacts)\b/.test(normalized)) {
     add({
       id: "crm",
@@ -946,7 +984,7 @@ export function createTemplateBlueprint(
   blueprintId = templateById[templateId].blueprint_id,
 ): BlueprintResponse {
   const template = templateById[templateId];
-  const model = modelForProvider(provider);
+  const model = modelForProvider(provider, templateId);
   const integrations = integrationRequirementsForGoal(customGoal);
 
   return {
