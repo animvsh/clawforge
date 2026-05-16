@@ -994,7 +994,7 @@ Goal: Turn the landing page into the ClawForge product shell.
 
 Tasks:
 
-- Replace generic AI employee landing copy with ClawForge PRD copy.
+- Replace any non-ClawForge landing copy with ClawForge PRD copy.
 - Add prompt entry in hero.
 - Add example prompt chips.
 - Add sections for OpenClaw, NemoClaw, Nemotron, MiniMax, policies, memory, and live logs.

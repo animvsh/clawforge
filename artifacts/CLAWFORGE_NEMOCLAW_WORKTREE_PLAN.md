@@ -102,7 +102,7 @@ Primary files:
 
 Goal:
 
-Remove any remaining generic AI workspace language and make the landing page say exactly what ClawForge is: the secure agent factory for NemoClaw.
+Remove any remaining unrelated workspace language and make the landing page say exactly what ClawForge is: the secure agent factory for NemoClaw.
 
 Acceptance criteria:
 
@@ -110,7 +110,7 @@ Acceptance criteria:
 - CTA says "Build NemoClaw Agent."
 - Secondary CTA says "Watch Safety Demo."
 - Page explains prompt -> NemoClaw blueprint -> sandboxed agent -> policy enforcement -> memory -> safe completion.
-- No copy implies ClawForge is a generic AI workspace, chatbot, or app builder.
+- No copy implies ClawForge is Lantern, a Slack-like workspace, a chatbot, or an app builder.
 - Buildspace-inspired simplicity remains intact.
 
 ## Lane B: Prompt Builder And Generation States

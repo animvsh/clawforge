@@ -58,7 +58,7 @@ Dependencies: Final PRD copy, existing app routing.
 
 #### Issue 1.1.1: Replace Landing Page Copy With ClawForge Positioning
 
-Description: Replace generic AI employee copy with ClawForge-specific messaging, including the one-prompt secure autonomous agent builder positioning.
+Description: Replace any non-ClawForge landing copy with ClawForge-specific messaging, including the one-prompt secure autonomous agent builder positioning.
 
 Acceptance criteria:
 

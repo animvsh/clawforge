@@ -168,7 +168,7 @@ Primary files:
 
 Scope:
 
-- Replace the generic AI employee landing copy with ClawForge positioning.
+- Replace any non-ClawForge landing copy with ClawForge positioning.
 - Add hero prompt entry.
 - Add example prompt chips.
 - Add product sections for OpenClaw, NemoClaw, Nemotron, MiniMax, policy, memory, and live logs.
