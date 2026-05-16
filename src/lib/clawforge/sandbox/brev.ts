@@ -47,6 +47,12 @@ type CommandResult = {
 
 const INSTALL_COMMAND = "brew install brevdev/homebrew-brev/brev";
 const DEFAULT_SERVER_IMAGE = "ghcr.io/openhands/agent-server:main-python";
+const BREV_CANDIDATE_PATHS = [
+  "/opt/homebrew/bin/brev",
+  "/usr/local/bin/brev",
+  "/usr/bin/brev",
+  "brev",
+];
 
 function now(): string {
   return new Date().toISOString();
@@ -88,10 +94,22 @@ async function runCommand(
   try {
     const childProcess = await import("node:child_process");
     const result = await new Promise<CommandResult>((resolve) => {
+      const env = {
+        ...process.env,
+        PATH: [
+          "/opt/homebrew/bin",
+          "/usr/local/bin",
+          "/usr/bin",
+          "/bin",
+          "/usr/sbin",
+          "/sbin",
+          process.env.PATH ?? "",
+        ].join(":"),
+      };
       const child = childProcess.execFile(
         command,
         args,
-        { timeout: timeoutMs },
+        { timeout: timeoutMs, env },
         (error, stdout, stderr) => {
           resolve({
             ok: !error,
@@ -141,9 +159,23 @@ function parseBrevInstances(stdout: string): Array<Record<string, unknown>> {
   return [];
 }
 
+async function resolveBrevCli(): Promise<string | null> {
+  for (const candidate of BREV_CANDIDATE_PATHS) {
+    const result =
+      candidate === "brev"
+        ? await runCommand("which", ["brev"], 3_000)
+        : await runCommand(candidate, ["--help"], 3_000);
+
+    if (result.ok) {
+      return candidate === "brev" ? result.stdout.trim() : candidate;
+    }
+  }
+
+  return null;
+}
+
 export async function getBrevStatus(): Promise<BrevStatus> {
-  const cli = await runCommand("which", ["brev"], 3_000);
-  const cliPath = cli.ok ? cli.stdout.trim() : null;
+  const cliPath = await resolveBrevCli();
 
   if (!cliPath) {
     return {
@@ -158,12 +190,16 @@ export async function getBrevStatus(): Promise<BrevStatus> {
 
   const list = await runCommand(cliPath, ["ls", "--json"], 10_000);
   if (!list.ok) {
+    const message = [list.stderr, list.stdout].filter(Boolean).join("\n").trim();
+    const needsAuth = /login|auth|token|forbidden|logged out/i.test(message);
     return {
       ok: false,
-      status: /login|auth|token/i.test(list.stderr) ? "not_authenticated" : "error",
+      status: needsAuth ? "not_authenticated" : "error",
       cliPath,
       instances: [],
-      message: list.stderr.trim() || "Brev CLI is installed but could not list instances.",
+      message: needsAuth
+        ? "Brev CLI is installed but needs a fresh login before it can create a NemoClaw instance."
+        : message || "Brev CLI is installed but could not list instances.",
       installCommand: INSTALL_COMMAND,
     };
   }

@@ -818,7 +818,7 @@ export const demoReport: IncidentReport = {
   severity: "high",
   detected_behavior: "Repeated failed login attempts",
   classification: "Credential access attempt with brute-force indicators",
-  model_used: "NVIDIA Nemotron via ClawForge mock demo path",
+  model_used: "NVIDIA Nemotron, with MiniMax as the fallback intelligence layer",
   runtime: "OpenClaw runtime inside NemoClaw sandbox",
   policy_triggered: "require_shell_approval",
   action_attempted: "block_ip 185.92.XX.XX",
