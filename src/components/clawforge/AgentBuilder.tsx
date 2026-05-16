@@ -1,4 +1,5 @@
-import type { BlueprintResponse, ProviderMode } from "@/lib/clawforge/types";
+import { agentTemplates } from "@/lib/clawforge/fixtures";
+import type { AgentTemplateId, BlueprintResponse, ProviderMode } from "@/lib/clawforge/types";
 import { useEffect, useState } from "react";
 
 export type AgentBuilderProps = {
@@ -24,29 +25,43 @@ const loadingSteps = [
 
 const promptTemplates = [
   {
+    id: "incident_response",
     label: "Incident response agent",
+    note: "Primary SentinelClaw hackathon demo.",
     prompt: defaultPrompt,
   },
   {
+    id: "github_triage",
     label: "GitHub triage agent",
+    note: "Read issues, draft triage, ask before posting.",
     prompt:
       "Create a NemoClaw agent that reads GitHub issues, identifies urgent bugs, drafts responses, and asks before posting.",
   },
   {
+    id: "inbox_approval",
     label: "Inbox approval agent",
+    note: "Summarize mail, draft replies, ask before sending.",
     prompt:
       "Create a NemoClaw agent that summarizes important emails, drafts replies, and asks before sending anything.",
   },
   {
+    id: "research_sandbox",
     label: "Research-only sandboxed agent",
+    note: "Read sources, save memory, block publishing.",
     prompt:
       "Create a NemoClaw agent that researches a topic, saves sources to memory, writes a brief, and cannot publish outside the sandbox.",
   },
-];
+] satisfies {
+  id: AgentTemplateId;
+  label: string;
+  note: string;
+  prompt: string;
+}[];
 
 export function AgentBuilder({ provider = "auto", onBlueprint }: AgentBuilderProps) {
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [selectedProvider, setSelectedProvider] = useState<ProviderMode>(provider);
+  const [selectedTemplate, setSelectedTemplate] = useState<AgentTemplateId>("incident_response");
   const [loading, setLoading] = useState(false);
   const [activeStep, setActiveStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -68,7 +83,7 @@ export function AgentBuilder({ provider = "auto", onBlueprint }: AgentBuilderPro
       const response = await fetch("/api/blueprints", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt, provider: selectedProvider }),
+        body: JSON.stringify({ prompt, provider: selectedProvider, template_id: selectedTemplate }),
       });
       const data = await response.json();
       if (!response.ok || !data.ok) {
@@ -97,17 +112,32 @@ export function AgentBuilder({ provider = "auto", onBlueprint }: AgentBuilderPro
           className="min-h-36 w-full resize-none rounded-xl border border-white/10 bg-white/[0.035] p-4 font-mono text-sm leading-relaxed text-white/85 outline-none transition placeholder:text-white/25 focus:border-white/30"
           placeholder="Create a NemoClaw agent that monitors system logs, detects suspicious behavior, writes an incident report, and asks before executing commands."
         />
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
           {promptTemplates.map((template) => (
             <button
               key={template.label}
               type="button"
-              onClick={() => setPrompt(template.prompt)}
-              className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/60 transition hover:border-white/25 hover:text-white"
+              onClick={() => {
+                setSelectedTemplate(template.id);
+                setPrompt(template.prompt);
+              }}
+              className={`rounded-xl border px-3 py-3 text-left transition ${
+                selectedTemplate === template.id
+                  ? "border-emerald-300/40 bg-emerald-300/[0.08] text-white"
+                  : "border-white/10 bg-white/[0.02] text-white/65 hover:border-white/25 hover:text-white"
+              }`}
             >
-              {template.label}
+              <span className="block text-xs font-semibold">{template.label}</span>
+              <span className="mt-1 block text-[11px] leading-relaxed text-white/45">
+                {template.note}
+              </span>
             </button>
           ))}
+        </div>
+        <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs leading-relaxed text-white/55">
+          {agentTemplates.find((template) => template.id === selectedTemplate)?.label} generates a
+          NemoClaw sandbox profile with allowed tools, approval gates, blocked actions, and memory
+          rules.
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <select

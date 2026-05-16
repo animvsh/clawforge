@@ -1,4 +1,9 @@
 export type ProviderMode = "auto" | "nemotron" | "minimax" | "mock";
+export type AgentTemplateId =
+  | "incident_response"
+  | "github_triage"
+  | "inbox_approval"
+  | "research_sandbox";
 
 export type ToolPermission = "allowed" | "read_only" | "approval_required" | "blocked";
 export type RiskLevel = "low" | "medium" | "high";
@@ -56,6 +61,7 @@ export type BlueprintResponse = {
 export type BlueprintRequest = {
   prompt: string;
   provider?: ProviderMode;
+  template_id?: AgentTemplateId;
 };
 
 export type BlueprintApiResponse = {
@@ -65,6 +71,7 @@ export type BlueprintApiResponse = {
 
 export type DeployAgentRequest = {
   blueprint_id: string;
+  predeploy_run_id?: string;
 };
 
 export type DeployAgentResponse = {
@@ -153,4 +160,34 @@ export type IncidentReportResponse = {
   ok: true;
   agent_id: string;
   report: IncidentReport;
+};
+
+export type PolicyFinding = {
+  id: string;
+  action: string;
+  effect: PolicyEffect;
+  severity: "info" | "warning" | "error";
+  message: string;
+};
+
+export type ToolCallRecord = {
+  id: string;
+  action: string;
+  allowed: boolean;
+  approval_required: boolean;
+  blocked: boolean;
+  message: string;
+};
+
+export type PredeploySandboxStatus = "passed" | "failed" | "blocked" | "error";
+
+export type PredeploySandboxResult = {
+  ok: boolean;
+  runId: string;
+  status: PredeploySandboxStatus;
+  events: RuntimeEvent[];
+  policyFindings: PolicyFinding[];
+  toolCalls: ToolCallRecord[];
+  deploymentAllowed: boolean;
+  report: string;
 };

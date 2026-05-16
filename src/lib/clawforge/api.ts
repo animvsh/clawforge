@@ -7,7 +7,8 @@ import {
   startRuntime,
   stopRuntime,
 } from "./runtime";
-import type { ProviderMode } from "./types";
+import { collectSandboxEvents, getPredeployRunResult, runPredeployCheck } from "./sandbox";
+import type { AgentTemplateId, BlueprintResponse, ProviderMode } from "./types";
 
 function json(data: unknown, init?: ResponseInit): Response {
   return new Response(JSON.stringify(data), {
@@ -44,6 +45,30 @@ function normalizeProvider(value: unknown): ProviderMode {
     : "auto";
 }
 
+function normalizeTemplate(value: unknown): AgentTemplateId {
+  return value === "github_triage" ||
+    value === "inbox_approval" ||
+    value === "research_sandbox" ||
+    value === "incident_response"
+    ? value
+    : "incident_response";
+}
+
+function templateFromBlueprintId(value: unknown): AgentTemplateId {
+  if (value === "bp_github_triage_demo") return "github_triage";
+  if (value === "bp_inbox_approval_demo") return "inbox_approval";
+  if (value === "bp_research_sandbox_demo") return "research_sandbox";
+  return "incident_response";
+}
+
+function createBlueprintForRequest(body: Record<string, unknown>): BlueprintResponse {
+  const template =
+    typeof body.template_id === "string"
+      ? normalizeTemplate(body.template_id)
+      : templateFromBlueprintId(body.blueprint_id);
+  return createSentinelBlueprint(normalizeProvider(body.provider), template);
+}
+
 function sse(events: unknown[]): Response {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -75,14 +100,54 @@ export async function handleClawForgeApi(request: Request): Promise<Response | u
 
     return json({
       ok: true,
-      blueprint: createSentinelBlueprint(normalizeProvider(body.provider)),
+      blueprint: createSentinelBlueprint(
+        normalizeProvider(body.provider),
+        normalizeTemplate(body.template_id),
+      ),
     });
+  }
+
+  if (path === "/api/clawforge/agents/predeploy-test" && request.method === "POST") {
+    const body = await readJsonBody(request);
+    const scenario =
+      body.scenario === "raw_export" ||
+      body.scenario === "policy_tamper" ||
+      body.scenario === "timeout"
+        ? body.scenario
+        : "happy_path";
+    const result = runPredeployCheck(createBlueprintForRequest(body), scenario);
+    return json({ ok: true, predeploy: result });
+  }
+
+  const predeployEventsMatch = path.match(/^\/api\/clawforge\/predeploy-runs\/([^/]+)\/events$/);
+  if (predeployEventsMatch && request.method === "GET") {
+    const [, runId] = predeployEventsMatch;
+    return json({ ok: true, run_id: runId, events: collectSandboxEvents(runId) });
+  }
+
+  const predeployReportMatch = path.match(/^\/api\/clawforge\/predeploy-runs\/([^/]+)\/report$/);
+  if (predeployReportMatch && request.method === "GET") {
+    const [, runId] = predeployReportMatch;
+    const result = getPredeployRunResult(runId);
+    if (!result) return errorResponse("Unknown predeploy run.", 404);
+    return json({ ok: true, run_id: runId, report: result.report, predeploy: result });
   }
 
   if (path === "/api/agents/deploy" && request.method === "POST") {
     const body = await readJsonBody(request);
-    if (body.blueprint_id !== "bp_sentinelclaw_demo") {
+    const blueprintId = typeof body.blueprint_id === "string" ? body.blueprint_id : "";
+    if (!blueprintId.startsWith("bp_") || !blueprintId.endsWith("_demo")) {
       return errorResponse("Known demo blueprint_id is required.", 400);
+    }
+    const existingPredeploy =
+      typeof body.predeploy_run_id === "string"
+        ? getPredeployRunResult(body.predeploy_run_id)
+        : undefined;
+    const predeploy =
+      existingPredeploy ??
+      runPredeployCheck(createSentinelBlueprint("mock", templateFromBlueprintId(blueprintId)));
+    if (!predeploy.deploymentAllowed) {
+      return errorResponse(`Predeploy sandbox blocked deployment: ${predeploy.report}`, 409);
     }
     startRuntime();
     return json(

@@ -37,6 +37,20 @@ function permissionToPolicyLabel(permission: EditablePolicyEffect) {
   return "allow";
 }
 
+function escapeYaml(value: string) {
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function downloadText(filename: string, text: string, contentType: string) {
+  const blob = new Blob([text], { type: contentType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 function createInitialPolicies(blueprint: BlueprintResponse): Record<string, EditablePolicyEffect> {
   return Object.fromEntries(
     blueprint.tools.map((tool) => [
@@ -72,6 +86,15 @@ export function BlueprintReview({
         `  - ${tool.action}: ${permissionToPolicyLabel(toolPolicies[tool.id] ?? "allowed")}`,
     )
     .join("\n");
+  const exportedPolicies = blueprint.tools.map((tool) => ({
+    tool: tool.name,
+    action: tool.action,
+    effect: permissionToPolicyLabel(toolPolicies[tool.id] ?? "allowed"),
+    reason:
+      blueprint.policies.find((policy) => policy.action === tool.action)?.reason ||
+      "Policy edited before NemoClaw deployment.",
+  }));
+  const exportBaseName = `${blueprint.agent_name.toLowerCase()}-nemoclaw`;
   const summaryFields = [
     ["Agent Name", blueprint.agent_name],
     ["Workflow Type", "Incident Response"],
@@ -103,6 +126,69 @@ export function BlueprintReview({
     } finally {
       setDeploying(false);
     }
+  }
+
+  function exportPolicyYaml() {
+    const yaml = [
+      "nemoclaw_policy_pack:",
+      `  blueprint_id: ${escapeYaml(blueprint.blueprint_id)}`,
+      `  agent_name: ${escapeYaml(blueprint.agent_name)}`,
+      "  rules:",
+      ...exportedPolicies.map((policy) =>
+        [
+          `    - action: ${escapeYaml(policy.action)}`,
+          `      effect: ${escapeYaml(policy.effect)}`,
+          `      tool: ${escapeYaml(policy.tool)}`,
+          `      reason: ${escapeYaml(policy.reason)}`,
+        ].join("\n"),
+      ),
+    ].join("\n");
+    downloadText(`${exportBaseName}-policy.yaml`, yaml, "application/x-yaml;charset=utf-8");
+  }
+
+  function exportToolMap() {
+    const toolMap = blueprint.tools.map((tool) => ({
+      id: tool.id,
+      name: tool.name,
+      action: tool.action,
+      permission: permissionToPolicyLabel(toolPolicies[tool.id] ?? "allowed"),
+      risk_level: tool.risk_level,
+      enabled: tool.enabled,
+      nemoclaw_behavior: toolBehavior(toolPolicies[tool.id] ?? "allowed"),
+    }));
+    downloadText(
+      `${exportBaseName}-tool-map.json`,
+      JSON.stringify({ blueprint_id: blueprint.blueprint_id, tools: toolMap }, null, 2),
+      "application/json;charset=utf-8",
+    );
+  }
+
+  function exportMemoryRules() {
+    downloadText(
+      `${exportBaseName}-memory-rules.json`,
+      JSON.stringify(
+        { blueprint_id: blueprint.blueprint_id, memory_rules: blueprint.memory_schema },
+        null,
+        2,
+      ),
+      "application/json;charset=utf-8",
+    );
+  }
+
+  function exportBlueprint() {
+    downloadText(
+      `${exportBaseName}-blueprint.json`,
+      JSON.stringify(
+        {
+          ...blueprint,
+          policy_pack: exportedPolicies,
+          config_preview: undefined,
+        },
+        null,
+        2,
+      ),
+      "application/json;charset=utf-8",
+    );
   }
 
   return (
@@ -296,6 +382,42 @@ export function BlueprintReview({
               {step}
             </div>
           ))}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-5">
+        <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">
+          export NemoClaw config
+        </div>
+        <div className="mt-4 grid gap-2 md:grid-cols-4">
+          <button
+            type="button"
+            onClick={exportPolicyYaml}
+            className="rounded-xl border border-white/10 px-3 py-3 text-left text-xs font-semibold text-white/75 transition hover:bg-white/[0.05]"
+          >
+            Policy YAML
+          </button>
+          <button
+            type="button"
+            onClick={exportToolMap}
+            className="rounded-xl border border-white/10 px-3 py-3 text-left text-xs font-semibold text-white/75 transition hover:bg-white/[0.05]"
+          >
+            Tool map JSON
+          </button>
+          <button
+            type="button"
+            onClick={exportMemoryRules}
+            className="rounded-xl border border-white/10 px-3 py-3 text-left text-xs font-semibold text-white/75 transition hover:bg-white/[0.05]"
+          >
+            Memory rules JSON
+          </button>
+          <button
+            type="button"
+            onClick={exportBlueprint}
+            className="rounded-xl border border-white/10 px-3 py-3 text-left text-xs font-semibold text-white/75 transition hover:bg-white/[0.05]"
+          >
+            Agent blueprint JSON
+          </button>
         </div>
       </div>
 
