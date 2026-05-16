@@ -8,3 +8,10 @@ Short notes for each UI issue commit on this branch.
 - Added required hero headline and CTAs.
 - Updated metadata for the same positioning.
 - Did not change backend or runtime files.
+
+## ANU-42
+
+- Updated prompt builder copy for NemoClaw.
+- Added the required generation steps.
+- Renamed templates to match the UI lane.
+- Did not change backend or runtime files.

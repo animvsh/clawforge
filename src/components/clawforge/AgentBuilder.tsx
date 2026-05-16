@@ -7,37 +7,40 @@ export type AgentBuilderProps = {
 };
 
 const defaultPrompt =
-  "Create an agent that monitors system logs, detects suspicious behavior, writes an incident report, and asks before executing commands.";
+  "Create a NemoClaw agent that monitors system logs, detects suspicious behavior, writes an incident report, and asks before executing commands.";
 
 const loadingSteps = [
-  "Understanding workflow",
-  "Selecting incident response template",
-  "Choosing tools",
-  "Creating memory schema",
-  "Writing NemoClaw policies",
-  "Preparing OpenClaw runtime",
-  "Blueprint ready",
+  "Understanding requested workflow...",
+  "Identifying risky actions...",
+  "Selecting NemoClaw sandbox profile...",
+  "Choosing allowed tools...",
+  "Creating approval gates...",
+  "Writing NemoClaw policy pack...",
+  "Configuring Nemotron reasoning...",
+  "Setting memory boundaries...",
+  "Preparing live audit stream...",
+  "NemoClaw blueprint ready.",
 ];
 
 const promptTemplates = [
   {
-    label: "Security incident",
+    label: "Incident response",
     prompt: defaultPrompt,
   },
   {
     label: "GitHub triage",
     prompt:
-      "Create an agent that reads GitHub issues, identifies urgent bugs, drafts responses, and asks before posting.",
+      "Create a NemoClaw agent that reads GitHub issues, identifies urgent bugs, drafts responses, and asks before posting.",
   },
   {
-    label: "Inbox assistant",
+    label: "Inbox approval",
     prompt:
-      "Create an agent that summarizes important emails, drafts replies, and asks before sending anything.",
+      "Create a NemoClaw agent that summarizes important emails, drafts replies, and asks before sending anything.",
   },
   {
-    label: "Research agent",
+    label: "Research-only sandbox",
     prompt:
-      "Create an agent that researches a topic, saves sources to memory, writes a brief, and asks before publishing.",
+      "Create a NemoClaw agent that researches a topic, saves sources to memory, writes a brief, and cannot publish outside the sandbox.",
   },
 ];
 
@@ -84,14 +87,15 @@ export function AgentBuilder({ provider = "auto", onBlueprint }: AgentBuilderPro
   return (
     <div className="grid gap-5 lg:grid-cols-[1fr_0.85fr]">
       <div className="rounded-2xl border border-white/10 bg-black/45 p-5 md:p-6">
-        <div className="mb-3 text-[10px] uppercase tracking-[0.26em] text-white/40">
-          describe your agent
-        </div>
+        <div className="mb-3 text-[10px] uppercase tracking-[0.26em] text-white/40">builder</div>
+        <h3 className="mb-4 text-2xl font-semibold tracking-tight text-white">
+          Describe your NemoClaw agent.
+        </h3>
         <textarea
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           className="min-h-36 w-full resize-none rounded-xl border border-white/10 bg-white/[0.035] p-4 font-mono text-sm leading-relaxed text-white/85 outline-none transition placeholder:text-white/25 focus:border-white/30"
-          placeholder="Describe the autonomous agent you want to create..."
+          placeholder="Create a NemoClaw agent that monitors system logs, detects suspicious behavior, writes an incident report, and asks before executing commands."
         />
         <div className="mt-3 flex flex-wrap gap-2">
           {promptTemplates.map((template) => (
@@ -120,9 +124,9 @@ export function AgentBuilder({ provider = "auto", onBlueprint }: AgentBuilderPro
             type="button"
             onClick={generateBlueprint}
             disabled={loading || !prompt.trim()}
-            className="h-11 rounded-xl bg-white px-5 text-sm font-medium lowercase text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="h-11 rounded-xl bg-white px-5 text-sm font-medium text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loading ? "Generating..." : "Generate Agent Blueprint"}
+            {loading ? "Forging..." : "Generate NemoClaw Blueprint"}
           </button>
         </div>
         {error && <div className="mt-4 text-sm text-rose-200">{error}</div>}
