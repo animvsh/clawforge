@@ -1,12 +1,10 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
-  Controls,
   Background,
   MiniMap,
   useNodesState,
   useEdgesState,
-  addEdge,
   type Node,
   type Edge,
   type Connection,
@@ -17,6 +15,9 @@ import {
   MarkerType,
   useReactFlow,
   ReactFlowProvider,
+  type NodeDragEndEvent,
+  BackgroundVariant,
+  type SelectionMode,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type {
@@ -79,6 +80,8 @@ interface WorkflowCanvasProps {
   onNodeClick?: (nodeId: string) => void;
   onNodesChange?: (nodes: WorkflowNode[]) => void;
   onEdgesChange?: (edge: WorkflowEdge) => void;
+  onNodeDelete?: (nodeId: string) => void;
+  onNodeDuplicate?: (nodeId: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,7 +111,7 @@ function graphEdgesToFlowEdges(graph: WorkflowGraph): Edge[] {
     id: edge.id,
     source: edge.sourceId,
     target: edge.targetId,
-    type: edge.type === "dependency" ? "default" : "default",
+    type: "smoothstep",
     markerEnd: { type: MarkerType.ArrowClosed },
     style: {
       stroke: "rgba(255,255,255,0.35)",
@@ -150,36 +153,52 @@ function computeDefaultPositions(graph: WorkflowGraph): WorkflowNode[] {
 // WorkflowNodeCard component
 // ---------------------------------------------------------------------------
 
-function WorkflowNodeCard({ data }: NodeProps<WorkflowNode>) {
+function WorkflowNodeCard({ data, selected, id }: NodeProps<WorkflowNode>) {
   const node = data;
   const statusStyle = STATUS_STYLES[node.status] ?? STATUS_STYLES.idle;
   const kindColor   = KIND_COLORS[node.kind] ?? "#71717a";
 
   const isRunning = node.status === "running" || node.status === "generating";
 
+  // Subtle hover state - brighten border slightly
+  const [isHovered, setIsHovered] = useState(false);
+
+  const borderColor = selected
+    ? "rgba(255,255,255,0.50)"
+    : isHovered
+      ? "rgba(255,255,255,0.25)"
+      : statusStyle.border;
+
+  const boxShadow = selected
+    ? "0 0 0 2px rgba(255,255,255,0.15), 0 4px 12px rgba(0,0,0,0.4)"
+    : isRunning
+      ? statusStyle.glow
+        ? `${statusStyle.glow}, 0 0 20px rgba(96,165,250,0.25)`
+        : "0 0 20px rgba(96,165,250,0.25)"
+      : "none";
+
   return (
     <div
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       style={{
         width:  160,
         height: 80,
         background: "#1a1a1a",
-        borderTop: `1px solid ${statusStyle.border}`,
-        borderRight: `1px solid ${statusStyle.border}`,
-        borderBottom: `1px solid ${statusStyle.border}`,
+        borderTop: `1px solid ${borderColor}`,
+        borderRight: `1px solid ${borderColor}`,
+        borderBottom: `1px solid ${borderColor}`,
         borderLeft: `3px solid ${kindColor}`,
         borderRadius: 6,
-        boxShadow: isRunning
-          ? statusStyle.glow
-            ? `${statusStyle.glow}, 0 0 20px rgba(96,165,250,0.25)`
-            : "0 0 20px rgba(96,165,250,0.25)"
-          : "none",
+        boxShadow,
         animation: statusStyle.anim ?? undefined,
-        transition: "border-color 0.2s, box-shadow 0.2s",
+        transition: "border-color 0.15s ease, box-shadow 0.15s ease",
         userSelect: "none",
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
         padding: "10px 12px",
+        cursor: "grab",
       }}
     >
       {/* Top row: icon + title */}
@@ -260,6 +279,196 @@ function WorkflowNodeCard({ data }: NodeProps<WorkflowNode>) {
 }
 
 // ---------------------------------------------------------------------------
+// Custom Canvas Controls (ClawForge styled)
+// ---------------------------------------------------------------------------
+
+interface CanvasControlsProps {
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onFitView: () => void;
+  zoom: number;
+}
+
+function CanvasControls({ onZoomIn, onZoomOut, onFitView, zoom }: CanvasControlsProps) {
+  const buttonStyle: React.CSSProperties = {
+    background: "#1a1a1a",
+    border: "1px solid rgba(255,255,255,0.12)",
+    borderRadius: 6,
+    color: "#ffffff",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 32,
+    height: 32,
+    fontSize: 16,
+    transition: "background 0.15s ease, border-color 0.15s ease",
+  };
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        bottom: 16,
+        right: 16,
+        display: "flex",
+        flexDirection: "column",
+        gap: 4,
+        zIndex: 10,
+      }}
+    >
+      <button
+        style={buttonStyle}
+        onClick={onZoomIn}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "#2a2a2a";
+          e.currentTarget.style.borderColor = "rgba(255,255,255,0.25)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "#1a1a1a";
+          e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)";
+        }}
+        title="Zoom in"
+      >
+        +
+      </button>
+
+      <div
+        style={{
+          background: "#141414",
+          border: "1px solid rgba(255,255,255,0.10)",
+          borderRadius: 4,
+          color: "rgba(255,255,255,0.6)",
+          fontSize: 10,
+          fontWeight: 500,
+          padding: "4px 8px",
+          textAlign: "center",
+          minWidth: 48,
+        }}
+      >
+        {Math.round(zoom * 100)}%
+      </div>
+
+      <button
+        style={buttonStyle}
+        onClick={onZoomOut}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "#2a2a2a";
+          e.currentTarget.style.borderColor = "rgba(255,255,255,0.25)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "#1a1a1a";
+          e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)";
+        }}
+        title="Zoom out"
+      >
+        −
+      </button>
+
+      <button
+        style={{
+          ...buttonStyle,
+          marginTop: 4,
+        }}
+        onClick={onFitView}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = "#2a2a2a";
+          e.currentTarget.style.borderColor = "rgba(255,255,255,0.25)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = "#1a1a1a";
+          e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)";
+        }}
+        title="Fit view"
+      >
+        ⊡
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Context Menu
+// ---------------------------------------------------------------------------
+
+interface ContextMenuState {
+  x: number;
+  y: number;
+  nodeId: string;
+}
+
+interface ContextMenuProps {
+  position: ContextMenuState;
+  onDelete: (nodeId: string) => void;
+  onDuplicate: (nodeId: string) => void;
+  onClose: () => void;
+}
+
+function ContextMenu({ position, onDelete, onDuplicate, onClose }: ContextMenuProps) {
+  const menuStyle: React.CSSProperties = {
+    position: "absolute",
+    left: position.x,
+    top: position.y,
+    background: "#1a1a1a",
+    border: "1px solid rgba(255,255,255,0.15)",
+    borderRadius: 8,
+    padding: "6px 0",
+    minWidth: 140,
+    zIndex: 100,
+    boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+  };
+
+  const itemStyle: React.CSSProperties = {
+    padding: "8px 16px",
+    color: "#ffffff",
+    fontSize: 13,
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    transition: "background 0.1s ease",
+  };
+
+  useEffect(() => {
+    const handleClickOutside = () => onClose();
+    document.addEventListener("click", handleClickOutside);
+    return () => document.removeEventListener("click", handleClickOutside);
+  }, [onClose]);
+
+  return (
+    <div style={menuStyle}>
+      <div
+        style={itemStyle}
+        onClick={(e) => {
+          e.stopPropagation();
+          onDuplicate(position.nodeId);
+          onClose();
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+      >
+        <span style={{ opacity: 0.6 }}>⧉</span> Duplicate
+      </div>
+      <div
+        style={{
+          ...itemStyle,
+          color: "#f87171",
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete(position.nodeId);
+          onClose();
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(248,113,113,0.15)")}
+        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+      >
+        <span style={{ opacity: 0.6 }}>✕</span> Delete
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Inner canvas (needs ReactFlow context)
 // ---------------------------------------------------------------------------
 
@@ -270,6 +479,8 @@ interface CanvasInnerProps {
   onNodeClick?: (nodeId: string) => void;
   onNodesChange?: (nodes: WorkflowNode[]) => void;
   onEdgesChange?: (edge: WorkflowEdge) => void;
+  onNodeDelete?: (nodeId: string) => void;
+  onNodeDuplicate?: (nodeId: string) => void;
 }
 
 function CanvasInner({
@@ -279,8 +490,21 @@ function CanvasInner({
   onNodeClick,
   onNodesChange,
   onEdgesChange,
+  onNodeDelete,
+  onNodeDuplicate,
 }: CanvasInnerProps) {
-  const { fitView } = useReactFlow();
+  const {
+    fitView,
+    zoomIn,
+    zoomOut,
+    getZoom,
+    setViewport,
+    getViewport,
+  } = useReactFlow();
+
+  const [zoom, setZoom] = useState(1);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const nodesContainerRef = useRef<HTMLDivElement>(null);
 
   // Apply default layout to nodes without positions
   const layoutedGraph = useMemo(() => {
@@ -300,6 +524,17 @@ function CanvasInner({
 
   const [nodes, setNodes, onNodesChangeInternal] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChangeInternal] = useEdgesState(initialEdges);
+
+  // Track zoom changes
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const currentZoom = getZoom();
+      if (Math.abs(currentZoom - zoom) > 0.01) {
+        setZoom(currentZoom);
+      }
+    }, 100);
+    return () => clearInterval(interval);
+  }, [getZoom, zoom]);
 
   // Sync when graph changes (e.g. new nodes added)
   useEffect(() => {
@@ -376,43 +611,250 @@ function CanvasInner({
     [onNodeClick],
   );
 
+  // Handle node context menu (right-click)
+  const handleNodeContextMenu = useCallback(
+    (event: React.MouseEvent, node: Node) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setContextMenu({
+        x: event.clientX,
+        y: event.clientY,
+        nodeId: node.id,
+      });
+    },
+    [],
+  );
+
+  // Handle pane context menu
+  const handlePaneContextMenu = useCallback(
+    (event: React.MouseEvent | MouseEvent) => {
+      event.preventDefault();
+      setContextMenu(null);
+    },
+    [],
+  );
+
+  // Handle double-click to expand (could be used for NDV later)
+  const handleNodeDoubleClick = useCallback(
+    (_: React.MouseEvent, node: Node) => {
+      // For now, just log - could open node details panel
+      console.log("Double-clicked node:", node.id);
+    },
+    [],
+  );
+
+  // Node drag end handler
+  const handleNodeDragStop = useCallback(
+    (_: MouseEvent | NodeDragEndEvent, node: Node) => {
+      // Position changes are handled via handleNodesChange
+    },
+    [],
+  );
+
+  // Delete selected nodes via keyboard
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Don't trigger when typing in inputs
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+
+      // Delete key - delete selected node
+      if (event.key === "Delete" || event.key === "Backspace") {
+        if (selectedNodeId && onNodeDelete) {
+          // Prevent delete if modifier keys are held
+          if (!event.ctrlKey && !event.metaKey) {
+            event.preventDefault();
+            onNodeDelete(selectedNodeId);
+          }
+        }
+      }
+
+      // Escape key - close context menu or deselect
+      if (event.key === "Escape") {
+        setContextMenu(null);
+      }
+
+      // Ctrl/Cmd + C - copy (placeholder for clipboard)
+      if ((event.ctrlKey || event.metaKey) && event.key === "c") {
+        if (selectedNodeId) {
+          // Could copy node data to clipboard
+          console.log("Copy node:", selectedNodeId);
+        }
+      }
+
+      // Ctrl/Cmd + V - paste (placeholder)
+      if ((event.ctrlKey || event.metaKey) && event.key === "v") {
+        console.log("Paste not implemented yet");
+      }
+
+      // Ctrl/Cmd + D - duplicate
+      if ((event.ctrlKey || event.metaKey) && event.key === "d") {
+        if (selectedNodeId && onNodeDuplicate) {
+          event.preventDefault();
+          onNodeDuplicate(selectedNodeId);
+        }
+      }
+
+      // + or = for zoom in
+      if (event.key === "+" || event.key === "=") {
+        event.preventDefault();
+        zoomIn();
+      }
+
+      // - for zoom out
+      if (event.key === "-") {
+        event.preventDefault();
+        zoomOut();
+      }
+
+      // 0 to reset zoom
+      if (event.key === "0") {
+        event.preventDefault();
+        fitView({ padding: 0.3, duration: 200 });
+      }
+
+      // 1 to fit view
+      if (event.key === "1") {
+        event.preventDefault();
+        fitView({ padding: 0.3, duration: 200 });
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [selectedNodeId, onNodeDelete, onNodeDuplicate, zoomIn, zoomOut, fitView]);
+
+  // Close context menu when clicking on canvas
+  const handlePaneClick = useCallback(() => {
+    setContextMenu(null);
+  }, []);
+
+  // Zoom handlers for custom controls
+  const handleZoomIn = useCallback(() => {
+    zoomIn();
+  }, [zoomIn]);
+
+  const handleZoomOut = useCallback(() => {
+    zoomOut();
+  }, [zoomOut]);
+
+  const handleFitView = useCallback(() => {
+    fitView({ padding: 0.3, duration: 200 });
+  }, [fitView]);
+
+  // Handle context menu delete
+  const handleContextMenuDelete = useCallback(
+    (nodeId: string) => {
+      if (onNodeDelete) {
+        onNodeDelete(nodeId);
+      }
+      setContextMenu(null);
+    },
+    [onNodeDelete],
+  );
+
+  // Handle context menu duplicate
+  const handleContextMenuDuplicate = useCallback(
+    (nodeId: string) => {
+      if (onNodeDuplicate) {
+        onNodeDuplicate(nodeId);
+      }
+      setContextMenu(null);
+    },
+    [onNodeDuplicate],
+  );
+
+  // Custom selection mode for multi-select
+  const selectionMode: SelectionMode = useMemo(
+    () => SelectionMode.Partial,
+    [],
+  );
+
   const nodeTypes: NodeTypes = {
     workflow: WorkflowNodeCard,
   };
 
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      onNodesChange={handleNodesChange}
-      onEdgesChange={handleEdgesChange}
-      onConnect={handleConnect}
-      onNodeClick={handleNodeClick}
-      nodeTypes={nodeTypes}
-      fitView
-      fitViewOptions={{ padding: 0.3 }}
-      defaultEdgeOptions={{
-        markerEnd: { type: MarkerType.ArrowClosed },
-        style: { stroke: "rgba(255,255,255,0.35)", strokeWidth: 1.5 },
-      }}
-      style={{ background: "#0a0a0a" }}
-      minZoom={0.25}
-      maxZoom={2.5}
+    <div
+      ref={nodesContainerRef}
+      style={{ width: "100%", height: "100%", minHeight: 400 }}
+      onContextMenu={handlePaneContextMenu}
     >
-      <Background color="#2a2a2a" gap={24} size={1} />
-      <Controls
-        style={{
-          background: "#141414",
-          border: "1px solid rgba(255,255,255,0.12)",
-          borderRadius: 8,
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={handleNodesChange}
+        onEdgesChange={handleEdgesChange}
+        onConnect={handleConnect}
+        onNodeClick={handleNodeClick}
+        onNodeContextMenu={handleNodeContextMenu}
+        onNodeDoubleClick={handleNodeDoubleClick}
+        onPaneClick={handlePaneClick}
+        onPaneKeyDown={(e) => {
+          // Prevent default React Flow pan on space when not needed
         }}
-      />
-      <MiniMap
-        nodeColor={(n) => KIND_COLORS[(n.data as WorkflowNode)?.kind] ?? "#71717a"}
-        style={{ background: "#141414" }}
-        maskColor="rgba(0,0,0,0.6)"
-      />
-    </ReactFlow>
+        nodeTypes={nodeTypes}
+        fitView
+        fitViewOptions={{ padding: 0.3 }}
+        defaultEdgeOptions={{
+          type: "smoothstep",
+          markerEnd: { type: MarkerType.ArrowClosed },
+          style: { stroke: "rgba(255,255,255,0.35)", strokeWidth: 1.5 },
+        }}
+        style={{ background: "#0a0a0a" }}
+        minZoom={0.15}
+        maxZoom={3}
+        selectionMode={selectionMode}
+        selectNodesOnDrag={false}
+        panOnScroll
+        zoomOnScroll
+        panOnDrag={[1, 2]} // Left and middle mouse buttons
+        onMove={() => {
+          setZoom(getZoom());
+        }}
+      >
+        <Background
+          color="#2a2a2a"
+          gap={24}
+          size={1}
+          variant={BackgroundVariant.Dots}
+        />
+
+        {/* ClawForge-styled mini-map */}
+        <MiniMap
+          nodeColor={(n) => KIND_COLORS[(n.data as WorkflowNode)?.kind] ?? "#71717a"}
+          style={{
+            background: "#141414",
+            border: "1px solid rgba(255,255,255,0.10)",
+            borderRadius: 8,
+          }}
+          maskColor="rgba(0,0,0,0.5)"
+          position="bottom-left"
+        />
+
+        {/* Custom Controls */}
+        <CanvasControls
+          onZoomIn={handleZoomIn}
+          onZoomOut={handleZoomOut}
+          onFitView={handleFitView}
+          zoom={zoom}
+        />
+      </ReactFlow>
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <ContextMenu
+          position={contextMenu}
+          onDelete={handleContextMenuDelete}
+          onDuplicate={handleContextMenuDuplicate}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+    </div>
   );
 }
 
