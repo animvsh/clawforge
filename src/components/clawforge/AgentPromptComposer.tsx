@@ -76,6 +76,8 @@ export function AgentPromptComposer({
   }
 
   const showPlaceholder = !value;
+  // Hide native textarea placeholder when our animated overlay is active
+  const textareaPlaceholder = showPlaceholder ? "" : placeholder;
 
   return (
     <div className="flex flex-col gap-3 w-full">
@@ -114,7 +116,7 @@ export function AgentPromptComposer({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           rows={5}
-          placeholder={placeholder}
+          placeholder={textareaPlaceholder}
           disabled={disabled}
           className="w-full resize-none border-0 bg-transparent px-6 pt-5 pb-16 text-base text-white leading-relaxed outline-none placeholder:text-white/25 disabled:opacity-50"
           onKeyDown={(e) => {
