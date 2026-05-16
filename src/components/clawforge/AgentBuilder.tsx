@@ -24,6 +24,10 @@ const promptTemplates = [
     "Create an agent that summarizes important emails, drafts replies, and asks before sending anything.",
   ],
   [
+    "Receptionist",
+    "Create a phone receptionist agent that answers calls, takes messages, checks my calendar, books appointments, and asks before sending texts.",
+  ],
+  [
     "Research",
     "Create an agent that researches a topic, saves sources, writes a brief, and asks before publishing.",
   ],
@@ -33,6 +37,7 @@ const providerLabels: Array<[ProviderMode, string]> = [
   ["auto", "Auto"],
   ["nemotron", "Nemotron"],
   ["minimax", "MiniMax"],
+  ["pi", "Pi"],
   ["mock", "Mock"],
 ];
 

@@ -582,6 +582,10 @@ let legacyMemory: MemoryItem[] = [];
 let legacyReport: IncidentReport | null = null;
 let legacyApprovalStatus: "pending" | "approved" | "denied" = "pending";
 let legacyPendingApprovalId: string | null = null;
+let legacyAgentId = DEMO_AGENT_ID;
+let legacyAgentName = "SentinelClaw";
+let legacyTemplateId: BlueprintResponse["template_id"] = "incident_response";
+let legacyBlueprint: BlueprintResponse | null = null;
 
 export type RuntimeState =
   | "created"
@@ -599,7 +603,7 @@ function legacyEvent(
 ): RuntimeEvent {
   return {
     id: `event_${legacyEvents.length + 1}_${Date.now()}`,
-    agent_id: DEMO_AGENT_ID,
+    agent_id: legacyAgentId,
     type,
     message,
     timestamp: now(),
@@ -613,14 +617,109 @@ function addLegacyEvent(nextEvent: RuntimeEvent): RuntimeEvent {
   return nextEvent;
 }
 
-function buildInitialEvents(): RuntimeEvent[] {
+function customAgentId(blueprint: BlueprintResponse): string {
+  return `agent_${blueprint.template_id}_${blueprint.blueprint_id
+    .replace(/[^a-z0-9]/gi, "_")
+    .slice(-16)}`;
+}
+
+function buildPhoneReceptionistEvents(): RuntimeEvent[] {
   legacyEvents = [];
 
   if (!isLegacyValidTransition(legacyState, "deployed")) {
     throw new Error(`Invalid transition from ${legacyState} to deployed`);
   }
   legacyState = "deployed";
-  addLegacyEvent(legacyEvent("agent.started", "Agent deployed into NemoClaw sandbox.", "success"));
+  addLegacyEvent(
+    legacyEvent("agent.started", `${legacyAgentName} deployed into NemoClaw sandbox.`, "success"),
+  );
+
+  if (!isLegacyValidTransition(legacyState, "running")) {
+    throw new Error(`Invalid transition from ${legacyState} to running`);
+  }
+  legacyState = "running";
+
+  addLegacyEvent(
+    legacyEvent(
+      "policy.checked",
+      "NemoClaw allowed phone.call.receive inside the sandbox.",
+      "info",
+      {
+        action: "phone.call.receive",
+      },
+    ),
+  );
+  addLegacyEvent(
+    legacyEvent("tool.called", "Answering inbound receptionist call in safe mode.", "success", {
+      tool: "Phone Number",
+    }),
+  );
+  addLegacyEvent(
+    legacyEvent(
+      "tool.called",
+      "Transcribing call and extracting the requested appointment.",
+      "info",
+      {
+        tool: "Call Transcriber",
+      },
+    ),
+  );
+  addLegacyEvent(
+    legacyEvent("policy.checked", "NemoClaw allowed calendar.availability.read.", "info", {
+      action: "calendar.availability.read",
+    }),
+  );
+  addLegacyEvent(
+    legacyEvent("tool.called", "Checking calendar availability for the requested time.", "info", {
+      tool: "Calendar Reader",
+    }),
+  );
+  addLegacyEvent(
+    legacyEvent(
+      "agent.thinking",
+      "Found a matching opening and drafted a customer confirmation text.",
+      "success",
+    ),
+  );
+  addLegacyEvent(
+    legacyEvent("policy.checked", "NemoClaw checked sms.send against approval policy.", "info", {
+      action: "sms.send",
+    }),
+  );
+
+  if (!isLegacyValidTransition(legacyState, "waiting_for_approval")) {
+    throw new Error(`Invalid transition from ${legacyState} to waiting_for_approval`);
+  }
+  legacyState = "waiting_for_approval";
+  legacyPendingApprovalId = demoApproval.id;
+
+  addLegacyEvent(
+    legacyEvent(
+      "approval.requested",
+      "Approval required before sending the customer confirmation text.",
+      "warning",
+      {
+        approval_id: demoApproval.id,
+        command: "send_text +1-555-0100 'You are booked for Tuesday at 2:00 PM.'",
+      },
+    ),
+  );
+
+  return legacyEvents;
+}
+
+function buildInitialEvents(): RuntimeEvent[] {
+  if (legacyTemplateId === "phone_receptionist") return buildPhoneReceptionistEvents();
+
+  legacyEvents = [];
+
+  if (!isLegacyValidTransition(legacyState, "deployed")) {
+    throw new Error(`Invalid transition from ${legacyState} to deployed`);
+  }
+  legacyState = "deployed";
+  addLegacyEvent(
+    legacyEvent("agent.started", `${legacyAgentName} deployed into NemoClaw sandbox.`, "success"),
+  );
 
   if (!isLegacyValidTransition(legacyState, "running")) {
     throw new Error(`Invalid transition from ${legacyState} to running`);
@@ -696,12 +795,31 @@ function buildInitialEvents(): RuntimeEvent[] {
   return legacyEvents;
 }
 
-export function startRuntime(): { agent_id: string; status: RuntimeState; events: RuntimeEvent[] } {
-  legacyMemory = [...demoMemory];
+export function startRuntime(blueprint?: BlueprintResponse): {
+  agent_id: string;
+  status: RuntimeState;
+  events: RuntimeEvent[];
+} {
+  legacyBlueprint = blueprint ?? null;
+  legacyTemplateId = blueprint?.template_id ?? "incident_response";
+  legacyAgentName = blueprint?.agent_name ?? "SentinelClaw";
+  legacyAgentId = blueprint ? customAgentId(blueprint) : DEMO_AGENT_ID;
+  legacyMemory =
+    legacyTemplateId === "phone_receptionist"
+      ? [
+          {
+            id: "memory_reception_style",
+            agent_id: legacyAgentId,
+            type: "preference",
+            content: "Ask before sending customer-facing texts or booking appointments.",
+            created_at: now(),
+          },
+        ]
+      : [...demoMemory].map((item) => ({ ...item, agent_id: legacyAgentId }));
   legacyReport = null;
   legacyApprovalStatus = "pending";
   buildInitialEvents();
-  return { agent_id: DEMO_AGENT_ID, status: legacyState, events: legacyEvents };
+  return { agent_id: legacyAgentId, status: legacyState, events: legacyEvents };
 }
 
 export function stopRuntime(): { agent_id: string; status: RuntimeState } {
@@ -710,7 +828,7 @@ export function stopRuntime(): { agent_id: string; status: RuntimeState } {
   }
   legacyState = "stopped";
   addLegacyEvent(legacyEvent("agent.completed", "Agent runtime stopped by user.", "warning"));
-  return { agent_id: DEMO_AGENT_ID, status: legacyState };
+  return { agent_id: legacyAgentId, status: legacyState };
 }
 
 export function getRuntimeEvents(): RuntimeEvent[] {
@@ -729,6 +847,97 @@ export function getRuntimeState(): RuntimeState {
   return legacyState;
 }
 
+export function isActiveRuntimeAgent(agentId: string): boolean {
+  return agentId === legacyAgentId;
+}
+
+export function hydrateRuntimeForAgentId(agentId: string): boolean {
+  if (agentId === legacyAgentId) return true;
+  if (!agentId.startsWith("agent_phone_receptionist_")) return false;
+
+  legacyState = "created";
+  legacyEvents = [];
+  legacyMemory = [
+    {
+      id: "memory_reception_style",
+      agent_id: agentId,
+      type: "preference",
+      content: "Ask before sending customer-facing texts or booking appointments.",
+      created_at: now(),
+    },
+  ];
+  legacyReport = null;
+  legacyApprovalStatus = "pending";
+  legacyPendingApprovalId = null;
+  legacyAgentId = agentId;
+  legacyAgentName = "ReceptionClaw";
+  legacyTemplateId = "phone_receptionist";
+  legacyBlueprint = null;
+  return true;
+}
+
+function buildLegacyReport(decision: "approved" | "denied"): IncidentReport {
+  if (legacyTemplateId !== "phone_receptionist") {
+    return {
+      ...demoReport,
+      agent_id: legacyAgentId,
+      approval_decisions: [
+        decision === "approved"
+          ? "User approved command execution."
+          : "User denied command execution.",
+      ],
+      memory_updates: legacyMemory.map((item) => item.content),
+    };
+  }
+
+  const approved = decision === "approved";
+  return {
+    ...demoReport,
+    id: `report_${legacyAgentId}`,
+    agent_id: legacyAgentId,
+    title: "Receptionist Booking Summary",
+    severity: "low",
+    detected_behavior: "A caller requested an appointment and asked for a text confirmation.",
+    classification: "Phone receptionist workflow",
+    model_used: legacyBlueprint?.model ?? "NVIDIA Nemotron",
+    runtime: "NemoClaw",
+    policy_triggered: "require_approval_for_customer_messages",
+    action_attempted: "send_text +1-555-0100",
+    user_decision: approved ? "Approved" : "Denied",
+    final_action: approved
+      ? "Confirmation text was released after approval."
+      : "No customer-facing text was sent; the appointment stayed as a draft.",
+    memory_update: approved
+      ? "User approved this customer confirmation text."
+      : "Future receptionist texts require explicit approval before sending.",
+    safety_result: approved
+      ? "NemoClaw released the action only after approval."
+      : "NemoClaw paused the outbound message and kept the workflow in draft mode.",
+    likely_threat: "None",
+    mitre_mapping: "Not applicable",
+    evidence: [
+      "Inbound call answered inside NemoClaw.",
+      "Calendar availability checked with a read-only action.",
+      "Outbound SMS was approval-gated.",
+    ],
+    recommended_action: approved
+      ? "Review the booked appointment and keep customer messaging approval-gated."
+      : "Review the draft appointment, then approve a customer confirmation when ready.",
+    actions_attempted: ["phone.call.receive", "calendar.availability.read", "sms.send"],
+    actions_blocked: approved ? [] : ["sms.send"],
+    approval_decisions: [
+      approved
+        ? "User approved the customer confirmation text."
+        : "User denied the customer confirmation text.",
+    ],
+    memory_updates: [
+      approved
+        ? "Customer text approval was saved to memory."
+        : "Future receptionist texts require explicit approval.",
+    ],
+  };
+}
+
 export function resolveApproval(decision: "approved" | "denied"): {
   agent_id: string;
   status: RuntimeState;
@@ -742,13 +951,17 @@ export function resolveApproval(decision: "approved" | "denied"): {
 
   legacyApprovalStatus = decision;
   const memoryContent =
-    decision === "approved"
-      ? "User approved shell execution for 185.92.XX.XX."
-      : "User denied shell execution for 185.92.XX.XX.";
+    legacyTemplateId === "phone_receptionist"
+      ? decision === "approved"
+        ? "User approved customer confirmation text for the receptionist workflow."
+        : "User denied customer confirmation text; future outbound texts require explicit approval."
+      : decision === "approved"
+        ? "User approved shell execution for 185.92.XX.XX."
+        : "User denied shell execution for 185.92.XX.XX.";
 
   const memoryItem: MemoryItem = {
     id: `memory_approval_${Date.now()}`,
-    agent_id: DEMO_AGENT_ID,
+    agent_id: legacyAgentId,
     type: "approval",
     content: memoryContent,
     created_at: now(),
@@ -763,24 +976,26 @@ export function resolveApproval(decision: "approved" | "denied"): {
     addLegacyEvent(
       legacyEvent(
         "approval.resolved",
-        `User ${decision} shell execution for block_ip 185.92.XX.XX.`,
+        legacyTemplateId === "phone_receptionist"
+          ? `User ${decision} customer confirmation text.`
+          : `User ${decision} shell execution for block_ip 185.92.XX.XX.`,
         decision === "approved" ? "success" : "warning",
         { approval_id: legacyPendingApprovalId, decision },
       ),
     ),
   ];
 
-  legacyReport = {
-    ...demoReport,
-    approval_decisions: [
-      decision === "approved"
-        ? "User approved command execution."
-        : "User denied command execution.",
-    ],
-    memory_updates: legacyMemory.map((item) => item.content),
-  };
+  legacyReport = buildLegacyReport(decision);
   resolvedEvents.push(
-    addLegacyEvent(legacyEvent("report.created", "Incident report generated.", "success")),
+    addLegacyEvent(
+      legacyEvent(
+        "report.created",
+        legacyTemplateId === "phone_receptionist"
+          ? "Receptionist booking summary generated."
+          : "Incident report generated.",
+        "success",
+      ),
+    ),
   );
 
   if (decision === "denied") {
@@ -792,7 +1007,9 @@ export function resolveApproval(decision: "approved" | "denied"): {
       addLegacyEvent(
         legacyEvent(
           "agent.completed",
-          "Agent completed safely with a report-only workflow after denied approval.",
+          legacyTemplateId === "phone_receptionist"
+            ? "Agent completed safely with a draft-only receptionist workflow after denied approval."
+            : "Agent completed safely with a report-only workflow after denied approval.",
           "success",
         ),
       ),
@@ -812,7 +1029,7 @@ export function resolveApproval(decision: "approved" | "denied"): {
   legacyPendingApprovalId = null;
 
   return {
-    agent_id: DEMO_AGENT_ID,
+    agent_id: legacyAgentId,
     status: legacyState,
     memory_item: memoryItem,
     events: resolvedEvents,
@@ -827,6 +1044,10 @@ export function resetLegacyRuntime(): void {
   legacyReport = null;
   legacyApprovalStatus = "pending";
   legacyPendingApprovalId = null;
+  legacyAgentId = DEMO_AGENT_ID;
+  legacyAgentName = "SentinelClaw";
+  legacyTemplateId = "incident_response";
+  legacyBlueprint = null;
 }
 
 export function getApprovalStatus(): "pending" | "approved" | "denied" {

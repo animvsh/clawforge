@@ -58,7 +58,7 @@ Create secrets in Brev by name only. Do not paste real values into Git, docs, sc
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY` only if server-side persistence is enabled
-- `COMPOSIO_API_KEY` only if Composio is used from Brev
+- `COMPOSIO_API_KEY` only if the integration provider is used from Brev
 
 Start from the repo with the Brev setup script:
 

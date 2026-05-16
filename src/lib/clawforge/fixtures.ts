@@ -3,6 +3,7 @@ import type {
   BlueprintResponse,
   AgentTemplateId,
   IncidentReport,
+  IntegrationRequirement,
   MemoryItem,
   ProviderMode,
   RuntimeEvent,
@@ -493,6 +494,166 @@ const templateById: Record<AgentTemplateId, BlueprintTemplate> = {
       },
     ],
   },
+  phone_receptionist: {
+    blueprint_id: "bp_phone_receptionist_demo",
+    agent_name: "ReceptionClaw",
+    description: "A NemoClaw-governed phone receptionist for calls, scheduling, and messages",
+    goal: "Answer calls, understand caller intent, schedule meetings, take messages, and require approval before sending outbound messages or changing calendars.",
+    tools: [
+      {
+        id: "tool_phone_number",
+        name: "Phone Number",
+        action: "phone.receive",
+        purpose: "Receives inbound calls and captures caller metadata.",
+        permission: "allowed",
+        risk_level: "low",
+        enabled: true,
+      },
+      {
+        id: "tool_call_transcriber",
+        name: "Call Transcriber",
+        action: "phone.transcribe",
+        purpose: "Transcribes calls inside the sandbox.",
+        permission: "allowed",
+        risk_level: "low",
+        enabled: true,
+      },
+      {
+        id: "tool_calendar_reader",
+        name: "Calendar Reader",
+        action: "calendar.read",
+        purpose: "Checks availability before proposing meeting times.",
+        permission: "read_only",
+        risk_level: "low",
+        enabled: true,
+      },
+      {
+        id: "tool_calendar_scheduler",
+        name: "Calendar Scheduler",
+        action: "calendar.events.create",
+        purpose: "Creates calendar events after approval.",
+        permission: "approval_required",
+        risk_level: "medium",
+        enabled: true,
+      },
+      {
+        id: "tool_sms_sender",
+        name: "SMS Sender",
+        action: "sms.send",
+        purpose: "Sends approved confirmations and follow-up messages.",
+        permission: "approval_required",
+        risk_level: "medium",
+        enabled: true,
+      },
+      {
+        id: "tool_contact_reader",
+        name: "Contact Reader",
+        action: "contacts.read",
+        purpose: "Looks up known callers and routing rules.",
+        permission: "read_only",
+        risk_level: "low",
+        enabled: true,
+      },
+      {
+        id: "tool_call_recording_export",
+        name: "Call Recording Export",
+        action: "phone.recordings.export",
+        purpose: "Attempts to export raw call recordings outside the sandbox.",
+        permission: "blocked",
+        risk_level: "high",
+        enabled: false,
+      },
+    ],
+    policies: [
+      {
+        id: "policy_phone_receive",
+        name: "Allow inbound calls",
+        action: "phone.receive",
+        effect: "allow",
+        reason: "The receptionist needs inbound call access to operate.",
+      },
+      {
+        id: "policy_calendar_read",
+        name: "Allow calendar reading",
+        action: "calendar.read",
+        effect: "allow",
+        reason: "Read-only calendar access is needed for availability checks.",
+      },
+      {
+        id: "policy_calendar_create_approval",
+        name: "Require approval for scheduling",
+        action: "calendar.events.create",
+        effect: "require_approval",
+        reason: "Creating events changes the user's calendar.",
+      },
+      {
+        id: "policy_sms_approval",
+        name: "Require approval for SMS",
+        action: "sms.send",
+        effect: "require_approval",
+        reason: "Outbound SMS represents the user externally.",
+      },
+      {
+        id: "policy_block_recording_export",
+        name: "Block call recording export",
+        action: "phone.recordings.export",
+        effect: "deny",
+        reason: "Raw call recordings must stay inside the sandbox.",
+      },
+    ],
+    memory_schema: [
+      {
+        id: "memory_call_preferences",
+        name: "Call preferences",
+        type: "preference",
+        description: "Preferred routing, tone, meeting length, and escalation rules.",
+      },
+      {
+        id: "memory_known_callers",
+        name: "Known callers",
+        type: "context",
+        description: "Known callers, companies, and prior conversations.",
+      },
+      {
+        id: "memory_scheduling_approvals",
+        name: "Scheduling approvals",
+        type: "approval",
+        description: "Prior decisions for booking meetings and sending confirmations.",
+      },
+    ],
+    workflow_steps: [
+      {
+        id: "step_answer_call",
+        title: "Answer inbound call",
+        description: "Receive the call and identify caller intent.",
+        tool_id: "tool_phone_number",
+      },
+      {
+        id: "step_transcribe_call",
+        title: "Transcribe conversation",
+        description: "Summarize caller needs inside NemoClaw.",
+        tool_id: "tool_call_transcriber",
+      },
+      {
+        id: "step_check_calendar",
+        title: "Check availability",
+        description: "Read calendar slots without changing events.",
+        tool_id: "tool_calendar_reader",
+      },
+      {
+        id: "step_request_booking_approval",
+        title: "Request booking approval",
+        description: "Pause before creating a calendar event.",
+        tool_id: "tool_calendar_scheduler",
+      },
+      {
+        id: "step_send_confirmation",
+        title: "Draft confirmation",
+        description: "Prepare SMS confirmation but require approval before sending.",
+        tool_id: "tool_sms_sender",
+      },
+    ],
+  },
   research_sandbox: {
     blueprint_id: "bp_research_sandbox_demo",
     agent_name: "ResearchClaw",
@@ -650,24 +811,47 @@ function modelForProvider(provider: ProviderMode): string {
 function configPreview(
   templateId: AgentTemplateId,
   model: string,
+  customGoal: string,
   policies: BlueprintResponse["policies"],
+  integrations: IntegrationRequirement[],
 ) {
   const policyLines = policies.map((policy) => `  - ${policy.action}: ${policy.effect}`).join("\n");
+  const integrationLines = integrations
+    .map((integration) => `  - ${integration.label}: ${integration.status}`)
+    .join("\n");
 
   return `runtime: openclaw
 sandbox: nemoclaw
 template: ${templateId}
+custom_goal: ${customGoal}
 model: ${model}
 env:
   NVIDIA_API_KEY: ${"${NVIDIA_API_KEY}"}
   MINIMAX_API_KEY: ${"${MINIMAX_API_KEY}"}
   MINIMAX_PLAN_KEY: ${"${MINIMAX_PLAN_KEY}"}
+integrations:
+${integrationLines || "  - none: optional"}
 policies:
 ${policyLines}`;
 }
 
+function goalId(prompt: string, templateId: AgentTemplateId): string {
+  let hash = 0;
+  for (let index = 0; index < prompt.length; index += 1) {
+    hash = (hash * 31 + prompt.charCodeAt(index)) >>> 0;
+  }
+  return `bp_goal_${templateId}_${hash.toString(16)}`;
+}
+
 export function selectAgentTemplate(prompt: string): AgentTemplateId {
   const normalized = prompt.toLowerCase();
+  if (
+    /\b(phone|call|calls|receptionist|reception|sms|text message|voicemail|calendar|schedule|appointment|booking)\b/.test(
+      normalized,
+    )
+  ) {
+    return "phone_receptionist";
+  }
   if (/\b(github|issue|issues|pull request|pr|repo|repository|label|comment)\b/.test(normalized)) {
     return "github_triage";
   }
@@ -680,22 +864,109 @@ export function selectAgentTemplate(prompt: string): AgentTemplateId {
   return "incident_response";
 }
 
+function integrationRequirementsForGoal(prompt: string): IntegrationRequirement[] {
+  const normalized = prompt.toLowerCase();
+  const integrations: IntegrationRequirement[] = [];
+  const add = (item: IntegrationRequirement) => {
+    if (!integrations.some((integration) => integration.id === item.id)) integrations.push(item);
+  };
+
+  if (/\b(phone|call|calls|receptionist|voicemail)\b/.test(normalized)) {
+    add({
+      id: "phone_sms",
+      label: "AgentPhone",
+      purpose: "Answer calls, receive customer replies, and send approved text confirmations.",
+      status: "required",
+    });
+  }
+  if (/\b(sms|text|texts|message|confirmation)\b/.test(normalized)) {
+    add({
+      id: "phone_sms",
+      label: "AgentPhone",
+      purpose: "Send approved confirmations and follow-up messages.",
+      status: "required",
+    });
+  }
+  if (/\b(calendar|schedule|appointment|booking|book|availability)\b/.test(normalized)) {
+    add({
+      id: "calendar",
+      label: "Calendar",
+      purpose: "Read availability and create approved appointments.",
+      status: "required",
+    });
+  }
+  if (/\b(email|inbox|follow up|follow-up)\b/.test(normalized)) {
+    add({
+      id: "email",
+      label: "Email",
+      purpose: "Send approved follow-ups and summaries.",
+      status: "required",
+    });
+  }
+  if (/\b(customer|lead|crm|contact|contacts)\b/.test(normalized)) {
+    add({
+      id: "crm",
+      label: "CRM",
+      purpose: "Look up and update customer records after approval.",
+      status: "optional",
+    });
+  }
+  if (/\b(github|repo|repository|issue|pull request|pr)\b/.test(normalized)) {
+    add({
+      id: "github",
+      label: "GitHub",
+      purpose: "Read repository activity and apply approved issue updates.",
+      status: "required",
+    });
+  }
+  if (/\b(linear|ticket|tickets)\b/.test(normalized)) {
+    add({
+      id: "linear",
+      label: "Linear",
+      purpose: "Create approved tickets and engineering follow-ups.",
+      status: "required",
+    });
+  }
+
+  return integrations;
+}
+
+function customAgentName(templateId: AgentTemplateId): string {
+  if (templateId === "phone_receptionist") return "ReceptionClaw";
+  if (templateId === "github_triage") return "RepoClaw";
+  if (templateId === "inbox_approval") return "InboxClaw";
+  if (templateId === "research_sandbox") return "ResearchClaw";
+  return "SentinelClaw";
+}
+
 export function createTemplateBlueprint(
   templateId: AgentTemplateId,
   provider: ProviderMode = "auto",
+  customGoal = templateById[templateId].goal,
+  blueprintId = templateById[templateId].blueprint_id,
 ): BlueprintResponse {
   const template = templateById[templateId];
   const model = modelForProvider(provider);
+  const integrations = integrationRequirementsForGoal(customGoal);
 
   return {
     ...template,
+    blueprint_id: blueprintId,
     provider,
     template_id: templateId,
+    custom_goal: customGoal,
+    agent_name: customAgentName(templateId),
+    goal: customGoal,
+    description:
+      templateId === "phone_receptionist"
+        ? "A custom phone receptionist agent generated from your goal."
+        : template.description,
     model,
     fallback_provider: provider === "auto" ? "minimax" : "mock",
     runtime: "openclaw",
     sandbox: "nemoclaw",
-    config_preview: configPreview(templateId, model, template.policies),
+    integration_requirements: integrations,
+    config_preview: configPreview(templateId, model, customGoal, template.policies, integrations),
   };
 }
 
@@ -703,11 +974,15 @@ export function createBlueprintFromPrompt(
   prompt: string,
   provider: ProviderMode = "auto",
 ): BlueprintResponse {
-  return createTemplateBlueprint(selectAgentTemplate(prompt), provider);
+  const templateId = selectAgentTemplate(prompt);
+  return createTemplateBlueprint(templateId, provider, prompt.trim(), goalId(prompt, templateId));
 }
 
 export function isKnownBlueprintId(blueprintId: string): boolean {
-  return Object.values(templateById).some((template) => template.blueprint_id === blueprintId);
+  return (
+    blueprintId.startsWith("bp_goal_") ||
+    Object.values(templateById).some((template) => template.blueprint_id === blueprintId)
+  );
 }
 
 export function createSentinelBlueprint(provider: ProviderMode = "auto"): BlueprintResponse {
@@ -818,7 +1093,7 @@ export const demoReport: IncidentReport = {
   severity: "high",
   detected_behavior: "Repeated failed login attempts",
   classification: "Credential access attempt with brute-force indicators",
-  model_used: "NVIDIA Nemotron via ClawForge mock demo path",
+  model_used: "NVIDIA Nemotron, with MiniMax as the fallback intelligence layer",
   runtime: "OpenClaw runtime inside NemoClaw sandbox",
   policy_triggered: "require_shell_approval",
   action_attempted: "block_ip 185.92.XX.XX",

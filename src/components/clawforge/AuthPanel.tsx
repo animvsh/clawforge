@@ -1,9 +1,10 @@
 import { isSupabaseConfigured, supabase, type SupabaseSession } from "@/lib/supabase/client";
 import { X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export function AuthPanel() {
   const [session, setSession] = useState<SupabaseSession | null>(null);
+  const [demoEmail, setDemoEmail] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
@@ -12,12 +13,33 @@ export function AuthPanel() {
   const [messageTone, setMessageTone] = useState<"info" | "error">("info");
   const [loading, setLoading] = useState(false);
 
+  const ensureProfile = useCallback(async (nextSession: SupabaseSession | null) => {
+    if (!supabase || !nextSession?.user?.id || !nextSession.user.email) return;
+    await supabase.from("profiles").upsert({
+      id: nextSession.user.id,
+      email: nextSession.user.email,
+      updated_at: new Date().toISOString(),
+    });
+  }, []);
+
   useEffect(() => {
+    const urlDemoEmail = new URLSearchParams(window.location.search).get("demo_email");
+    if (urlDemoEmail) {
+      window.localStorage.setItem("clawforge_demo_email", urlDemoEmail);
+      setDemoEmail(urlDemoEmail);
+    }
+
+    const savedDemoEmail = window.localStorage.getItem("clawforge_demo_email");
+    if (savedDemoEmail) setDemoEmail(savedDemoEmail);
+
     if (!supabase) return;
 
     supabase.auth
       .getSession()
-      .then(({ data }) => setSession(data.session))
+      .then(async ({ data }) => {
+        setSession(data.session);
+        await ensureProfile(data.session);
+      })
       .catch(() => {
         setMessageTone("error");
         setMessage("Could not load your session. You can still build in guest mode.");
@@ -26,11 +48,12 @@ export function AuthPanel() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
+      void ensureProfile(nextSession);
       setMessage("");
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [ensureProfile]);
 
   useEffect(() => {
     if (!open) return;
@@ -62,7 +85,11 @@ export function AuthPanel() {
 
     if (error) {
       setMessageTone("error");
-      setMessage(error.message);
+      setMessage(
+        /rate limit|too many|email/i.test(error.message)
+          ? "Supabase email is rate-limited right now. Use the demo account below to keep building, or sign in with an existing account."
+          : error.message,
+      );
       return;
     }
 
@@ -74,13 +101,23 @@ export function AuthPanel() {
           ? "Account created."
           : "Check your email to confirm your account.",
     );
+    await ensureProfile(data.session);
     setPassword("");
   }
 
   async function signOut() {
-    if (!supabase) return;
-    await supabase.auth.signOut();
+    if (supabase) await supabase.auth.signOut();
+    window.localStorage.removeItem("clawforge_demo_email");
     setSession(null);
+    setDemoEmail(null);
+    setOpen(false);
+  }
+
+  function continueAsDemo() {
+    const nextEmail = email.trim() || "demo@clawforge.local";
+    window.localStorage.setItem("clawforge_demo_email", nextEmail);
+    setDemoEmail(nextEmail);
+    setMessage("");
     setOpen(false);
   }
 
@@ -88,11 +125,11 @@ export function AuthPanel() {
     return <div className="text-xs uppercase tracking-[0.22em] text-white/28">demo mode</div>;
   }
 
-  if (session?.user) {
+  if (session?.user || demoEmail) {
     return (
       <div className="flex max-w-[220px] items-center gap-3 text-xs text-white/48 sm:max-w-[280px]">
         <span className="truncate rounded-full border border-white/10 px-3 py-1.5">
-          {session.user.email}
+          {session?.user.email ?? demoEmail}
         </span>
         <button
           type="button"
@@ -234,14 +271,23 @@ export function AuthPanel() {
 
           <button
             type="button"
+            onClick={continueAsDemo}
+            className="mt-4 h-11 w-full rounded-full border border-white/14 text-sm font-semibold text-white/72 transition hover:border-white/32 hover:text-white"
+          >
+            Continue with demo account
+          </button>
+
+          <button
+            type="button"
             onClick={() => setOpen(false)}
             className="mt-4 w-full text-center text-sm text-white/38 transition hover:text-white/70"
           >
-            Continue as guest
+            Close
           </button>
 
           <p className="mt-5 text-center text-xs leading-relaxed text-white/34">
-            Your saved ClawForge agents and runs stay attached to this account.
+            Demo accounts keep the build flow local. Supabase accounts save runs when email is
+            available.
           </p>
         </form>
       </div>

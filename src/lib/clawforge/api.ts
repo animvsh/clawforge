@@ -13,6 +13,8 @@ import {
   getRuntimeReport,
   getRuntimeState,
   getApprovalStatus,
+  hydrateRuntimeForAgentId,
+  isActiveRuntimeAgent,
   resolveApproval,
   resetLegacyRuntime,
   startRuntime,
@@ -35,6 +37,8 @@ import {
   handleMemoryDelete,
   handleMemoryList,
 } from "./memory/gateway";
+import { createIntegrationConnectLink, getIntegrationStatus } from "./integrations/composio";
+import { createAgentMailInbox } from "./integrations/agentmail";
 import type {
   ProviderMode,
   BlueprintRequest,
@@ -46,6 +50,7 @@ import type {
   ApprovalDecisionRequest,
   ApprovalDecisionResponse,
   IncidentReportResponse,
+  BlueprintResponse,
 } from "./types";
 
 // ============================================================
@@ -175,6 +180,7 @@ async function readJsonBody<T extends Record<string, unknown>>(request: Request)
 }
 
 function normalizeProvider(value: unknown): ProviderMode | null {
+  if (value === undefined || value === null || value === "") return "auto";
   if (
     value === "nemotron" ||
     value === "minimax" ||
@@ -187,11 +193,37 @@ function normalizeProvider(value: unknown): ProviderMode | null {
   return null; // Invalid provider - caller should return 400
 }
 
+function providerModelEnvOverride(
+  provider: ProviderMode,
+  value: unknown,
+): Record<string, string | undefined> {
+  if (typeof value !== "string") return {};
+  const model = value.trim();
+  if (!model || model === "auto") return {};
+  if (provider === "nemotron") return { NVIDIA_NEMOTRON_MODEL: model };
+  if (provider === "minimax") return { MINIMAX_MODEL: model };
+  if (provider === "pi") return { PI_CODING_MODEL: model };
+  return {};
+}
+
 function normalizePredeployScenario(
   value: unknown,
 ): "happy_path" | "raw_export" | "policy_tamper" | "timeout" {
   if (value === "raw_export" || value === "policy_tamper" || value === "timeout") return value;
   return "happy_path";
+}
+
+function isBlueprintResponse(value: unknown): value is BlueprintResponse {
+  if (!value || Array.isArray(value) || typeof value !== "object") return false;
+  const candidate = value as Partial<BlueprintResponse>;
+  return (
+    typeof candidate.blueprint_id === "string" &&
+    typeof candidate.agent_name === "string" &&
+    typeof candidate.template_id === "string" &&
+    typeof candidate.goal === "string" &&
+    Array.isArray(candidate.tools) &&
+    Array.isArray(candidate.policies)
+  );
 }
 
 function runtimeEnv(
@@ -219,6 +251,40 @@ provider_status: fallback
 provider_error: live provider unavailable; using deterministic fallback`;
 }
 
+function cleanProviderSummary(value: string): string {
+  const cleaned = value
+    .replace(/^\s*(?:here(?:'s| is)|sure|certainly)[\s\S]*?:\s*/i, "")
+    .replace(/["“”]/g, "")
+    .replace(/\s*\((?:safety controls|if you'd like|note:)[\s\S]*$/i, "")
+    .replace(/\n{2,}[\s\S]*$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned
+    .split(/(?<=[.!?])\s+(?=[A-Z])/)
+    .slice(0, 2)
+    .join(" ");
+}
+
+function cleanProviderSteps(steps: string[], fallbackSteps: string[]): string[] {
+  const cleaned = steps
+    .map((step) =>
+      step
+        .replace(/^\s*(?:[-*]|\d+[.)-])\s*/, "")
+        .replace(/^["'`]+|["'`,]+$/g, "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
+    .filter(
+      (step) =>
+        step.length >= 3 &&
+        step.length <= 80 &&
+        !/```|import\s|from\s+['"]|function\s|\b(?:const|let|var)\s|=>|=/.test(step) &&
+        !/\b(?:api[_ -]?key|auth[_ -]?key|account[_ -]?id|twilio|python)\b/i.test(step),
+    );
+
+  return cleaned.length >= 3 ? cleaned : fallbackSteps;
+}
+
 async function createProviderBackedBlueprint(
   provider: ProviderMode,
   prompt: string,
@@ -238,21 +304,24 @@ async function createProviderBackedBlueprint(
     }
 
     const liveModel = liveProvider.model;
-    const [steps, summary, classification] = await Promise.all([
+    const [steps, rawSummary, classification] = await Promise.all([
       registry.plan({ prompt }, provider),
       registry.summarize({ prompt }, provider),
       registry.classify({ prompt }, provider),
     ]);
+    const summary = cleanProviderSummary(rawSummary);
+    const fallbackSteps = blueprint.workflow_steps.map((step) => step.title);
     const providerSteps =
-      steps.length >= 4 && !steps.every((step) => /^initialize\.?$/i.test(step))
-        ? steps
-        : blueprint.workflow_steps.map((step) => step.title);
+      blueprint.template_id === "phone_receptionist"
+        ? fallbackSteps
+        : steps.length >= 4 && !steps.every((step) => /^initialize\.?$/i.test(step))
+          ? cleanProviderSteps(steps, fallbackSteps)
+          : fallbackSteps;
 
     return {
       ...blueprint,
       model: liveModel,
       description: summary || blueprint.description,
-      goal: summary || blueprint.goal,
       workflow_steps: providerSteps.slice(0, 6).map((step, index) => ({
         id: `step_provider_${index + 1}`,
         title: step,
@@ -370,15 +439,81 @@ export async function handleClawForgeApi(
   }
 
   if (
+    (apiPath === "/api/clawforge/composio/status" || apiPath === "/clawforge/composio/status") &&
+    request.method === "GET"
+  ) {
+    const userId = url.searchParams.get("user_id") || "clawforge-demo-user";
+    return successResponse({ composio: await getIntegrationStatus(workerEnv, userId) });
+  }
+
+  if (
+    (apiPath === "/api/clawforge/integrations" || apiPath === "/clawforge/integrations") &&
+    request.method === "GET"
+  ) {
+    const userId = url.searchParams.get("user_id") || "clawforge-demo-user";
+    return successResponse({ integrations: await getIntegrationStatus(workerEnv, userId) });
+  }
+
+  if (
+    (apiPath === "/api/clawforge/integrations/connect" ||
+      apiPath === "/clawforge/integrations/connect") &&
+    request.method === "POST"
+  ) {
+    try {
+      return successResponse({
+        connect: await createIntegrationConnectLink(request.clone(), workerEnv),
+      });
+    } catch (error) {
+      return errorResponse(
+        error instanceof Error ? error.message : "Could not create integration connect link.",
+        400,
+        "INVALID_REQUEST",
+      );
+    }
+  }
+
+  if (
+    (apiPath === "/api/clawforge/agentmail/inboxes" ||
+      apiPath === "/clawforge/agentmail/inboxes") &&
+    request.method === "POST"
+  ) {
+    try {
+      return successResponse({
+        inbox: await createAgentMailInbox(request.clone(), workerEnv),
+      });
+    } catch (error) {
+      return errorResponse(
+        error instanceof Error ? error.message : "Could not create agent inbox.",
+        400,
+        "INVALID_REQUEST",
+      );
+    }
+  }
+
+  if (
     (apiPath === "/api/clawforge/brev/launch-plan" || apiPath === "/clawforge/brev/launch-plan") &&
     request.method === "POST"
   ) {
-    const body = await readJsonBody<{ instance_name?: unknown }>(request);
+    const body = await readJsonBody<{
+      instance_name?: unknown;
+      blueprint?: unknown;
+      agent_inbox?: unknown;
+    }>(request);
     const instanceName =
       typeof body.instance_name === "string" && body.instance_name.trim()
         ? body.instance_name.trim()
         : "clawforge-nemoclaw";
-    return successResponse({ launch: await createBrevLaunchPlan(instanceName) });
+    const agentInbox =
+      body.agent_inbox && typeof body.agent_inbox === "object" && !Array.isArray(body.agent_inbox)
+        ? (body.agent_inbox as { email?: string; status?: string })
+        : undefined;
+    return successResponse({
+      launch: await createBrevLaunchPlan(instanceName, {
+        blueprint: isBlueprintResponse(body.blueprint) ? body.blueprint : undefined,
+        agentInbox,
+        workerEnv,
+      }),
+    });
   }
 
   if (
@@ -389,6 +524,8 @@ export async function handleClawForgeApi(
       instance_name?: unknown;
       instance_type?: unknown;
       confirmation?: unknown;
+      blueprint?: unknown;
+      agent_inbox?: unknown;
     }>(request);
     const instanceName =
       typeof body.instance_name === "string" && body.instance_name.trim()
@@ -398,10 +535,19 @@ export async function handleClawForgeApi(
       typeof body.instance_type === "string" && body.instance_type.trim()
         ? body.instance_type.trim()
         : "verda_L40S";
+    const agentInbox =
+      body.agent_inbox && typeof body.agent_inbox === "object" && !Array.isArray(body.agent_inbox)
+        ? (body.agent_inbox as { email?: string; status?: string })
+        : undefined;
     const launch = await createBrevInstance(
       instanceName,
       instanceType,
       body.confirmation === "CREATE_BREV_INSTANCE",
+      {
+        blueprint: isBlueprintResponse(body.blueprint) ? body.blueprint : undefined,
+        agentInbox,
+        workerEnv,
+      },
     );
     return successResponse({ launch });
   }
@@ -410,9 +556,29 @@ export async function handleClawForgeApi(
     (apiPath === "/api/clawforge/openhands/chat" || apiPath === "/clawforge/openhands/chat") &&
     request.method === "POST"
   ) {
-    const body = await readJsonBody<{ message?: unknown }>(request);
+    const body = await readJsonBody<{ message?: unknown; provider?: unknown; model?: unknown }>(
+      request,
+    );
     const message = typeof body.message === "string" ? body.message : "";
-    return successResponse({ chat: chatWithOpenHands(message) });
+    const provider = normalizeProvider(body.provider);
+    if (provider === null) {
+      return errorResponse(
+        "Invalid provider value. Must be one of: auto, nemotron, minimax, pi, mock.",
+        400,
+        "INVALID_REQUEST",
+        "provider",
+      );
+    }
+    return successResponse({
+      chat: await chatWithOpenHands(
+        message,
+        {
+          ...runtimeEnv(workerEnv),
+          ...providerModelEnvOverride(provider, body.model),
+        },
+        provider,
+      ),
+    });
   }
 
   const predeployEventsMatch = path.match(/^\/api\/clawforge\/predeploy-runs\/([^/]+)\/events$/);
@@ -434,10 +600,13 @@ export async function handleClawForgeApi(
     (apiPath === "/api/agents/deploy" || apiPath === "/agents/deploy") &&
     request.method === "POST"
   ) {
-    const body = await readJsonBody<{ blueprint_id?: unknown; predeploy_run_id?: unknown }>(
-      request,
-    );
+    const body = await readJsonBody<{
+      blueprint_id?: unknown;
+      blueprint?: unknown;
+      predeploy_run_id?: unknown;
+    }>(request);
     const blueprintId = typeof body.blueprint_id === "string" ? body.blueprint_id : "";
+    const blueprint = isBlueprintResponse(body.blueprint) ? body.blueprint : undefined;
 
     if (!blueprintId) {
       return errorResponse("blueprint_id is required.", 400, "MISSING_FIELD", "blueprint_id");
@@ -461,12 +630,12 @@ export async function handleClawForgeApi(
     }
 
     resetLegacyRuntime();
-    startRuntime();
+    const runtime = startRuntime(blueprint);
     return successResponse(
       {
-        agent_id: DEMO_AGENT_ID,
+        agent_id: runtime.agent_id,
         status: "running" as const,
-        message: "Agent deployed successfully inside NemoClaw.",
+        message: `${blueprint?.agent_name ?? "Agent"} deployed successfully inside NemoClaw.`,
       },
       {
         headers: {
@@ -494,7 +663,7 @@ export async function handleClawForgeApi(
     const action = legacyAgentMatch ? match[2] : match[3];
     const nested = legacyAgentMatch ? match[3] : match[4];
 
-    if (agentId !== DEMO_AGENT_ID) {
+    if (!isActiveRuntimeAgent(agentId) && !hydrateRuntimeForAgentId(agentId)) {
       return notFoundError("Agent");
     }
 

@@ -82,8 +82,8 @@ function Hero({ onBuild }: { onBuild: (prompt: string) => void }) {
             Build safe agents from one prompt.
           </h1>
           <p className="mt-5 max-w-md text-base leading-relaxed text-white/58 lg:text-[1.02rem]">
-            Tell ClawForge what you want done. It builds the agent, adds guardrails, and shows you
-            every step.
+            Tell ClawForge what you want done. It builds the agent, connects tools, deploys a
+            sandbox, and asks before risky actions.
           </p>
           <form
             onSubmit={submit}
@@ -135,7 +135,7 @@ function Hero({ onBuild }: { onBuild: (prompt: string) => void }) {
           safe mode
         </div>
         <div className="absolute bottom-5 left-5 right-5 hidden gap-px border border-white/15 bg-white/10 text-xs text-white/72 sm:grid md:grid-cols-3">
-          {["agent created", "risky actions paused", "live activity"].map((item) => (
+          {["tools connected", "sandbox deployed", "approvals live"].map((item) => (
             <div key={item} className="bg-black/72 px-4 py-3 uppercase tracking-[0.2em]">
               {item}
             </div>
@@ -158,8 +158,8 @@ function EmptyState({ title, body }: { title: string; body: string }) {
 function HowItWorks() {
   const steps = [
     ["Describe", "Say what the agent should do."],
-    ["Review", "See the plan before it runs."],
-    ["Run", "Watch every action live."],
+    ["Connect", "Attach approved tools."],
+    ["Deploy", "Launch the sandbox."],
     ["Approve", "You decide on risky steps."],
   ];
 
@@ -248,6 +248,7 @@ function Index() {
       <Section id="dashboard" eyebrow="runtime" title="Watch it run.">
         <LiveDashboard
           agentId={agentId}
+          blueprint={blueprint}
           onReport={(nextReport) => {
             setReport(nextReport);
             window.setTimeout(() => {
