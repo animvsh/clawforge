@@ -1,10 +1,11 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { ArrowRight, Plus } from "lucide-react";
+import { ArrowRight, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ClawForgeFrame, PageShell } from "@/components/clawforge/ClawForgeFrame";
 import {
   type ClawForgeProject,
   createProject,
+  deleteProject,
   ensureDemoProjects,
   listProjects,
 } from "@/lib/clawforge/projects";
@@ -31,6 +32,7 @@ function statusLabel(status: ClawForgeProject["status"]) {
 
 function DashboardPage() {
   const [projects, setProjects] = useState<ClawForgeProject[]>([]);
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
 
   useEffect(() => {
     setProjects(ensureDemoProjects());
@@ -49,6 +51,12 @@ function DashboardPage() {
   function createQuickProject() {
     createProject(quickPrompt);
     setProjects(listProjects());
+  }
+
+  function handleDelete(projectId: string) {
+    deleteProject(projectId);
+    setProjects(listProjects());
+    setConfirmingDelete(null);
   }
 
   return (
@@ -81,10 +89,8 @@ function DashboardPage() {
 
         <div className="mt-4 grid gap-px overflow-hidden border border-white/12 bg-white/10">
           {projects.map((project) => (
-            <Link
+            <div
               key={project.id}
-              to="/workspace/$projectId"
-              params={{ projectId: project.id }}
               className="group grid gap-4 bg-black p-5 transition hover:bg-white/[0.035] md:grid-cols-[1fr_auto] md:items-center"
             >
               <div>
@@ -98,11 +104,45 @@ function DashboardPage() {
                   {project.prompt}
                 </p>
               </div>
-              <div className="inline-flex items-center gap-2 text-sm text-white/48 transition group-hover:text-white">
-                Open workspace
-                <ArrowRight className="h-4 w-4" aria-hidden="true" />
-              </div>
-            </Link>
+              {confirmingDelete === project.id ? (
+                <div className="flex items-center gap-3 text-sm">
+                  <span className="text-white/48">Delete?</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(project.id)}
+                    className="rounded-full bg-red-500 px-3 py-1 text-white transition hover:bg-red-400"
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingDelete(null)}
+                    className="rounded-full border border-white/12 px-3 py-1 text-white/48 transition hover:border-white/30 hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Link
+                    to="/workspace/$projectId"
+                    params={{ projectId: project.id }}
+                    className="inline-flex items-center gap-2 text-sm text-white/48 transition group-hover:text-white"
+                  >
+                    Open workspace
+                    <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingDelete(project.id)}
+                    className="ml-2 hidden rounded-full p-1.5 text-white/30 transition group-hover:block hover:bg-red-400/10 hover:text-red-400"
+                    aria-label="Delete project"
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+            </div>
           ))}
         </div>
       </PageShell>
