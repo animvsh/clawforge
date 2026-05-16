@@ -1,14 +1,5 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import {
-  ArrowUp,
-  Check,
-  FileText,
-  MemoryStick,
-  Rocket,
-  Shield,
-  Sparkles,
-  Workflow,
-} from "lucide-react";
+import { ArrowUp, Check, FileText, Rocket, Shield, Sparkles, Workflow } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ClawForgeLogo } from "@/components/clawforge/ClawForgeFrame";
 import { AuthPanel } from "@/components/clawforge/AuthPanel";
@@ -149,7 +140,7 @@ function WorkspacePage() {
   const [cloudDeploying, setCloudDeploying] = useState(false);
   const [brevLaunch, setBrevLaunch] = useState<BrevLaunchState | null>(null);
   const [instanceChatId, setInstanceChatId] = useState<string | null>(null);
-  const [panel, setPanel] = useState<"files" | "policies" | "memory">("files");
+  const [panel, setPanel] = useState<"logs" | "agent" | "tools" | "instance">("logs");
   const [error, setError] = useState<string | null>(null);
   const [provider, setProvider] = useState<ProviderMode>("auto");
   const [model, setModel] = useState("auto");
@@ -319,7 +310,7 @@ function WorkspacePage() {
         config_preview: `${current.config_preview}\nshell_policy: ${effect}`,
       };
     });
-    setPanel("policies");
+    setPanel("agent");
   }
 
   async function deploy(nextBlueprint = blueprint) {
@@ -469,7 +460,7 @@ function WorkspacePage() {
       const reportResponse = await fetch(`/api/agents/${agentId}/report`);
       const reportData = await reportResponse.json();
       setReport(reportData.report ?? null);
-      setPanel("memory");
+      setPanel("agent");
       setChat((current) => [
         ...current,
         [
@@ -530,12 +521,12 @@ function WorkspacePage() {
       actionReply = "Preparing the cloud workspace for this custom NemoClaw instance.";
     } else if (lower.includes("polic")) {
       action = "show_policies";
-      setPanel("policies");
-      actionReply = "Opening the NemoClaw policy pack.";
+      setPanel("agent");
+      actionReply = "Opening the agent safety plan.";
     } else if (lower.includes("memory")) {
       action = "show_memory";
-      setPanel("memory");
-      actionReply = "Opening shared memory and approval history.";
+      setPanel("agent");
+      actionReply = "Opening the agent memory and approval history.";
     } else if (lower.includes("deny")) {
       action = "deny";
       actionReply = "Denying the pending command.";
@@ -544,7 +535,7 @@ function WorkspacePage() {
       actionReply = "Approving the pending command.";
     } else if (lower.includes("export") || lower.includes("file")) {
       action = "show_files";
-      setPanel("files");
+      setPanel("agent");
       actionReply = "Opening generated NemoClaw files.";
     } else if (
       lower.includes("block shell") ||
@@ -812,55 +803,49 @@ function WorkspacePage() {
                 </button>
               ))}
             </div>
-            <div className="mb-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-              <label
-                htmlFor="workspace-model"
-                className="text-[10px] uppercase tracking-[0.22em] text-white/35"
-              >
-                Brain
-              </label>
-              <select
-                id="workspace-model"
-                value={modelKey(selectedModel)}
-                onChange={(event) => selectModel(event.target.value)}
-                className="mt-2 w-full bg-transparent text-sm text-white outline-none"
-              >
-                {chatModelOptions.map((option) => (
-                  <option key={modelKey(option)} value={modelKey(option)} className="bg-black">
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-2 text-xs leading-relaxed text-white/38">
-                {modelTouched ? selectedModel.note : `Recommended: ${recommendedModel.label}.`}
-              </p>
-            </div>
             <form
               onSubmit={(event) => {
                 event.preventDefault();
                 void sendChat();
               }}
-              className="flex items-center gap-2 rounded-[24px] border border-white/14 bg-[#20201e] p-2"
+              className="overflow-hidden rounded-[26px] border border-white/14 bg-[#20201e] shadow-[0_18px_70px_rgba(0,0,0,0.35)] transition focus-within:border-white/32"
             >
               <input
                 value={message}
                 onChange={(event) => setMessage(event.target.value)}
-                className="min-w-0 flex-1 bg-transparent px-3 text-sm text-white outline-none placeholder:text-white/25"
-                placeholder={
-                  chatLoading
-                    ? "OpenHands is thinking..."
-                    : "Ask ClawForge to edit, deploy, or run..."
-                }
+                className="min-h-16 w-full bg-transparent px-5 pt-4 text-sm text-white outline-none placeholder:text-white/25"
+                placeholder={chatLoading ? "Thinking..." : "Ask ClawForge to build or change it..."}
                 disabled={chatLoading}
               />
-              <button
-                type="submit"
-                className="grid h-10 w-10 place-items-center rounded-full bg-white text-black disabled:opacity-50"
-                aria-label="Send workspace message"
-                disabled={chatLoading}
-              >
-                <ArrowUp className="h-4 w-4" aria-hidden="true" />
-              </button>
+              <div className="flex items-center justify-between gap-2 px-2 pb-2">
+                <label className="flex min-w-0 items-center gap-2 rounded-full border border-white/10 bg-black/38 px-3 py-2 text-xs text-white/48">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" aria-hidden="true" />
+                  <span className="sr-only">Model</span>
+                  <select
+                    aria-label="Choose chat model"
+                    value={modelKey(selectedModel)}
+                    onChange={(event) => selectModel(event.target.value)}
+                    className="max-w-[150px] bg-transparent text-xs text-white outline-none"
+                  >
+                    {chatModelOptions.map((option) => (
+                      <option key={modelKey(option)} value={modelKey(option)} className="bg-black">
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <span className="hidden min-w-0 flex-1 truncate text-xs text-white/32 sm:block">
+                  {modelTouched ? selectedModel.note : `Recommended: ${recommendedModel.label}`}
+                </span>
+                <button
+                  type="submit"
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-black transition hover:bg-white/88 disabled:opacity-50"
+                  aria-label="Send workspace message"
+                  disabled={chatLoading}
+                >
+                  <ArrowUp className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
             </form>
           </div>
         </aside>
@@ -892,11 +877,14 @@ function WorkspacePage() {
                 {error && <div className="text-sm text-red-200">{error}</div>}
               </div>
 
-              <div className="grid gap-3 md:grid-cols-3">
+              <div className="relative grid gap-4 md:grid-cols-3">
                 {workflowNodes.map(([id, title, body, kind], index) => {
                   const state = nodeState(index, activeIndex, currentStatus);
                   return (
-                    <div key={id} className={`relative border p-4 transition ${stateClass(state)}`}>
+                    <div
+                      key={id}
+                      className={`relative min-h-[150px] border p-4 transition ${stateClass(state)}`}
+                    >
                       <div className="flex items-center justify-between gap-3">
                         <div className="text-[10px] uppercase tracking-[0.18em] text-white/34">
                           {kind}
@@ -905,92 +893,74 @@ function WorkspacePage() {
                       </div>
                       <h3 className="mt-6 text-lg font-semibold">{title}</h3>
                       <p className="mt-2 text-sm leading-relaxed text-white/46">{body}</p>
+                      {index < workflowNodes.length - 1 && (
+                        <div
+                          className="pointer-events-none absolute -right-4 top-1/2 hidden h-px w-4 bg-white/18 md:block"
+                          aria-hidden="true"
+                        />
+                      )}
                     </div>
                   );
                 })}
               </div>
 
-              <div className="mt-5 grid gap-px border border-white/12 bg-white/10 lg:grid-cols-2">
-                <div className="bg-black p-5">
-                  <div className="mb-4 flex items-center gap-2 text-sm font-medium text-white">
-                    <Workflow className="h-4 w-4" aria-hidden="true" />
-                    Live audit stream
-                  </div>
-                  <div className="max-h-56 space-y-2 overflow-y-auto font-mono text-xs text-white/56">
-                    {(events.length
-                      ? events
-                      : buildLog.map((item, index) => ({
-                          id: item,
-                          message: item,
-                          timestamp: `00:0${index + 1}`,
-                        }))
-                    ).map((event) => (
-                      <div key={event.id} className="border-b border-white/8 pb-2">
-                        <span className="text-white/28">[{event.timestamp.slice(-8, -3)}]</span>{" "}
-                        {event.message}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="bg-black p-5">
-                  {currentStatus === "waiting_for_approval" ? (
-                    <>
-                      <div className="mb-4 flex items-center gap-2 text-sm font-medium text-amber-100">
-                        <Shield className="h-4 w-4" aria-hidden="true" />
-                        NemoClaw Approval Required
-                      </div>
-                      <p className="text-sm leading-relaxed text-white/58">
-                        SentinelClaw wants to run <code>block_ip 185.92.xx.xx</code>. Shell
-                        execution can change system state, so NemoClaw paused the agent.
-                      </p>
-                      <div className="mt-5 flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void decide("approved")}
-                          className="bg-white px-4 py-2 text-sm font-semibold text-black"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void decide("denied")}
-                          className="border border-white/14 px-4 py-2 text-sm text-white/70"
-                        >
-                          Deny
-                        </button>
-                      </div>
-                    </>
-                  ) : report ? (
-                    <>
-                      <div className="mb-4 flex items-center gap-2 text-sm font-medium text-emerald-100">
-                        <FileText className="h-4 w-4" aria-hidden="true" />
-                        Final report
-                      </div>
-                      <h3 className="text-xl font-semibold text-white">{report.title}</h3>
-                      <p className="mt-3 text-sm leading-relaxed text-white/58">
-                        {report.safety_result}
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <div className="mb-4 flex items-center gap-2 text-sm font-medium text-white">
-                        <Shield className="h-4 w-4" aria-hidden="true" />
-                        Deployment
-                      </div>
-                      <p className="text-sm leading-relaxed text-white/58">
-                        Press Deploy to create the agent workspace, attach memory, and open the live
-                        chat.
-                      </p>
-                    </>
-                  )}
-                </div>
+              <div className="mt-5 border border-white/12 bg-black p-5">
+                {currentStatus === "waiting_for_approval" ? (
+                  <>
+                    <div className="mb-4 flex items-center gap-2 text-sm font-medium text-amber-100">
+                      <Shield className="h-4 w-4" aria-hidden="true" />
+                      NemoClaw Approval Required
+                    </div>
+                    <p className="text-sm leading-relaxed text-white/58">
+                      SentinelClaw wants to run <code>block_ip 185.92.xx.xx</code>. Shell execution
+                      can change system state, so NemoClaw paused the agent.
+                    </p>
+                    <div className="mt-5 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void decide("approved")}
+                        className="bg-white px-4 py-2 text-sm font-semibold text-black"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void decide("denied")}
+                        className="border border-white/14 px-4 py-2 text-sm text-white/70"
+                      >
+                        Deny
+                      </button>
+                    </div>
+                  </>
+                ) : report ? (
+                  <>
+                    <div className="mb-4 flex items-center gap-2 text-sm font-medium text-emerald-100">
+                      <FileText className="h-4 w-4" aria-hidden="true" />
+                      Final report
+                    </div>
+                    <h3 className="text-xl font-semibold text-white">{report.title}</h3>
+                    <p className="mt-3 text-sm leading-relaxed text-white/58">
+                      {report.safety_result}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="mb-4 flex items-center gap-2 text-sm font-medium text-white">
+                      <Shield className="h-4 w-4" aria-hidden="true" />
+                      Deployment
+                    </div>
+                    <p className="text-sm leading-relaxed text-white/58">
+                      Press Deploy to create the agent workspace, attach memory, and open the live
+                      chat.
+                    </p>
+                  </>
+                )}
               </div>
             </div>
 
             <aside className="bg-black p-5">
-              <div className="grid grid-cols-3 gap-px border border-white/12 bg-white/10 text-xs">
-                {(["files", "policies", "memory"] as const).map((item) => (
+              <div className="grid grid-cols-4 gap-px border border-white/12 bg-white/10 text-xs">
+                {(["logs", "agent", "tools", "instance"] as const).map((item) => (
                   <button
                     key={item}
                     type="button"
@@ -1005,25 +975,55 @@ function WorkspacePage() {
               </div>
 
               <div className="mt-5 border border-white/12 bg-white/[0.025] p-4">
-                {panel === "files" && (
+                {panel === "logs" && (
                   <div>
-                    <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">
-                      generated files
+                    <div className="mb-4 flex items-center gap-2 text-sm font-medium text-white">
+                      <Workflow className="h-4 w-4" aria-hidden="true" />
+                      Live logs
                     </div>
-                    <div className="mt-4 space-y-3">
-                      {generatedFiles.map(([name, body]) => (
-                        <div key={name} className="border-b border-white/8 pb-3">
-                          <div className="font-mono text-sm text-white">{name}</div>
-                          <div className="mt-1 text-xs text-white/42">{body}</div>
+                    <div className="max-h-[54vh] space-y-2 overflow-y-auto font-mono text-xs text-white/56">
+                      {(events.length
+                        ? events
+                        : buildLog.map((item, index) => ({
+                            id: item,
+                            message: item,
+                            timestamp: `00:0${index + 1}`,
+                          }))
+                      ).map((event) => (
+                        <div key={event.id} className="border-b border-white/8 pb-2">
+                          <span className="text-white/28">[{event.timestamp.slice(-8, -3)}]</span>{" "}
+                          {event.message}
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
-                {panel === "policies" && (
+                {panel === "agent" && (
                   <div>
                     <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">
-                      policy pack
+                      agent
+                    </div>
+                    <h3 className="mt-4 text-xl font-semibold text-white">{projectName}</h3>
+                    <p className="mt-3 text-sm leading-relaxed text-white/55">
+                      {blueprint?.description ??
+                        "ClawForge is generating the agent plan from your prompt."}
+                    </p>
+                    <div className="mt-5 grid gap-3 text-sm text-white/55">
+                      <div className="border-b border-white/8 pb-3">
+                        <div className="text-xs uppercase tracking-[0.18em] text-white/32">
+                          Goal
+                        </div>
+                        <div className="mt-1">{blueprint?.goal ?? project.prompt}</div>
+                      </div>
+                      <div className="border-b border-white/8 pb-3">
+                        <div className="text-xs uppercase tracking-[0.18em] text-white/32">
+                          Model
+                        </div>
+                        <div className="mt-1">{selectedModel.label}</div>
+                      </div>
+                    </div>
+                    <div className="mt-5 text-[11px] uppercase tracking-[0.24em] text-white/35">
+                      Safety
                     </div>
                     <div className="mt-4 space-y-3">
                       {(blueprint?.policies ?? []).map((policy) => (
@@ -1035,50 +1035,102 @@ function WorkspacePage() {
                         </div>
                       ))}
                     </div>
+                    <div className="mt-5 text-[11px] uppercase tracking-[0.24em] text-white/35">
+                      Files
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {generatedFiles.map(([name, body]) => (
+                        <div key={name} className="border-b border-white/8 pb-3">
+                          <div className="font-mono text-sm text-white">{name}</div>
+                          <div className="mt-1 text-xs text-white/42">{body}</div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
-                {panel === "memory" && (
+                {panel === "tools" && (
+                  <div>
+                    <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">
+                      tools
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {(blueprint?.tools ?? []).map((tool) => (
+                        <div key={tool.id} className="border border-white/10 bg-black/40 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="text-sm font-medium text-white">{tool.name}</div>
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/34">
+                              {tool.permission.replaceAll("_", " ")}
+                            </div>
+                          </div>
+                          <p className="mt-2 text-xs leading-relaxed text-white/48">
+                            {tool.purpose}
+                          </p>
+                          <div className="mt-3 text-[10px] uppercase tracking-[0.14em] text-white/30">
+                            {tool.risk_level} risk · {tool.enabled ? "enabled" : "disabled"}
+                          </div>
+                        </div>
+                      ))}
+                      {!blueprint?.tools.length && (
+                        <p className="text-sm text-white/45">
+                          Tools appear once the blueprint is ready.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {panel === "instance" && (
                   <div>
                     <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-white/35">
-                      <MemoryStick className="h-4 w-4" aria-hidden="true" />
-                      memory
+                      <Rocket className="h-4 w-4" aria-hidden="true" />
+                      instance
                     </div>
                     <div className="mt-4 space-y-3 text-sm leading-relaxed text-white/55">
-                      <p>User decision history is shared inside this workspace.</p>
-                      <p>Future unknown IP remediation requires explicit approval.</p>
-                      <p>Report-only workflow preferred after denied shell commands.</p>
+                      <p>
+                        {brevLaunch?.instanceName ?? "Deploy to create the live NemoClaw instance."}
+                      </p>
+                      <p>
+                        {brevLaunch?.status?.message ??
+                          "The instance includes tools, safety checks, shared memory, and a chat link."}
+                      </p>
+                      <div className="border-t border-white/8 pt-3">
+                        <div className="text-xs uppercase tracking-[0.18em] text-white/32">
+                          Connections
+                        </div>
+                        <div className="mt-2 space-y-2">
+                          {(brevLaunch?.integrationManifest?.integrations ?? [])
+                            .filter((integration) => integration.required)
+                            .map((integration) => (
+                              <div key={integration.id} className="flex justify-between gap-3">
+                                <span>{integration.label}</span>
+                                <span className="text-white/34">{integration.status}</span>
+                              </div>
+                            ))}
+                          {!brevLaunch?.integrationManifest?.integrations?.some(
+                            (integration) => integration.required,
+                          ) && <span className="text-white/38">No required connections yet.</span>}
+                        </div>
+                      </div>
+                      {instanceChatId ? (
+                        <Link
+                          to="/instance/$instanceId"
+                          params={{ instanceId: instanceChatId }}
+                          className="inline-flex w-full items-center justify-center rounded-full bg-white px-4 py-2 text-sm font-semibold text-black transition hover:bg-white/88"
+                        >
+                          Talk to agent
+                        </Link>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void deployToBrev()}
+                          disabled={!blueprint || cloudDeploying}
+                          className="inline-flex w-full items-center justify-center rounded-full bg-white px-4 py-2 text-sm font-semibold text-black transition hover:bg-white/88 disabled:opacity-45"
+                        >
+                          Deploy and create chat link
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
-              </div>
-              <div className="mt-4 border border-white/12 bg-white/[0.025] p-4">
-                <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-white/35">
-                  <Rocket className="h-4 w-4" aria-hidden="true" />
-                  cloud workspace
-                </div>
-                <div className="mt-4 space-y-3 text-sm leading-relaxed text-white/55">
-                  <p>
-                    {brevLaunch?.instanceName ?? "Custom NemoClaw instance will launch on Brev."}
-                  </p>
-                  <p>
-                    {brevLaunch?.status?.message ??
-                      "Deploy creates the agent workspace, tools, memory, and safety checks."}
-                  </p>
-                  {brevLaunch?.command && (
-                    <code className="block overflow-hidden text-ellipsis whitespace-nowrap border-t border-white/8 pt-3 text-xs text-white/38">
-                      {brevLaunch.command}
-                    </code>
-                  )}
-                  {instanceChatId && (
-                    <Link
-                      to="/instance/$instanceId"
-                      params={{ instanceId: instanceChatId }}
-                      className="inline-flex w-full items-center justify-center rounded-full bg-white px-4 py-2 text-sm font-semibold text-black transition hover:bg-white/88"
-                    >
-                      Open instance chat
-                    </Link>
-                  )}
-                </div>
               </div>
             </aside>
           </div>

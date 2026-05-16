@@ -308,20 +308,6 @@ function InstanceChatPage() {
                   </div>
                   <h2 className="mt-2 text-2xl font-semibold text-white">{instance.agentName}</h2>
                 </div>
-                <label className="flex items-center gap-2 text-sm text-white/48">
-                  Model
-                  <select
-                    value={modelKey({ provider, model })}
-                    onChange={(event) => selectModel(event.target.value)}
-                    className="rounded-full border border-white/12 bg-black px-3 py-2 text-sm text-white outline-none"
-                  >
-                    {chatModelOptions.map((option) => (
-                      <option key={modelKey(option)} value={modelKey(option)}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
               </div>
             </div>
 
@@ -363,25 +349,50 @@ function InstanceChatPage() {
                   event.preventDefault();
                   void sendChat();
                 }}
-                className="flex items-center gap-2 rounded-[24px] border border-white/14 bg-[#20201e] p-2"
+                className="overflow-hidden rounded-[26px] border border-white/14 bg-[#20201e] shadow-[0_18px_70px_rgba(0,0,0,0.35)] transition focus-within:border-white/32"
               >
                 <input
                   value={message}
                   onChange={(event) => setMessage(event.target.value)}
-                  className="min-w-0 flex-1 bg-transparent px-3 text-sm text-white outline-none placeholder:text-white/25"
+                  className="min-h-16 w-full bg-transparent px-5 pt-4 text-sm text-white outline-none placeholder:text-white/25"
                   placeholder={
                     loading ? "The instance is thinking..." : "Talk to this NemoClaw instance..."
                   }
                   disabled={loading}
                 />
-                <button
-                  type="submit"
-                  className="grid h-10 w-10 place-items-center rounded-full bg-white text-black disabled:opacity-50"
-                  aria-label="Send instance message"
-                  disabled={loading}
-                >
-                  <ArrowUp className="h-4 w-4" aria-hidden="true" />
-                </button>
+                <div className="flex items-center justify-between gap-2 px-2 pb-2">
+                  <label className="flex min-w-0 items-center gap-2 rounded-full border border-white/10 bg-black/38 px-3 py-2 text-xs text-white/48">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-300" aria-hidden="true" />
+                    <span className="sr-only">Model</span>
+                    <select
+                      aria-label="Choose instance chat model"
+                      value={modelKey({ provider, model })}
+                      onChange={(event) => selectModel(event.target.value)}
+                      className="max-w-[160px] bg-transparent text-xs text-white outline-none"
+                    >
+                      {chatModelOptions.map((option) => (
+                        <option
+                          key={modelKey(option)}
+                          value={modelKey(option)}
+                          className="bg-black"
+                        >
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <span className="hidden min-w-0 flex-1 truncate text-xs text-white/32 sm:block">
+                    Model applies to this instance chat.
+                  </span>
+                  <button
+                    type="submit"
+                    className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white text-black transition hover:bg-white/88 disabled:opacity-50"
+                    aria-label="Send instance message"
+                    disabled={loading}
+                  >
+                    <ArrowUp className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                </div>
               </form>
             </div>
           </div>
