@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ClawForgeLogo } from "@/components/clawforge/ClawForgeFrame";
 import { AuthPanel } from "@/components/clawforge/AuthPanel";
 import { WorkflowCanvas } from "@/components/clawforge/WorkflowCanvas";
+import { AgentPromptComposer } from "@/components/clawforge/AgentPromptComposer";
 import { saveLaunchInstance } from "@/lib/clawforge/instances";
 import { type ClawForgeProject, getProject, updateProject } from "@/lib/clawforge/projects";
 import type {
@@ -733,21 +734,30 @@ function WorkspacePage() {
                 });
               }, 1200);
             }}
-            className="relative"
+            className="w-full"
           >
-            <textarea
+            <AgentPromptComposer
               value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              rows={2}
-              placeholder="Ask about your agent..."
-              className="w-full resize-none rounded-xl border border-white/10 bg-[#141414] px-4 py-3 pr-12 text-sm text-white outline-none placeholder:text-white/25"
+              onChange={setMessage}
+              onSubmit={() => {
+                const msg = message.trim();
+                if (!msg) return;
+                setChat((prev) => [...prev, [msg, ""]]);
+                setMessage("");
+                setTimeout(() => {
+                  setChat((prev) => {
+                    const updated = [...prev];
+                    updated[updated.length - 1][1] = "Got it! I'm processing your request. Watch the workflow on the right — nodes will start lighting up as I execute each step.";
+                    return updated;
+                  });
+                }, 1200);
+              }}
+              ctaLabel="Send"
+              showPlanToggle={false}
+              onAttach={undefined}
+              placeholder="Ask about your agent…"
+              suggestions={[]}
             />
-            <button
-              type="submit"
-              className="absolute bottom-3 right-3 grid h-8 w-8 place-items-center rounded-full bg-white text-black"
-            >
-              <ArrowUp className="h-3.5 w-3.5" />
-            </button>
           </form>
         </div>
       </div>

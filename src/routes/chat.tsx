@@ -1,8 +1,9 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowUp, ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useState } from "react";
 import { createProject } from "@/lib/clawforge/projects";
 import { Link } from "@tanstack/react-router";
+import { AgentPromptComposer } from "@/components/clawforge/AgentPromptComposer";
 
 export const Route = createFileRoute("/chat")({
   head: () => ({
@@ -17,30 +18,19 @@ export const Route = createFileRoute("/chat")({
   component: ChatPage,
 });
 
-const examplePrompts = [
-  "Monitor system logs, detect suspicious activity, write incident reports, and ask before executing any command.",
-  "GitHub triage agent — read issues, find critical bugs, draft responses, and confirm before posting.",
-  "Email inbox assistant — summarize important emails, draft replies, and ask before sending.",
-  "Research agent — research a topic, save sources, write a brief, and ask before publishing.",
-];
-
 function ChatPage() {
   const navigate = useNavigate();
   const [prompt, setPrompt] = useState("");
-  const [submitting, setSubmitting] = useState(false);
 
-  function handleSubmit(nextPrompt?: string) {
-    const clean = (nextPrompt ?? prompt).trim();
+  function handleSubmit() {
+    const clean = prompt.trim();
     if (!clean) return;
-    if (!nextPrompt) setPrompt(clean);
-    setSubmitting(true);
+    setPrompt(""); // clear so animation can resume after navigation
     const project = createProject(clean);
-    window.setTimeout(() => {
-      void navigate({
-        to: "/workspace/$projectId",
-        params: { projectId: project.id },
-      });
-    }, 400);
+    void navigate({
+      to: "/workspace/$projectId",
+      params: { projectId: project.id },
+    });
   }
 
   return (
@@ -57,7 +47,7 @@ function ChatPage() {
           </Link>
           <div className="h-4 w-px bg-white/20" />
           <span className="text-[11px] uppercase tracking-[0.28em] text-white/40">
-            New NemoClaw Agent
+            New Agent
           </span>
         </div>
         <Link
@@ -69,65 +59,27 @@ function ChatPage() {
       </header>
 
       {/* Full-height centered content */}
-      <div className="flex flex-1 flex-col items-center justify-center px-6">
-        <div className="w-full max-w-xl flex flex-col items-center">
+      <div className="flex flex-1 flex-col items-center justify-center px-6 py-12">
+        <div className="w-full max-w-2xl flex flex-col items-center">
 
           {/* Heading */}
-          <div className="mb-10 text-center">
+          <div className="mb-12 text-center">
             <h1 className="text-4xl font-semibold tracking-tight text-white">
-              Describe your agent
+              What agent will you forge today?
             </h1>
             <p className="mt-4 text-sm text-white/40 leading-relaxed max-w-md">
-              Tell me what your NemoClaw agent should do — I'll generate the workflow, policies, and tools automatically.
+              Describe the workflow. ClawForge builds the agent, tools, policies, memory, and live graph.
             </p>
           </div>
 
-          {/* Suggested prompt chips — directly above the textarea */}
-          <div className="mb-4 flex flex-col gap-2 w-full">
-            {examplePrompts.map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => handleSubmit(p)}
-                className="w-full text-left rounded-xl border border-white/[0.07] bg-white/[0.03] px-5 py-3 text-sm text-white/50 transition hover:border-white/18 hover:bg-white/[0.06] hover:text-white/80"
-              >
-                {p}
-              </button>
-            ))}
-          </div>
-
-          {/* Textarea */}
-          <form
-            onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}
-            className="relative w-full overflow-hidden rounded-2xl border border-white/12 bg-[#141414] shadow-[0_8px_40px_rgba(0,0,0,0.5)]"
-          >
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              rows={4}
-              placeholder="Or describe your own agent here..."
-              className="w-full resize-none border-0 bg-transparent px-6 pt-5 pb-16 text-base text-white leading-relaxed outline-none placeholder:text-white/25"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSubmit();
-                }
-              }}
-            />
-            <div className="absolute bottom-4 left-6 right-16 flex items-center justify-between">
-              <span className="text-xs text-white/20">
-                Enter to generate &nbsp;·&nbsp; Shift+Enter for new line
-              </span>
-              <button
-                type="submit"
-                disabled={!prompt.trim() || submitting}
-                className="grid h-9 w-9 place-items-center rounded-full bg-white text-black transition hover:bg-white/88 disabled:opacity-30"
-                aria-label="Generate agent"
-              >
-                <ArrowUp className="h-4 w-4" aria-hidden="true" />
-              </button>
-            </div>
-          </form>
+          {/* Composer */}
+          <AgentPromptComposer
+            value={prompt}
+            onChange={setPrompt}
+            onSubmit={handleSubmit}
+            ctaLabel="Forge agent"
+            showPlanToggle={false}
+          />
 
         </div>
       </div>

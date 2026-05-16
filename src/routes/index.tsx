@@ -1,10 +1,10 @@
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowUp, Plus } from "lucide-react";
 import { useState } from "react";
 import { AuthPanel } from "@/components/clawforge/AuthPanel";
 import { ClawForgeLogo } from "@/components/clawforge/ClawForgeFrame";
 import heroImage from "@/assets/hero.png";
 import { createProject } from "@/lib/clawforge/projects";
+import { AgentPromptComposer } from "@/components/clawforge/AgentPromptComposer";
 
 const incidentPrompt =
   "Create a NemoClaw agent that monitors system logs, detects suspicious behavior, writes an incident report, and asks before executing commands.";
@@ -44,8 +44,8 @@ function Index() {
   const [prompt, setPrompt] = useState(incidentPrompt);
   const [submitting, setSubmitting] = useState(false);
 
-  function createWorkspace(nextPrompt: string) {
-    const cleanPrompt = nextPrompt.trim();
+  function handleSubmit() {
+    const cleanPrompt = prompt.trim();
     if (!cleanPrompt) return;
     setSubmitting(true);
     const project = createProject(cleanPrompt);
@@ -89,45 +89,39 @@ function Index() {
             <form
               onSubmit={(event) => {
                 event.preventDefault();
-                createWorkspace(prompt);
+                const cleanPrompt = prompt.trim();
+                if (!cleanPrompt) return;
+                setSubmitting(true);
+                const project = createProject(cleanPrompt);
+                window.setTimeout(() => {
+                  void navigate({
+                    to: "/workspace/$projectId",
+                    params: { projectId: project.id },
+                  });
+                }, 260);
               }}
-              className={`hero-composer mt-7 overflow-hidden rounded-[28px] border border-white/14 bg-[#20201e] shadow-[0_20px_80px_rgba(0,0,0,0.45)] transition ${
-                submitting ? "translate-y-[-6px] scale-[1.01] border-white/35" : ""
-              }`}
+              className="mt-7 w-full"
             >
-              <label className="sr-only" htmlFor="hero-agent-prompt">
-                Describe the NemoClaw agent you want to build
-              </label>
-              <textarea
-                id="hero-agent-prompt"
+              <AgentPromptComposer
                 value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
-                rows={3}
-                className="min-h-[112px] w-full resize-none border-0 bg-transparent px-6 pt-6 text-base leading-relaxed text-white outline-none placeholder:text-white/28"
-                placeholder="Describe the NemoClaw agent you want to build..."
+                onChange={setPrompt}
+                onSubmit={() => {
+                  const cleanPrompt = prompt.trim();
+                  if (!cleanPrompt) return;
+                  setSubmitting(true);
+                  const project = createProject(cleanPrompt);
+                  window.setTimeout(() => {
+                    void navigate({
+                      to: "/workspace/$projectId",
+                      params: { projectId: project.id },
+                    });
+                  }, 260);
+                }}
+                ctaLabel="Build agent"
+                showPlanToggle={false}
+                onAttach={undefined}
+                disabled={submitting}
               />
-              <div className="flex items-center justify-between gap-3 px-4 pb-4">
-                <button
-                  type="button"
-                  className="grid h-10 w-10 place-items-center rounded-full text-white/70 transition hover:bg-white/8 hover:text-white"
-                  aria-label="Add context"
-                >
-                  <Plus className="h-5 w-5" aria-hidden="true" />
-                </button>
-                <div className="flex items-center gap-3">
-                  <span className="hidden text-sm text-white/62 sm:inline">
-                    {submitting ? "Forging" : "Build"}
-                  </span>
-                  <button
-                    type="submit"
-                    className="grid h-11 w-11 place-items-center rounded-full bg-white text-black transition hover:bg-white/88 disabled:cursor-not-allowed disabled:opacity-45"
-                    disabled={!prompt.trim() || submitting}
-                    aria-label="Build NemoClaw instance"
-                  >
-                    <ArrowUp className="h-5 w-5" aria-hidden="true" />
-                  </button>
-                </div>
-              </div>
             </form>
 
             <div className="mt-4 flex flex-wrap gap-2">
