@@ -99,6 +99,9 @@ interface WorkflowCanvasProps {
   onEdgesChange?: (edge: WorkflowEdge) => void;
 }
 
+type WorkflowNodeData = WorkflowNode & Record<string, unknown>;
+type WorkflowFlowNode = Node<WorkflowNodeData>;
+
 // ---------------------------------------------------------------------------
 // Data mapping helpers
 // ---------------------------------------------------------------------------
@@ -107,7 +110,7 @@ function graphNodesToFlowNodes(
   graph: WorkflowGraph,
   selectedNodeId?: string,
   activeNodeId?: string,
-): Node<WorkflowNode>[] {
+): WorkflowFlowNode[] {
   return graph.nodes.map((node) => {
     const x = node.x !== undefined ? node.x * COL_SPACING : 0;
     const y = node.y !== undefined ? node.y * ROW_SPACING : 0;
@@ -115,7 +118,7 @@ function graphNodesToFlowNodes(
       id: node.id,
       type: "workflow",
       position: { x, y },
-      data: node,
+      data: { ...node },
       selected: node.id === selectedNodeId,
     };
   });
@@ -174,8 +177,8 @@ function computeDefaultPositions(graph: WorkflowGraph): WorkflowNode[] {
 // WorkflowNodeCard component
 // ---------------------------------------------------------------------------
 
-function WorkflowNodeCard({ data }: NodeProps<WorkflowNode>) {
-  const node = data;
+function WorkflowNodeCard({ data }: NodeProps) {
+  const node = data as unknown as WorkflowNode;
   const statusStyle = STATUS_STYLES[node.status] ?? STATUS_STYLES.idle;
   const kindColor = KIND_COLORS[node.kind] ?? "#71717a";
 
@@ -185,7 +188,7 @@ function WorkflowNodeCard({ data }: NodeProps<WorkflowNode>) {
     <div
       style={{
         width: 160,
-        height: 80,
+        height: 94,
         background: "#1a1a1a",
         border: `1px solid ${statusStyle.border}`,
         borderLeft: `3px solid ${kindColor}`,
@@ -235,6 +238,21 @@ function WorkflowNodeCard({ data }: NodeProps<WorkflowNode>) {
       >
         {node.subtitle}
       </div>
+
+      {node.activity && (
+        <div
+          style={{
+            fontSize: 9,
+            color: statusColor(node.status),
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            marginTop: 2,
+          }}
+        >
+          {node.activity}
+        </div>
+      )}
 
       {/* Status badge + handles */}
       <div
@@ -324,7 +342,7 @@ function CanvasInner({
 
   const initialEdges = useMemo(() => graphEdgesToFlowEdges(layoutedGraph), [layoutedGraph]);
 
-  const [nodes, setNodes, onNodesChangeInternal] = useNodesState(initialNodes);
+  const [nodes, setNodes, onNodesChangeInternal] = useNodesState<WorkflowFlowNode>(initialNodes);
   const [edges, setEdges, onEdgesChangeInternal] = useEdgesState(initialEdges);
 
   // Sync when graph changes (e.g. new nodes added)
@@ -440,7 +458,7 @@ function CanvasInner({
         }}
       />
       <MiniMap
-        nodeColor={(n) => KIND_COLORS[(n.data as WorkflowNode)?.kind] ?? "#71717a"}
+        nodeColor={(n) => KIND_COLORS[(n.data as unknown as WorkflowNode)?.kind] ?? "#71717a"}
         style={{ background: "#141414" }}
         maskColor="rgba(0,0,0,0.6)"
       />

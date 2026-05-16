@@ -34,16 +34,19 @@ function timeLabel(value: string) {
 }
 
 function statusCopy(instance: ClawForgeInstance) {
+  if (instance.mode === "create_failed") {
+    return "This chat is ready for the generated NemoClaw manifest. Brev cloud attach is waiting for a healthy runtime connection, but you can inspect policies, memory, integrations, and the runtime plan here.";
+  }
   if (instance.status === "created") {
-    return "This chat is attached to the Brev-created NemoClaw instance. OpenHands controls and integration context are available here.";
+    return "This chat is attached to the Brev-hosted NemoClaw agent. Runtime updates, policies, memory, and integration context are available here.";
   }
   if (instance.status === "failed") {
     return (
       instance.message ??
-      "Brev creation failed, but this preview chat still controls the generated NemoClaw manifest."
+      "The cloud runtime needs attention, but this chat still controls the generated NemoClaw manifest."
     );
   }
-  return "This is a deploy-ready instance chat preview. Once Brev auth is active, the same URL becomes the live control room.";
+  return "This is the NemoClaw agent chat for the generated manifest. Once Brev auth is active, the same URL attaches to the live runtime.";
 }
 
 function InstanceChatPage() {
@@ -80,7 +83,7 @@ function InstanceChatPage() {
       setChat([
         [
           "assistant",
-          `${stored.agentName} is ready to talk.\n\n${statusCopy(stored)}\n\nAsk me to inspect policies, run a sandbox check, explain integrations, or continue shaping this NemoClaw instance.`,
+          `${stored.agentName} is ready to talk.\n\n${statusCopy(stored)}\n\nAsk me to inspect policies, run a runtime check, explain integrations, or continue shaping this NemoClaw agent.`,
         ],
       ]);
     }
@@ -91,6 +94,18 @@ function InstanceChatPage() {
     if (typeof window === "undefined") return `/instance/${instanceId}`;
     return `${window.location.origin}/instance/${instanceId}`;
   }, [instanceId]);
+
+  const displayStatus = useMemo(() => {
+    if (!instance) return "";
+    if (instance.mode === "create_failed") return "waiting for Brev attach";
+    return instance.status;
+  }, [instance]);
+
+  const displayMode = useMemo(() => {
+    if (!instance) return "";
+    if (instance.mode === "create_failed") return "preview";
+    return instance.mode.replaceAll("_", " ");
+  }, [instance]);
 
   async function sendChat(nextMessage = message) {
     const clean = nextMessage.trim();
@@ -119,17 +134,17 @@ function InstanceChatPage() {
           agent_id: instance.blueprint?.blueprint_id ?? instance.id,
           type: "policy.checked",
           message:
-            "Sandbox health check: policy pack loaded, memory boundary active, OpenHands control channel ready.",
+            "NemoClaw runtime check: policy pack loaded, memory boundary active, agent chat channel ready.",
           timestamp: new Date().toISOString(),
           severity: "success",
         },
       ]);
       localReply =
-        "Sandbox check passed. The generated policy pack, memory boundary, and OpenHands control channel are ready for this instance.";
+        "Runtime check passed. The generated policy pack, memory boundary, and NemoClaw agent chat channel are ready for this instance.";
     }
 
     try {
-      const response = await fetch("/api/clawforge/openhands/chat", {
+      const response = await fetch("/api/clawforge/nemoclaw/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -143,9 +158,9 @@ function InstanceChatPage() {
       });
       const data = await response.json();
       if (!response.ok || !data.ok) {
-        throw new Error(data.error?.message || "OpenHands chat failed.");
+        throw new Error(data.error?.message || "NemoClaw chat failed.");
       }
-      const reply = data.chat?.reply || "OpenHands inspected the NemoClaw instance.";
+      const reply = data.chat?.reply || "NemoClaw inspected the agent runtime.";
       const nextEvents = Array.isArray(data.chat?.events) ? data.chat.events : [];
       setEvents((current) => [...current, ...nextEvents]);
       setChat((current) => [
@@ -160,7 +175,7 @@ function InstanceChatPage() {
           localReply ||
             (err instanceof Error
               ? err.message
-              : "The instance chat could not reach OpenHands, but the local control UI is still available."),
+              : "The instance chat could not reach the live NemoClaw runtime, but the generated manifest is still available."),
         ],
       ]);
     } finally {
@@ -220,7 +235,7 @@ function InstanceChatPage() {
             <div className="hidden min-w-0 border-l border-white/10 pl-5 md:block">
               <div className="truncate text-sm font-medium text-white">{instance.agentName}</div>
               <div className="text-[11px] uppercase tracking-[0.2em] text-white/35">
-                instance chat / {instance.status}
+                instance chat / {displayStatus}
               </div>
             </div>
           </div>
@@ -253,8 +268,11 @@ function InstanceChatPage() {
             </div>
             <div className="mt-3 grid gap-2 text-xs text-white/45">
               <div>Status: {instance.status}</div>
-              <div>Mode: {instance.mode}</div>
-              <div>OpenHands: {instance.openHands?.mode ?? "simulated"}</div>
+              <div>Mode: {displayMode}</div>
+              <div>
+                Runtime:{" "}
+                {instance.status === "created" ? "Brev-hosted NemoClaw" : "NemoClaw preview"}
+              </div>
             </div>
           </div>
 

@@ -9,6 +9,7 @@ export {
 } from "./openhands";
 
 export {
+  chatWithNemoClawAgent,
   chatWithOpenHands,
   createBrevInstance,
   createBrevLaunchPlan,

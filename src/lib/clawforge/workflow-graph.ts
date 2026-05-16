@@ -24,6 +24,7 @@ export interface WorkflowNode {
   id: string;
   title: string;
   subtitle: string;
+  activity?: string;
   kind: WorkflowNodeKind;
   status: WorkflowNodeStatus;
   icon: string; // emoji or short label used as visual icon in node

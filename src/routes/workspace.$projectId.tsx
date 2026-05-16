@@ -9,7 +9,7 @@ import {
   Sparkles,
   Workflow,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ClawForgeLogo } from "@/components/clawforge/ClawForgeFrame";
 import { AuthPanel } from "@/components/clawforge/AuthPanel";
 import { WorkflowCanvas } from "@/components/clawforge/WorkflowCanvas";
@@ -30,6 +30,7 @@ import {
   type WorkflowEdge,
   type WorkflowGraph,
   type WorkflowNode,
+  type WorkflowNodeStatus,
 } from "@/lib/clawforge/workflow-graph";
 import type {
   BlueprintResponse,
@@ -54,6 +55,20 @@ export const Route = createFileRoute("/workspace/$projectId")({
 });
 
 type NodeState = "idle" | "generating" | "ready" | "running" | "waiting" | "blocked" | "done";
+type ChatAction =
+  | "show_policies"
+  | "show_memory"
+  | "deny"
+  | "approve"
+  | "show_files"
+  | "explain_pause"
+  | "block_shell"
+  | "approval_shell"
+  | "regenerate"
+  | "augment"
+  | "brev_plan"
+  | "brev_deploy"
+  | "model";
 
 const buildSteps = [
   "Generating agent instructions",
@@ -130,15 +145,22 @@ function nodeState(
   index: number,
   activeIndex: number,
   status: ClawForgeProject["status"],
+  node?: WorkflowNode,
+  nodeCount: number = workflowNodes.length,
 ): NodeState {
-  if (status === "waiting_for_approval" && index === 6) return "waiting";
+  if (status === "waiting_for_approval") {
+    if (node?.kind === "approval") return "waiting";
+    return index < activeIndex ? "done" : "ready";
+  }
   if (status === "completed") return "done";
   if (status === "running") {
     if (index < activeIndex) return "done";
     if (index === activeIndex) return "running";
     return "ready";
   }
-  if (status === "deployed" || status === "ready") return index <= 6 ? "ready" : "idle";
+  if (status === "deployed")
+    return index <= Math.min(activeIndex, nodeCount - 1) ? "done" : "ready";
+  if (status === "ready") return "ready";
   if (status === "generating") {
     if (index < activeIndex) return "ready";
     if (index === activeIndex) return "generating";
@@ -155,6 +177,224 @@ function stateClass(state: NodeState) {
   if (state === "generating") return "border-white/32 bg-white/[0.05] text-white";
   if (state === "ready") return "border-white/18 bg-white/[0.025] text-white/74";
   return "border-white/10 bg-black text-white/42";
+}
+
+function findWorkflowNodeIndex(
+  nodes: WorkflowNode[],
+  predicate: (node: WorkflowNode) => boolean,
+  fallback = 0,
+) {
+  const index = nodes.findIndex(predicate);
+  return index >= 0 ? index : Math.min(fallback, Math.max(nodes.length - 1, 0));
+}
+
+function currentWorkflowIndex(nodes: WorkflowNode[]) {
+  const liveIndex = nodes.findIndex((node) =>
+    ["generating", "running", "waiting", "blocked"].includes(node.status),
+  );
+  if (liveIndex >= 0) return liveIndex;
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    if (nodes[index]?.status === "done" || nodes[index]?.status === "ready") return index;
+  }
+  return 0;
+}
+
+function focusWorkflowNode(
+  graph: WorkflowGraph,
+  index: number,
+  status: WorkflowNodeStatus,
+  activity: string,
+  options: { doneBefore?: boolean; readyAfter?: boolean; clearFutureActivity?: boolean } = {},
+) {
+  if (graph.nodes.length === 0) return graph;
+  const targetIndex = Math.min(Math.max(index, 0), graph.nodes.length - 1);
+  return {
+    ...graph,
+    nodes: graph.nodes.map((node, nodeIndex) => {
+      if (nodeIndex === targetIndex) {
+        return { ...node, status, activity };
+      }
+      if (options.doneBefore && nodeIndex < targetIndex) {
+        return { ...node, status: "done" as const };
+      }
+      if (options.readyAfter && nodeIndex > targetIndex) {
+        return {
+          ...node,
+          status: node.status === "idle" ? ("ready" as const) : node.status,
+          activity: options.clearFutureActivity ? undefined : node.activity,
+        };
+      }
+      return node;
+    }),
+  };
+}
+
+function chatActionWorkflowTarget(nodes: WorkflowNode[], action: ChatAction, prompt: string) {
+  const lowerPrompt = prompt.toLowerCase();
+  const lastIndex = Math.max(nodes.length - 1, 0);
+  if (action === "regenerate" || action === "augment") {
+    return {
+      index: findWorkflowNodeIndex(
+        nodes,
+        (node) => node.kind === "model" || node.kind === "tool",
+        1,
+      ),
+      status: "generating" as const,
+      activity: action === "augment" ? "Applying chat edit" : "Building from chat goal",
+    };
+  }
+  if (action === "brev_plan") {
+    return {
+      index: findWorkflowNodeIndex(
+        nodes,
+        (node) => /deploy|runtime|config|launch/i.test(`${node.title} ${node.subtitle}`),
+        lastIndex,
+      ),
+      status: "running" as const,
+      activity: "Preparing cloud launch plan",
+    };
+  }
+  if (action === "brev_deploy") {
+    return {
+      index: findWorkflowNodeIndex(
+        nodes,
+        (node) =>
+          node.kind === "output" || /deploy|runtime|launch/i.test(`${node.title} ${node.subtitle}`),
+        lastIndex,
+      ),
+      status: "running" as const,
+      activity: lowerPrompt.includes("run") ? "Running deploy check" : "Deploying from chat",
+    };
+  }
+  if (action === "block_shell" || action === "approval_shell" || action === "show_policies") {
+    return {
+      index: findWorkflowNodeIndex(
+        nodes,
+        (node) => node.kind === "policy",
+        Math.floor(nodes.length / 2),
+      ),
+      status: action === "block_shell" ? ("blocked" as const) : ("running" as const),
+      activity:
+        action === "block_shell"
+          ? "shell.execute is blocked"
+          : action === "approval_shell"
+            ? "shell.execute requires approval"
+            : "Showing policy gates",
+    };
+  }
+  if (action === "approve" || action === "deny") {
+    return {
+      index: findWorkflowNodeIndex(
+        nodes,
+        (node) => node.kind === "approval",
+        Math.floor(nodes.length / 2),
+      ),
+      status: "waiting" as const,
+      activity: action === "approve" ? "Resolving approval" : "Recording denial",
+    };
+  }
+  if (action === "show_memory") {
+    return {
+      index: findWorkflowNodeIndex(nodes, (node) => node.kind === "memory", lastIndex),
+      status: "running" as const,
+      activity: "Opening shared memory",
+    };
+  }
+  if (action === "model") {
+    return {
+      index: findWorkflowNodeIndex(nodes, (node) => node.kind === "model", 0),
+      status: "generating" as const,
+      activity: "Switching reasoning model",
+    };
+  }
+  if (action === "show_files") {
+    return {
+      index: findWorkflowNodeIndex(nodes, (node) => node.kind === "output", lastIndex),
+      status: "ready" as const,
+      activity: "Showing generated files",
+    };
+  }
+  return {
+    index: findWorkflowNodeIndex(nodes, (node) => node.kind === "model", 0),
+    status: "running" as const,
+    activity: "Thinking through request",
+  };
+}
+
+function runtimeWorkflowTarget(nodes: WorkflowNode[], event: RuntimeEvent, fallbackIndex: number) {
+  const message = event.message.toLowerCase();
+  const metadataText = Object.values(event.metadata ?? {})
+    .filter((value) => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+  const text = `${message} ${metadataText}`;
+  const lastIndex = Math.max(nodes.length - 1, 0);
+
+  if (event.type === "agent.started") {
+    return { index: 0, status: "running" as const, activity: "Runtime started" };
+  }
+  if (event.type === "agent.thinking") {
+    return {
+      index: findWorkflowNodeIndex(nodes, (node) => node.kind === "model", fallbackIndex),
+      status: "running" as const,
+      activity: "Thinking",
+    };
+  }
+  if (event.type === "tool.called") {
+    return {
+      index: findWorkflowNodeIndex(
+        nodes,
+        (node) =>
+          node.kind === "tool" &&
+          (text.includes(node.title.toLowerCase()) ||
+            text.includes(node.subtitle.toLowerCase()) ||
+            node.title
+              .toLowerCase()
+              .split(/\s+/)
+              .some((part) => part.length > 4 && text.includes(part))),
+        findWorkflowNodeIndex(nodes, (node) => node.kind === "tool", fallbackIndex),
+      ),
+      status: "running" as const,
+      activity: "Tool call active",
+    };
+  }
+  if (event.type === "policy.checked" || event.type === "policy.blocked") {
+    return {
+      index: findWorkflowNodeIndex(nodes, (node) => node.kind === "policy", fallbackIndex),
+      status: event.type === "policy.blocked" ? ("blocked" as const) : ("running" as const),
+      activity: event.type === "policy.blocked" ? "Blocked by policy" : "Policy check active",
+    };
+  }
+  if (event.type === "approval.requested" || event.type === "approval.resolved") {
+    return {
+      index: findWorkflowNodeIndex(nodes, (node) => node.kind === "approval", fallbackIndex),
+      status: event.type === "approval.requested" ? ("waiting" as const) : ("done" as const),
+      activity:
+        event.type === "approval.requested" ? "Waiting on human approval" : "Approval resolved",
+    };
+  }
+  if (event.type === "memory.updated") {
+    return {
+      index: findWorkflowNodeIndex(nodes, (node) => node.kind === "memory", fallbackIndex),
+      status: "running" as const,
+      activity: "Saving memory",
+    };
+  }
+  if (event.type === "report.created" || event.type === "agent.completed") {
+    return { index: lastIndex, status: "done" as const, activity: "Final output ready" };
+  }
+  if (event.type === "agent.error") {
+    return {
+      index: Math.min(Math.max(fallbackIndex, 0), lastIndex),
+      status: "blocked" as const,
+      activity: "Runtime needs attention",
+    };
+  }
+  return {
+    index: Math.min(Math.max(fallbackIndex, 0), lastIndex),
+    status: "running" as const,
+    activity: "Runtime update",
+  };
 }
 
 function setupQuestionsForPrompt(prompt: string): ClarificationQuestion[] {
@@ -267,6 +507,7 @@ function WorkspacePage() {
   const [model, setModel] = useState("auto");
   const [modelTouched, setModelTouched] = useState(false);
   const [workflowGraph, setWorkflowGraph] = useState<WorkflowGraph>({ nodes: [], edges: [] });
+  const workflowGraphRef = useRef<WorkflowGraph>({ nodes: [], edges: [] });
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const currentStatus = project?.status ?? "draft";
@@ -321,6 +562,49 @@ function WorkspacePage() {
     ];
   }, [activeIndex, blueprint]);
 
+  useEffect(() => {
+    workflowGraphRef.current = workflowGraph;
+  }, [workflowGraph]);
+
+  function focusWorkflowFromChat(
+    action: ChatAction,
+    prompt: string,
+    options = { doneBefore: true },
+  ) {
+    if (workflowGraph.nodes.length === 0) return;
+    const target = chatActionWorkflowTarget(workflowGraph.nodes, action, prompt);
+    const nextGraph = focusWorkflowNode(
+      workflowGraph,
+      target.index,
+      target.status,
+      target.activity,
+      {
+        doneBefore: options.doneBefore,
+        readyAfter: true,
+      },
+    );
+    workflowGraphRef.current = nextGraph;
+    setActiveIndex(target.index);
+    setWorkflowGraph(nextGraph);
+  }
+
+  const syncWorkflowFromRuntimeEvents = useCallback((nextEvents: RuntimeEvent[]) => {
+    if (nextEvents.length === 0) return;
+    let nextGraph = workflowGraphRef.current;
+    let nextActiveIndex = currentWorkflowIndex(nextGraph.nodes);
+    for (const event of nextEvents) {
+      const target = runtimeWorkflowTarget(nextGraph.nodes, event, nextActiveIndex);
+      nextActiveIndex = target.index;
+      nextGraph = focusWorkflowNode(nextGraph, target.index, target.status, target.activity, {
+        doneBefore: true,
+        readyAfter: true,
+      });
+    }
+    workflowGraphRef.current = nextGraph;
+    setActiveIndex(nextActiveIndex);
+    setWorkflowGraph(nextGraph);
+  }, []);
+
   const loadBlueprint = useCallback(
     async (nextProject: ClawForgeProject, options: { preserveChat?: boolean } = {}) => {
       setError(null);
@@ -328,7 +612,12 @@ function WorkspacePage() {
       setAgentId(null);
       setReport(null);
       setEvents([]);
-      setWorkflowGraph(buildOptimisticWorkflowGraph(nextProject.prompt));
+      const optimisticGraph = buildOptimisticWorkflowGraph(nextProject.prompt);
+      setWorkflowGraph(
+        focusWorkflowNode(optimisticGraph, 0, "generating", "Reading chat goal", {
+          readyAfter: true,
+        }),
+      );
       setSelectedNodeId(null);
       setProject(updateProject(nextProject.id, { status: "generating" }) ?? nextProject);
       if (!options.preserveChat) {
@@ -345,6 +634,11 @@ function WorkspacePage() {
         setBlueprint(null);
         setEvents([]);
         setActiveIndex(0);
+        setWorkflowGraph(
+          focusWorkflowNode(optimisticGraph, 0, "waiting", "Needs setup details", {
+            readyAfter: true,
+          }),
+        );
         setProject(updateProject(nextProject.id, { status: "draft" }) ?? nextProject);
         setChat((current) => {
           const hasClarification = current.some(([role, text]) => {
@@ -365,7 +659,19 @@ function WorkspacePage() {
         const data = await response.json();
         if (!response.ok || !data.ok) throw new Error(data.error?.message || "Blueprint failed.");
         setBlueprint(data.blueprint);
-        setWorkflowGraph(buildBlueprintWorkflowGraph(nextProject.prompt, data.blueprint));
+        const blueprintGraph = buildBlueprintWorkflowGraph(nextProject.prompt, data.blueprint);
+        setActiveIndex(blueprintGraph.nodes.length - 1);
+        setWorkflowGraph({
+          ...blueprintGraph,
+          nodes: blueprintGraph.nodes.map((node, index) => ({
+            ...node,
+            status: "ready",
+            activity:
+              index === blueprintGraph.nodes.length - 1
+                ? "Blueprint ready from chat"
+                : node.activity,
+          })),
+        });
         const recommended = recommendModelForTemplate(data.blueprint.template_id);
         if (!modelTouched) {
           setProvider(recommended.provider);
@@ -417,7 +723,7 @@ function WorkspacePage() {
       ...current,
       nodes: current.nodes.map((node, index) => ({
         ...node,
-        status: nodeState(index, activeIndex, currentStatus),
+        status: nodeState(index, activeIndex, currentStatus, node, current.nodes.length),
       })),
     }));
   }, [activeIndex, currentStatus, workflowGraph.nodes.length]);
@@ -428,6 +734,7 @@ function WorkspacePage() {
     source.onmessage = (item) => {
       const event = JSON.parse(item.data) as RuntimeEvent;
       setEvents((current) => [...current, event]);
+      syncWorkflowFromRuntimeEvents([event]);
       if (event.type === "approval.requested") {
         setProject(
           updateProject(projectId, { status: "waiting_for_approval", agentId }) ?? project,
@@ -436,7 +743,7 @@ function WorkspacePage() {
     };
     source.onerror = () => source.close();
     return () => source.close();
-  }, [agentId, project, projectId]);
+  }, [agentId, project, projectId, syncWorkflowFromRuntimeEvents]);
 
   function updateShellPolicy(effect: "deny" | "require_approval") {
     setBlueprint((current) => {
@@ -481,6 +788,20 @@ function WorkspacePage() {
       };
     });
     setPanel("agent");
+    setWorkflowGraph((current) => {
+      const policyIndex = findWorkflowNodeIndex(
+        current.nodes,
+        (node) => node.kind === "policy",
+        Math.floor(current.nodes.length / 2),
+      );
+      return focusWorkflowNode(
+        current,
+        policyIndex,
+        effect === "deny" ? "blocked" : "done",
+        effect === "deny" ? "shell.execute blocked" : "approval gate updated",
+        { doneBefore: true, readyAfter: true },
+      );
+    });
   }
 
   async function deploy(nextBlueprint = blueprint) {
@@ -489,6 +810,7 @@ function WorkspacePage() {
     setError(null);
     setActiveIndex(0);
     setEvents([]);
+    focusWorkflowFromChat("brev_deploy", nextBlueprint.goal);
     setProject(updateProject(projectId, { status: "deployed" }) ?? project);
     try {
       const response = await fetch("/api/agents/deploy", {
@@ -523,6 +845,16 @@ function WorkspacePage() {
         },
       });
       setInstanceChatId(chatInstance.id);
+      syncWorkflowFromRuntimeEvents([
+        {
+          id: `workspace_deploy_${Date.now()}`,
+          agent_id: data.agent_id,
+          type: "agent.started",
+          message: `${nextBlueprint.agent_name} deployed into NemoClaw.`,
+          timestamp: new Date().toISOString(),
+          severity: "success",
+        },
+      ]);
       setProject(
         updateProject(projectId, { status: "running", agentId: data.agent_id }) ?? project,
       );
@@ -541,6 +873,7 @@ function WorkspacePage() {
   async function prepareBrevLaunch(nextBlueprint = blueprint) {
     nextBlueprint = blueprintWithModel(nextBlueprint);
     if (!nextBlueprint) return null;
+    focusWorkflowFromChat("brev_plan", nextBlueprint.goal);
     const instanceName = `clawforge-${nextBlueprint.agent_name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
     const response = await fetch("/api/clawforge/brev/launch-plan", {
       method: "POST",
@@ -558,6 +891,7 @@ function WorkspacePage() {
     setInstanceChatId(null);
     const launchEvents = Array.isArray(data.launch?.events) ? data.launch.events : [];
     setEvents((current) => [...current, ...launchEvents]);
+    syncWorkflowFromRuntimeEvents(launchEvents);
     return data.launch as BrevLaunchState;
   }
 
@@ -566,6 +900,7 @@ function WorkspacePage() {
     if (!nextBlueprint) return;
     setCloudDeploying(true);
     setError(null);
+    focusWorkflowFromChat("brev_deploy", nextBlueprint.goal);
     try {
       const launchPlan = brevLaunch ?? (await prepareBrevLaunch(nextBlueprint));
       const response = await fetch("/api/clawforge/brev/instances", {
@@ -584,8 +919,9 @@ function WorkspacePage() {
         throw new Error(data.error?.message || "Brev deploy failed.");
       }
       setBrevLaunch(data.launch);
-      const createdOnBrev = data.launch?.mode === "created";
-      const chatInstance = createdOnBrev
+      const createdOnBrev =
+        data.launch?.mode === "created" || data.launch?.mode === "already_running";
+      const chatInstance = data.launch
         ? saveLaunchInstance({
             projectId,
             prompt: project?.prompt ?? nextBlueprint.goal,
@@ -596,19 +932,46 @@ function WorkspacePage() {
       setInstanceChatId(chatInstance?.id ?? null);
       const launchEvents = Array.isArray(data.launch?.events) ? data.launch.events : [];
       setEvents((current) => [...current, ...launchEvents]);
+      syncWorkflowFromRuntimeEvents(launchEvents);
       const cloudStatus =
         createdOnBrev && chatInstance
-          ? `Brev cloud instance creation started. The generated NemoClaw startup manifest, integrations, OpenHands connection, and secret names are attached.\n\nInstance chat: /instance/${chatInstance.id}`
-          : `${data.launch?.status?.message || "Brev launch returned a setup issue."}\n\nI did not create a chat link because no live Brev instance exists yet. Refresh Brev login, then press Deploy again.`;
+          ? `${data.launch?.mode === "already_running" ? "Attached to the running Brev NemoClaw instance." : "Brev cloud instance creation started."} The generated startup manifest, integrations, NemoClaw chat runtime, and secret names are attached.\n\nInstance chat: /instance/${chatInstance.id}`
+          : `${data.launch?.status?.message || "Brev launch returned a setup issue."}\n\nI created the instance chat for this generated NemoClaw manifest so you can inspect and test it now. Refresh Brev login, then press Deploy again to attach the same flow to a live Brev instance.${chatInstance ? `\n\nInstance chat: /instance/${chatInstance.id}` : ""}`;
       setChat((current) => [...current, ["assistant", cloudStatus]]);
       setProject(
         updateProject(projectId, {
-          status: data.launch?.mode === "created" ? "deployed" : "ready",
+          status: createdOnBrev ? "deployed" : "ready",
         }) ?? project,
       );
+      if (createdOnBrev) {
+        const nextIndex = Math.max(workflowGraphRef.current.nodes.length - 1, 0);
+        const nextGraph = focusWorkflowNode(
+          workflowGraphRef.current,
+          nextIndex,
+          "done",
+          data.launch?.mode === "already_running"
+            ? "Cloud instance attached"
+            : "Cloud instance created",
+          {
+            doneBefore: true,
+          },
+        );
+        workflowGraphRef.current = nextGraph;
+        setActiveIndex(nextIndex);
+        setWorkflowGraph(nextGraph);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Brev deploy failed.";
       setError(message);
+      setWorkflowGraph((current) =>
+        focusWorkflowNode(
+          current,
+          currentWorkflowIndex(current.nodes),
+          "blocked",
+          "Deploy needs attention",
+          { doneBefore: false },
+        ),
+      );
       setChat((current) => [...current, ["assistant", message]]);
     } finally {
       setCloudDeploying(false);
@@ -617,6 +980,7 @@ function WorkspacePage() {
 
   async function decide(decision: "approved" | "denied") {
     if (!agentId) return;
+    focusWorkflowFromChat(decision === "approved" ? "approve" : "deny", decision);
     const response = await fetch("/api/approvals/approval_shell_block_ip/decision", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -624,6 +988,33 @@ function WorkspacePage() {
     });
     if (response.ok) {
       setProject(updateProject(projectId, { status: "completed" }) ?? project);
+      syncWorkflowFromRuntimeEvents([
+        {
+          id: `workspace_approval_${decision}_${Date.now()}`,
+          agent_id: agentId,
+          type: "approval.resolved",
+          message:
+            decision === "approved" ? "Approval granted by user." : "Approval denied by user.",
+          timestamp: new Date().toISOString(),
+          severity: decision === "approved" ? "success" : "warning",
+        },
+        {
+          id: `workspace_memory_${decision}_${Date.now()}`,
+          agent_id: agentId,
+          type: "memory.updated",
+          message: `Saved ${decision} approval decision to workspace memory.`,
+          timestamp: new Date().toISOString(),
+          severity: "success",
+        },
+        {
+          id: `workspace_report_${decision}_${Date.now()}`,
+          agent_id: agentId,
+          type: "report.created",
+          message: "Final report generated.",
+          timestamp: new Date().toISOString(),
+          severity: "success",
+        },
+      ]);
       const reportResponse = await fetch(`/api/agents/${agentId}/report`);
       const reportData = await reportResponse.json();
       setReport(reportData.report ?? null);
@@ -661,12 +1052,25 @@ function WorkspacePage() {
           agentId: undefined,
         }) ?? project;
       setProject(updated);
+      const optimisticGraph = buildOptimisticWorkflowGraph(nextPrompt);
       const remainingQuestions = setupQuestionsForPrompt(nextPrompt);
       if (remainingQuestions.length > 0) {
+        setWorkflowGraph(
+          focusWorkflowNode(optimisticGraph, 0, "waiting", "Still needs setup details", {
+            readyAfter: true,
+          }),
+        );
         setChat((current) => [...current, ["assistant", clarificationMessage(remainingQuestions)]]);
         setChatLoading(false);
         return;
       }
+      setWorkflowGraph(
+        focusWorkflowNode(optimisticGraph, 1, "generating", "Merging setup details", {
+          doneBefore: true,
+          readyAfter: true,
+        }),
+      );
+      setActiveIndex(1);
       setChat((current) => [
         ...current,
         [
@@ -689,21 +1093,7 @@ function WorkspacePage() {
     }
 
     let actionReply = "";
-    let action:
-      | "show_policies"
-      | "show_memory"
-      | "deny"
-      | "approve"
-      | "show_files"
-      | "explain_pause"
-      | "block_shell"
-      | "approval_shell"
-      | "regenerate"
-      | "augment"
-      | "brev_plan"
-      | "brev_deploy"
-      | "model"
-      | null = null;
+    let action: ChatAction | null = null;
 
     if (requestedModel) {
       action = "model";
@@ -781,8 +1171,14 @@ function WorkspacePage() {
         "NemoClaw paused shell execution because commands can change system state and require human approval.";
     }
 
+    if (action) {
+      focusWorkflowFromChat(action, clean, {
+        doneBefore: action !== "regenerate" && action !== "augment" && action !== "model",
+      });
+    }
+
     try {
-      const response = await fetch("/api/clawforge/openhands/chat", {
+      const response = await fetch("/api/clawforge/nemoclaw/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -793,14 +1189,15 @@ function WorkspacePage() {
       });
       const data = await response.json();
       if (!response.ok || !data.ok) {
-        throw new Error(data.error?.message || "OpenHands chat failed.");
+        throw new Error(data.error?.message || "NemoClaw chat failed.");
       }
-      const openHandsReply = data.chat?.reply || "OpenHands inspected the NemoClaw workspace.";
-      const openHandsEvents = Array.isArray(data.chat?.events) ? data.chat.events : [];
-      setEvents((current) => [...current, ...openHandsEvents]);
+      const nemoClawReply = data.chat?.reply || "NemoClaw inspected the workspace.";
+      const nemoClawEvents = Array.isArray(data.chat?.events) ? data.chat.events : [];
+      setEvents((current) => [...current, ...nemoClawEvents]);
+      syncWorkflowFromRuntimeEvents(nemoClawEvents);
       setChat((current) => [
         ...current,
-        ["assistant", actionReply ? `${actionReply}\n\n${openHandsReply}` : openHandsReply],
+        ["assistant", actionReply ? `${actionReply}\n\n${nemoClawReply}` : nemoClawReply],
       ]);
     } catch (err) {
       setChat((current) => [
@@ -810,7 +1207,7 @@ function WorkspacePage() {
           actionReply ||
             (err instanceof Error
               ? err.message
-              : "OpenHands chat is unavailable, but the local workspace controls still work."),
+              : "NemoClaw chat is unavailable, but the local workspace controls still work."),
         ],
       ]);
     } finally {
@@ -951,6 +1348,15 @@ function WorkspacePage() {
             >
               Projects
             </Link>
+            {instanceChatId && (
+              <Link
+                to="/instance/$instanceId"
+                params={{ instanceId: instanceChatId }}
+                className="hidden rounded-full border border-white/12 px-4 py-2 text-sm text-white/70 transition hover:border-white/28 hover:text-white md:inline-flex"
+              >
+                Open agent chat
+              </Link>
+            )}
             <button
               type="button"
               onClick={() => void deployToBrev()}
@@ -989,6 +1395,16 @@ function WorkspacePage() {
                 {body}
               </div>
             ))}
+
+            {instanceChatId && (
+              <Link
+                to="/instance/$instanceId"
+                params={{ instanceId: instanceChatId }}
+                className="inline-flex w-full items-center justify-center rounded-full bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-white/88"
+              >
+                Open agent chat
+              </Link>
+            )}
 
             <div className="border border-white/12 bg-white/[0.025] p-4">
               <div className="flex items-center gap-2 text-sm text-white">
@@ -1148,6 +1564,11 @@ function WorkspacePage() {
                         <p className="mt-2 text-sm leading-relaxed text-white/52">
                           {selectedWorkflowNode.subtitle}
                         </p>
+                        {selectedWorkflowNode.activity && (
+                          <p className="mt-3 border-t border-white/10 pt-3 text-xs uppercase tracking-[0.16em] text-white/42">
+                            {selectedWorkflowNode.activity}
+                          </p>
+                        )}
                       </div>
                     )}
                   </>

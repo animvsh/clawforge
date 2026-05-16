@@ -99,10 +99,10 @@ export function saveLaunchInstance({
   );
   const mode = launch.mode ?? "preview";
   const status: ClawForgeInstanceStatus =
-    mode === "created"
+    mode === "created" || mode === "already_running"
       ? "created"
       : mode === "create_failed"
-        ? "failed"
+        ? "preview"
         : mode === "dry_run"
           ? "preview"
           : "planned";

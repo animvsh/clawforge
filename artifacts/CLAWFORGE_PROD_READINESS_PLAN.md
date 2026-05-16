@@ -29,6 +29,22 @@ It is not fully production-ready yet because the live external runtime layer is 
 - `GET /api/clawforge/brev/status` returns installed CLI but not authenticated.
 - `POST /api/clawforge/pipedream/status` returns configured false with clear missing-secret messaging.
 
+## Live External Connection Audit
+
+Production URL: `https://clawforge-web-production.up.railway.app`
+
+Checked on 2026-05-16:
+
+| System        | Current Result                          | Product Meaning                                                                                                        |
+| ------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Railway app   | Healthy via `/api/health`               | The web/backend shell is live.                                                                                         |
+| Brev          | CLI installed, not authenticated        | Deploy can show status, but cannot create/attach live instances.                                                       |
+| Pipedream     | Missing project/token secrets           | App connection links cannot be created through Pipedream yet.                                                          |
+| Integrations  | Manifest configured, partial auth setup | Calendar/email/GitHub/Linear/Slack are closest; phone/voice/email inbox and some Google tools still need auth configs. |
+| Supabase auth | Email delivery can rate-limit           | The UI now falls back to a demo workspace so users are not stuck.                                                      |
+
+The product is currently a polished interactive MVP with a deterministic NemoClaw demo runtime. It is not yet a true production text-to-live-NemoClaw platform until Brev authentication, runtime provisioning, scoped memory, and provider-backed integrations are connected in production.
+
 ## Readiness Estimate
 
 Current product readiness: 65%.

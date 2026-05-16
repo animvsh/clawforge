@@ -37,10 +37,12 @@ Brev CLI, serves `dist/client` assets, and routes every API/SSR request through
 Required Railway variables:
 
 - `BREV_TOKEN` - lets Railway call `brev create` for generated NemoClaw instances.
+- `BREV_INSTANCE_NAME` - optional preferred Brev VM name. If unset, the API checks `brev ls --json` and reuses a running ClawForge/NemoClaw/OpenClaw VM before creating a duplicate.
 - `NVIDIA_API_KEY` - Nemotron/NIM reasoning.
 - `MINIMAX_API_KEY` and `MINIMAX_PLAN_KEY` - MiniMax fallback.
 - `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` - account UI.
-- `COMPOSIO_API_KEY`, `AGENTMAIL_API_KEY`, and `VAPI_API_KEY` when integrations are enabled.
+- `COMPOSIO_API_KEY`, `AGENTMAIL_API_KEY`, and `VAPI_API_KEY` when Integrations are enabled.
+- Optional `COMPOSIO_AUTH_CONFIG_*` IDs let generated NemoClaw agents use pre-created managed auth configs for Gmail, Google Calendar, GitHub, Slack, HubSpot, Calendly, Sheets, Slides, and Jira.
 
 Deploy shape:
 
@@ -51,6 +53,11 @@ railway domain
 ```
 
 Railway health check path is `/api/health`.
+
+The Brev API status endpoint is `/api/clawforge/brev/status`. On Railway it
+attempts a non-interactive Brev login when `BREV_TOKEN` is configured, reports
+whether auth succeeded without echoing the token, and includes any matching
+running NemoClaw instance found through `brev ls --json`.
 
 ## App Pages
 
@@ -85,7 +92,7 @@ Create secrets in Brev by name only. Do not paste real values into Git, docs, sc
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY` only if server-side persistence is enabled
-- `COMPOSIO_API_KEY` only if the integration provider is used from Brev
+- `COMPOSIO_API_KEY` only if the Integrations backend is used from Brev
 
 Start from the repo with the Brev setup script on the created Brev VM:
 

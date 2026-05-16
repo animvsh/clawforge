@@ -56,7 +56,7 @@ type LaunchPanelState = {
   };
 };
 
-type ComposioPanelState = {
+type IntegrationPanelState = {
   configured: boolean;
   connect_base_url: string;
   dashboard_url: string;
@@ -76,8 +76,11 @@ type ComposioPanelState = {
 type IntegrationNeed = {
   id: string;
   label: string;
+  purpose: string;
   reason: string;
-  status: "connected" | "connect";
+  status: string;
+  connectable: boolean;
+  action_label: string;
 };
 
 type AgentInbox = {
@@ -156,9 +159,9 @@ export function LiveDashboard({
   const [chatReply, setChatReply] = useState("Deploy SentinelClaw to inspect the running agent.");
   const [brevStatus, setBrevStatus] = useState<BrevPanelState | null>(null);
   const [launchPlan, setLaunchPlan] = useState<LaunchPanelState | null>(null);
-  const [composioStatus, setComposioStatus] = useState<ComposioPanelState | null>(null);
+  const [integrationStatus, setIntegrationStatus] = useState<IntegrationPanelState | null>(null);
   const [sandboxMessage, setSandboxMessage] = useState("Inspect the generated NemoClaw sandbox.");
-  const [sandboxReply, setSandboxReply] = useState("OpenHands sandbox chat is ready.");
+  const [sandboxReply, setSandboxReply] = useState("NemoClaw agent chat is ready.");
   const [chatProvider, setChatProvider] = useState<ProviderMode>("auto");
   const [chatModel, setChatModel] = useState("auto");
   const [chatMeta, setChatMeta] = useState("Auto routes Nemotron, then MiniMax, then mock.");
@@ -229,10 +232,10 @@ export function LiveDashboard({
   }, []);
 
   useEffect(() => {
-    fetch("/api/clawforge/composio/status")
+    fetch("/api/clawforge/integrations")
       .then((response) => response.json())
-      .then((data) => setComposioStatus(data.composio ?? null))
-      .catch(() => setComposioStatus(null));
+      .then((data) => setIntegrationStatus(data.integrations ?? null))
+      .catch(() => setIntegrationStatus(null));
   }, []);
 
   const statusRows = useMemo(
@@ -356,35 +359,21 @@ export function LiveDashboard({
   }
 
   async function sendSandboxMessage() {
-    const lowerMessage = sandboxMessage.toLowerCase();
-    const nextNeeds: IntegrationNeed[] = [];
-    if (/\b(phone|call|calls|receptionist|sms|text|voicemail)\b/.test(lowerMessage)) {
-      nextNeeds.push({
-        id: "phone_sms",
-        label: "AgentPhone",
-        reason: "Needed to answer calls and send customer confirmations.",
-        status: "connect",
-      });
+    const needsResponse = await fetch("/api/clawforge/integrations/needs", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        prompt: sandboxMessage,
+        blueprint,
+        user_id: "clawforge-demo-user",
+      }),
+    });
+    const needsData = await needsResponse.json();
+    if (needsData.ok && needsData.integrations) {
+      setIntegrationNeeds(needsData.integrations.connection_needs ?? []);
     }
-    if (/\b(calendar|schedule|appointment|booking|book|availability)\b/.test(lowerMessage)) {
-      nextNeeds.push({
-        id: "calendar",
-        label: "Calendar",
-        reason: "Needed to check availability and book appointments.",
-        status: "connect",
-      });
-    }
-    if (/\b(email|follow up|confirmation|intake)\b/.test(lowerMessage)) {
-      nextNeeds.push({
-        id: "email",
-        label: "Email",
-        reason: "Needed for follow-up summaries and confirmations.",
-        status: "connect",
-      });
-    }
-    if (nextNeeds.length) setIntegrationNeeds(nextNeeds);
 
-    const response = await fetch("/api/clawforge/openhands/chat", {
+    const response = await fetch("/api/clawforge/nemoclaw/chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ message: sandboxMessage, provider: chatProvider, model: chatModel }),
@@ -444,7 +433,7 @@ export function LiveDashboard({
           "/api/clawforge/integrations?user_id=clawforge-demo-user",
         );
         const statusData = await statusResponse.json();
-        setComposioStatus(statusData.integrations ?? null);
+        setIntegrationStatus(statusData.integrations ?? null);
       } else {
         setSandboxReply(data.error?.message ?? "Could not prepare this integration.");
       }
@@ -610,19 +599,12 @@ export function LiveDashboard({
                 <span>{brevStatus?.status ?? "checking"}</span>
               </div>
               <div className="grid grid-cols-[92px_1fr] gap-3">
-                <span className="text-white/32">OpenHands</span>
-                <span>{launchPlan?.openHands.mode ?? "simulated"}</span>
+                <span className="text-white/32">Runtime</span>
+                <span>{launchPlan?.openHands.mode === "remote" ? "live" : "preview"}</span>
               </div>
               <div className="grid grid-cols-[92px_1fr] gap-3">
                 <span className="text-white/32">Instance</span>
                 <span>{launchPlan?.instanceName ?? "clawforge-nemoclaw"}</span>
-              </div>
-              <div className="grid grid-cols-[92px_1fr] gap-3">
-                <span className="text-white/32">Image</span>
-                <span className="break-all">
-                  {launchPlan?.openHands.serverImage ??
-                    "ghcr.io/openhands/agent-server:main-python"}
-                </span>
               </div>
             </div>
             <p className="mt-4 text-xs leading-relaxed text-white/45">
@@ -736,7 +718,7 @@ export function LiveDashboard({
               value={sandboxMessage}
               onChange={(event) => setSandboxMessage(event.target.value)}
               className="mt-4 min-h-24 w-full resize-none border border-white/12 bg-black p-3 text-sm text-white outline-none placeholder:text-white/30"
-              placeholder="Ask OpenHands to inspect the sandbox..."
+              placeholder="Ask the NemoClaw agent to inspect the sandbox..."
             />
             <button
               type="button"
@@ -759,14 +741,20 @@ export function LiveDashboard({
                       <div className="font-semibold text-white">{need.label} access needed</div>
                       <div className="mt-1 leading-relaxed text-white/45">{need.reason}</div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => connectIntegration(need.id)}
-                      disabled={connectingIntegration === need.id}
-                      className="self-start bg-white px-3 py-2 font-semibold text-black"
-                    >
-                      {connectingIntegration === need.id ? "Opening" : "Connect"}
-                    </button>
+                    {need.connectable ? (
+                      <button
+                        type="button"
+                        onClick={() => connectIntegration(need.id)}
+                        disabled={connectingIntegration === need.id}
+                        className="self-start bg-white px-3 py-2 font-semibold text-black"
+                      >
+                        {connectingIntegration === need.id ? "Opening" : need.action_label}
+                      </button>
+                    ) : (
+                      <span className="self-start border border-white/12 px-3 py-2 text-white/45">
+                        {need.action_label}
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -783,7 +771,7 @@ export function LiveDashboard({
               customers, and book appointments. Each integration stays scoped and approval-gated.
             </p>
             <div className="mt-4 grid gap-2">
-              {(composioStatus?.auth_configs ?? []).map((config) => (
+              {(integrationStatus?.auth_configs ?? []).map((config) => (
                 <div key={config.id} className="grid grid-cols-[82px_1fr_auto] gap-3 text-xs">
                   <span className="text-white/72">{config.label}</span>
                   <span className="text-white/38">{config.status.replaceAll("_", " ")}</span>
@@ -799,7 +787,7 @@ export function LiveDashboard({
                   )}
                 </div>
               ))}
-              {!composioStatus && (
+              {!integrationStatus && (
                 <div className="text-xs text-white/38">Checking integrations.</div>
               )}
             </div>
@@ -847,7 +835,7 @@ export function LiveDashboard({
               <div>
                 AgentPhone:{" "}
                 <span className="text-white/68">
-                  {composioStatus?.phone_number ?? "Connect a business number"}
+                  {integrationStatus?.phone_number ?? "Connect a business number"}
                 </span>
               </div>
               <button

@@ -85,8 +85,8 @@ export async function getPipedreamStatus(
     environment: environmentName(env),
     connections,
     message: configured
-      ? "Pipedream Connect is ready to create app access links."
-      : "Pipedream Connect needs project and access token secrets before app access links can be created.",
+      ? "Integrations are ready to create app access links."
+      : "Integrations need project and access token secrets before app access links can be created.",
   };
 }
 
@@ -98,7 +98,7 @@ export async function createPipedreamConnectToken(
   const project = projectId(env);
   const token = accessToken(env);
   if (!project || !token) {
-    throw new Error("Pipedream Connect is not configured.");
+    throw new Error("Integrations are not configured.");
   }
 
   const body = (await request.json().catch(() => ({}))) as {
@@ -109,7 +109,7 @@ export async function createPipedreamConnectToken(
   };
   const integrationId = String(body.integration_id || "").trim();
   const app = String(body.app || pipedreamAppByIntegration[integrationId] || "").trim();
-  if (!app) throw new Error("Unknown Pipedream app connection.");
+  if (!app) throw new Error("Unknown app connection.");
 
   const externalUserId =
     typeof body.user_id === "string" && body.user_id.trim()
@@ -138,7 +138,7 @@ export async function createPipedreamConnectToken(
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`Pipedream Connect returned ${response.status}: ${text.slice(0, 240)}`);
+    throw new Error(`Integrations returned ${response.status}: ${text.slice(0, 240)}`);
   }
 
   const data = (await response.json()) as {

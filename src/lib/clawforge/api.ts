@@ -21,7 +21,7 @@ import {
   stopRuntime,
 } from "./runtime";
 import {
-  chatWithOpenHands,
+  chatWithNemoClawAgent,
   collectSandboxEvents,
   createBrevInstance,
   createBrevLaunchPlan,
@@ -37,7 +37,12 @@ import {
   handleMemoryDelete,
   handleMemoryList,
 } from "./memory/gateway";
-import { createIntegrationConnectLink, getIntegrationStatus } from "./integrations/composio";
+import {
+  createIntegrationConnectLink,
+  getIntegrationReadiness,
+  getIntegrationStatus,
+  inferIntegrationRequirements,
+} from "./integrations/composio";
 import { createPipedreamConnectToken, getPipedreamStatus } from "./integrations/pipedream";
 import { createAgentMailInbox } from "./integrations/agentmail";
 import { saveAgentRun, saveMemory } from "./storage";
@@ -53,6 +58,7 @@ import type {
   ApprovalDecisionResponse,
   IncidentReportResponse,
   BlueprintResponse,
+  IntegrationRequirement,
 } from "./types";
 
 // ============================================================
@@ -193,6 +199,19 @@ function normalizeProvider(value: unknown): ProviderMode | null {
     return value;
   }
   return null; // Invalid provider - caller should return 400
+}
+
+function publicNemoClawChatPayload(chat: Awaited<ReturnType<typeof chatWithNemoClawAgent>>) {
+  const { openHands, ...safeChat } = chat;
+  return {
+    ...safeChat,
+    runtime: {
+      mode: openHands.mode === "remote" ? "live" : "preview",
+      workspace_url: openHands.workspaceUrl,
+      runtime_api_url: openHands.runtimeApiUrl,
+      conversation_id: openHands.conversationId,
+    },
+  };
 }
 
 function providerModelEnvOverride(
@@ -442,7 +461,7 @@ export async function handleClawForgeApi(
     (apiPath === "/api/clawforge/brev/status" || apiPath === "/clawforge/brev/status") &&
     request.method === "GET"
   ) {
-    return successResponse({ brev: await getBrevStatus() });
+    return successResponse({ brev: await getBrevStatus(url.searchParams.get("instance_name")) });
   }
 
   if (
@@ -462,13 +481,47 @@ export async function handleClawForgeApi(
   }
 
   if (
+    (apiPath === "/api/clawforge/integrations/needs" ||
+      apiPath === "/clawforge/integrations/needs") &&
+    request.method === "POST"
+  ) {
+    const body = await readJsonBody<{
+      blueprint?: unknown;
+      prompt?: unknown;
+      requirements?: unknown;
+      user_id?: unknown;
+    }>(request);
+    const userId =
+      typeof body.user_id === "string" && body.user_id.trim()
+        ? body.user_id.trim()
+        : url.searchParams.get("user_id") || "clawforge-demo-user";
+    return successResponse({
+      integrations: await getIntegrationReadiness(workerEnv, {
+        userId,
+        prompt: typeof body.prompt === "string" ? body.prompt : undefined,
+        blueprint: isBlueprintResponse(body.blueprint) ? body.blueprint : undefined,
+        requirements: Array.isArray(body.requirements)
+          ? (body.requirements as IntegrationRequirement[])
+          : undefined,
+      }),
+    });
+  }
+
+  if (
     (apiPath === "/api/clawforge/pipedream/status" || apiPath === "/clawforge/pipedream/status") &&
     request.method === "POST"
   ) {
-    const body = await readJsonBody<{ blueprint?: unknown }>(request);
+    const body = await readJsonBody<{ blueprint?: unknown; prompt?: unknown }>(request);
     const blueprint = isBlueprintResponse(body.blueprint) ? body.blueprint : undefined;
+    const promptRequirements =
+      !blueprint && typeof body.prompt === "string"
+        ? inferIntegrationRequirements(body.prompt)
+        : [];
     return successResponse({
-      pipedream: await getPipedreamStatus(workerEnv, blueprint?.integration_requirements ?? []),
+      pipedream: await getPipedreamStatus(
+        workerEnv,
+        blueprint?.integration_requirements ?? promptRequirements,
+      ),
     });
   }
 
@@ -538,7 +591,7 @@ export async function handleClawForgeApi(
     const instanceName =
       typeof body.instance_name === "string" && body.instance_name.trim()
         ? body.instance_name.trim()
-        : "clawforge-nemoclaw";
+        : undefined;
     const agentInbox =
       body.agent_inbox && typeof body.agent_inbox === "object" && !Array.isArray(body.agent_inbox)
         ? (body.agent_inbox as { email?: string; status?: string })
@@ -566,7 +619,7 @@ export async function handleClawForgeApi(
     const instanceName =
       typeof body.instance_name === "string" && body.instance_name.trim()
         ? body.instance_name.trim()
-        : "clawforge-nemoclaw";
+        : undefined;
     const instanceType =
       typeof body.instance_type === "string" && body.instance_type.trim()
         ? body.instance_type.trim()
@@ -594,7 +647,7 @@ export async function handleClawForgeApi(
         provider: blueprint.provider,
         model: blueprint.model,
         status:
-          launch.mode === "created"
+          launch.mode === "created" || launch.mode === "already_running"
             ? "running"
             : launch.mode === "create_failed"
               ? "error"
@@ -620,7 +673,10 @@ export async function handleClawForgeApi(
   }
 
   if (
-    (apiPath === "/api/clawforge/openhands/chat" || apiPath === "/clawforge/openhands/chat") &&
+    (apiPath === "/api/clawforge/nemoclaw/chat" ||
+      apiPath === "/clawforge/nemoclaw/chat" ||
+      apiPath === "/api/clawforge/openhands/chat" ||
+      apiPath === "/clawforge/openhands/chat") &&
     request.method === "POST"
   ) {
     const body = await readJsonBody<{ message?: unknown; provider?: unknown; model?: unknown }>(
@@ -636,15 +692,16 @@ export async function handleClawForgeApi(
         "provider",
       );
     }
+    const chat = await chatWithNemoClawAgent(
+      message,
+      {
+        ...runtimeEnv(workerEnv),
+        ...providerModelEnvOverride(provider, body.model),
+      },
+      provider,
+    );
     return successResponse({
-      chat: await chatWithOpenHands(
-        message,
-        {
-          ...runtimeEnv(workerEnv),
-          ...providerModelEnvOverride(provider, body.model),
-        },
-        provider,
-      ),
+      chat: publicNemoClawChatPayload(chat),
     });
   }
 
@@ -665,16 +722,17 @@ export async function handleClawForgeApi(
         "provider",
       );
     }
+    const chat = await chatWithNemoClawAgent(
+      message,
+      {
+        ...runtimeEnv(workerEnv),
+        ...providerModelEnvOverride(provider, body.model),
+        CLAWFORGE_ALLOW_REMOTE_OPENHANDS: "0",
+      },
+      provider,
+    );
     return successResponse({
-      chat: await chatWithOpenHands(
-        message,
-        {
-          ...runtimeEnv(workerEnv),
-          ...providerModelEnvOverride(provider, body.model),
-          CLAWFORGE_ALLOW_REMOTE_OPENHANDS: "0",
-        },
-        provider,
-      ),
+      chat: publicNemoClawChatPayload(chat),
     });
   }
 

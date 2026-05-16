@@ -13,6 +13,12 @@ type AuthPanelProps = {
   onAuthenticated?: () => void;
 };
 
+const DEFAULT_DEMO_EMAIL = "demo@clawforge.local";
+
+function isEmailDeliveryBusy(message: string) {
+  return /rate limit|too many|email|confirmation|signup/i.test(message);
+}
+
 export function AuthPanel({ forceOpen = false, locked = false, onAuthenticated }: AuthPanelProps) {
   const [session, setSession] = useState<SupabaseSession | null>(null);
   const [demoEmail, setDemoEmail] = useState<string | null>(null);
@@ -100,12 +106,16 @@ export function AuthPanel({ forceOpen = false, locked = false, onAuthenticated }
     setLoading(false);
 
     if (error) {
+      if (mode === "signup" && isEmailDeliveryBusy(error.message)) {
+        continueAsDemo(
+          email.trim(),
+          "Email signup is busy right now, so I opened a demo workspace. You can keep building and connect a saved account later.",
+        );
+        return;
+      }
+
       setMessageTone("error");
-      setMessage(
-        /rate limit|too many|email/i.test(error.message)
-          ? "Supabase email is rate-limited right now. Use the demo account below to keep building, or sign in with an existing account."
-          : error.message,
-      );
+      setMessage(error.message);
       return;
     }
 
@@ -129,12 +139,15 @@ export function AuthPanel({ forceOpen = false, locked = false, onAuthenticated }
     setOpen(false);
   }
 
-  function continueAsDemo() {
-    const nextEmail = email.trim() || "demo@clawforge.local";
-    saveDemoEmail(nextEmail);
-    setDemoEmail(nextEmail);
-    setMessage("");
+  function continueAsDemo(nextEmail = email.trim(), nextMessage = "") {
+    const resolvedEmail = nextEmail.trim() || DEFAULT_DEMO_EMAIL;
+    saveDemoEmail(resolvedEmail);
+    setDemoEmail(resolvedEmail);
+    setPassword("");
+    setMessageTone("info");
+    setMessage(nextMessage);
     setOpen(false);
+    onAuthenticated?.();
   }
 
   if (!isSupabaseConfigured) {
@@ -291,10 +304,10 @@ export function AuthPanel({ forceOpen = false, locked = false, onAuthenticated }
 
           <button
             type="button"
-            onClick={continueAsDemo}
+            onClick={() => continueAsDemo()}
             className="mt-4 h-11 w-full rounded-full border border-white/14 text-sm font-semibold text-white/72 transition hover:border-white/32 hover:text-white"
           >
-            Continue with demo account
+            Continue in demo workspace
           </button>
 
           <button
@@ -311,8 +324,8 @@ export function AuthPanel({ forceOpen = false, locked = false, onAuthenticated }
           </button>
 
           <p className="mt-5 text-center text-xs leading-relaxed text-white/34">
-            Demo accounts keep the build flow local. Supabase accounts save runs when email is
-            available.
+            Demo workspaces keep the build flow moving. A saved account can be connected when email
+            signup is available.
           </p>
         </form>
       </div>

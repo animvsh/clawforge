@@ -182,41 +182,154 @@ function parseBrevInstances(stdout) {
   return [];
 }
 
-async function nativeBrevStatus() {
+function targetInstanceName(url) {
+  return (
+    url?.searchParams?.get("instance_name")?.trim() ||
+    process.env.BREV_INSTANCE_NAME ||
+    process.env.NEMOCLAW_BREV_INSTANCE_NAME ||
+    process.env.NEMOCLAW_SANDBOX_NAME ||
+    "clawforge-nemoclaw"
+  );
+}
+
+function instanceName(record) {
+  return (
+    record?.name ||
+    record?.instance_name ||
+    record?.instanceName ||
+    record?.workspace_name ||
+    record?.id ||
+    null
+  );
+}
+
+function instanceState(record) {
+  return (
+    record?.status ||
+    record?.state ||
+    record?.phase ||
+    record?.health_status ||
+    record?.shell_status ||
+    record?.build_status ||
+    null
+  );
+}
+
+function detectInstance(record) {
+  const name = instanceName(record);
+  const state = instanceState(record);
+  return {
+    name: name ? String(name) : null,
+    state: state ? String(state) : null,
+    running: state
+      ? /running|ready|active|started|healthy|completed|available/i.test(String(state))
+      : false,
+    raw: record,
+  };
+}
+
+function matchingInstance(instances, name) {
+  const detected = instances.map(detectInstance);
+  return detected.find((instance) => instance.name === name) || null;
+}
+
+function runningNemoClawInstance(instances) {
+  return (
+    instances
+      .map(detectInstance)
+      .find(
+        (instance) => instance.running && /clawforge|nemoclaw|openclaw/i.test(instance.name || ""),
+      ) || null
+  );
+}
+
+function redactToken(value) {
+  if (!process.env.BREV_TOKEN) return value;
+  return String(value).replaceAll(process.env.BREV_TOKEN, "[redacted-brev-token]");
+}
+
+async function nativeBrevStatus(url) {
   const cliPath = await resolveBrevCli();
+  const targetName = targetInstanceName(url);
   if (!cliPath) {
     return {
       ok: false,
       status: "not_installed",
       cliPath: null,
       instances: [],
+      targetInstanceName: targetName,
+      targetInstance: null,
+      runningNemoClawInstance: null,
+      auth: {
+        tokenConfigured: Boolean(process.env.BREV_TOKEN),
+        loginAttempted: false,
+        loginSucceeded: null,
+      },
       message: "Brev CLI is not installed in the Railway runtime.",
       installCommand:
         'bash -c "$(curl -fsSL https://raw.githubusercontent.com/brevdev/brev-cli/main/bin/install-latest.sh)"',
     };
   }
-  const list = await run(cliPath, ["ls", "--json"], 15_000);
+  let loginAttempted = false;
+  let loginSucceeded = null;
+  let list = await run(cliPath, ["ls", "--json"], 15_000);
+  const initialMessage = `${list.stderr}\n${list.stdout}`.trim();
+  if (
+    !list.ok &&
+    process.env.BREV_TOKEN &&
+    /login|auth|token|forbidden|logged out|oauth/i.test(initialMessage)
+  ) {
+    loginAttempted = true;
+    const login = await run(cliPath, ["login", "--token", process.env.BREV_TOKEN], 30_000);
+    loginSucceeded = login.ok;
+    if (login.ok) list = await run(cliPath, ["ls", "--json"], 15_000);
+  }
   if (!list.ok) {
-    const message = `${list.stderr}\n${list.stdout}`.trim();
+    const message = redactToken(`${list.stderr}\n${list.stdout}`.trim());
     const needsAuth = /login|auth|token|forbidden|logged out|oauth/i.test(message);
     return {
       ok: false,
       status: needsAuth ? "not_authenticated" : "error",
       cliPath,
       instances: [],
+      targetInstanceName: targetName,
+      targetInstance: null,
+      runningNemoClawInstance: null,
+      auth: {
+        tokenConfigured: Boolean(process.env.BREV_TOKEN),
+        loginAttempted,
+        loginSucceeded,
+      },
       message: needsAuth
-        ? "Brev CLI is installed but needs a fresh login token."
+        ? process.env.BREV_TOKEN
+          ? "Brev CLI is installed, but the configured login token is not usable. Refresh BREV_TOKEN."
+          : "Brev CLI is installed but needs a fresh login token."
         : message || "Brev CLI could not list instances.",
       installCommand:
         'bash -c "$(curl -fsSL https://raw.githubusercontent.com/brevdev/brev-cli/main/bin/install-latest.sh)"',
     };
   }
+  const instances = parseBrevInstances(list.stdout);
+  const targetInstance = matchingInstance(instances, targetName);
+  const runningInstance = runningNemoClawInstance(instances);
   return {
     ok: true,
     status: "ready",
     cliPath,
-    instances: parseBrevInstances(list.stdout),
-    message: "Brev CLI is installed and authenticated.",
+    instances,
+    targetInstanceName: targetName,
+    targetInstance,
+    runningNemoClawInstance: runningInstance,
+    auth: {
+      tokenConfigured: Boolean(process.env.BREV_TOKEN),
+      loginAttempted,
+      loginSucceeded,
+    },
+    message: targetInstance?.running
+      ? `Brev CLI is authenticated. Target instance "${targetInstance.name}" is running.`
+      : runningInstance?.name
+        ? `Brev CLI is authenticated. Running NemoClaw instance "${runningInstance.name}" is discoverable.`
+        : "Brev CLI is installed and authenticated.",
     installCommand:
       'bash -c "$(curl -fsSL https://raw.githubusercontent.com/brevdev/brev-cli/main/bin/install-latest.sh)"',
   };
@@ -232,17 +345,33 @@ function requiredIds(blueprint) {
 
 function nativeManifest(instanceName, blueprint) {
   const required = requiredIds(blueprint);
+  const defaultAuthConfigIds = {
+    calendly: "ac_yb2AEJOZNb-J",
+    calendar: "ac_3LA8268bmt8A",
+    email: "ac_hSM7d6GulrCl",
+    crm: "ac_swe_no0eBDDa",
+    github: "ac_zkTweUJU1hT1",
+    google_sheets: "ac_t6ttinlHgh97",
+    google_slides: "ac_-37jw8sHMtEc",
+    jira: "ac_bTPoel8f780b",
+    slack: "ac_wQZxaoYQ8Qfa",
+  };
+  const authConfigId = (id) =>
+    process.env[`COMPOSIO_AUTH_CONFIG_${id.toUpperCase()}`] || defaultAuthConfigIds[id] || null;
   const integrations = [
     ["phone_sms", "AgentPhone", "vapi"],
     ["voice_agent", "Voice agent", "vapi"],
     ["agent_email", "Agent inbox", "agentmail"],
+    ["calendly", "Calendly", "calendly"],
     ["calendar", "Calendar", "googlecalendar"],
     ["email", "Email", "gmail"],
     ["google_docs", "Docs", "googledocs"],
     ["google_sheets", "Sheets", "googlesheets"],
+    ["google_slides", "Slides", "googleslides"],
     ["google_drive", "Drive", "googledrive"],
     ["crm", "CRM", "hubspot"],
     ["github", "GitHub", "github"],
+    ["jira", "Jira", "jira"],
     ["linear", "Linear", "linear"],
     ["slack", "Slack", "slack"],
   ].map(([id, label, toolkit]) => ({
@@ -250,8 +379,8 @@ function nativeManifest(instanceName, blueprint) {
     label,
     toolkit,
     purpose: `${label} access for the generated NemoClaw agent.`,
-    status: process.env.COMPOSIO_API_KEY ? "ready_to_connect" : "needs_api_key",
-    auth_config_id: null,
+    status: process.env.COMPOSIO_API_KEY || authConfigId(id) ? "ready_to_connect" : "needs_api_key",
+    auth_config_id: authConfigId(id),
     connected_account_id: null,
     required: required.has(id),
     connectable: !["phone_sms", "voice_agent", "agent_email"].includes(id),
@@ -264,7 +393,9 @@ function nativeManifest(instanceName, blueprint) {
         "google_docs",
         "google_drive",
         "google_sheets",
+        "google_slides",
         "github",
+        "jira",
         "linear",
         "slack",
       ].includes(integration.id),
@@ -316,6 +447,8 @@ function nativeManifest(instanceName, blueprint) {
       google_docs: required.has("google_docs"),
       google_drive: required.has("google_drive"),
       google_sheets: required.has("google_sheets"),
+      google_slides: required.has("google_slides"),
+      jira: required.has("jira"),
     },
     secret_names: [
       "NVIDIA_API_KEY",
@@ -354,7 +487,7 @@ cd "\${CLAWFORGE_ROOT}"
 
 async function handleNativeBrev(request, response, url) {
   if (url.pathname === "/api/clawforge/brev/status" && request.method === "GET") {
-    writeJson(response, 200, { ok: true, brev: await nativeBrevStatus() });
+    writeJson(response, 200, { ok: true, brev: await nativeBrevStatus(url) });
     return true;
   }
   if (
@@ -372,7 +505,12 @@ async function handleNativeBrev(request, response, url) {
       body.blueprint && typeof body.blueprint === "object" ? body.blueprint : undefined;
     const manifest = nativeManifest(instanceName, blueprint);
     const startupScript = await writeStartupScript(instanceName, manifest);
-    const status = await nativeBrevStatus();
+    const targetUrl = new URL(url.href);
+    targetUrl.searchParams.set("instance_name", instanceName);
+    const status = await nativeBrevStatus(targetUrl);
+    const existingInstance = status.targetInstance?.running
+      ? status.targetInstance
+      : status.runningNemoClawInstance;
     const command = `brev create ${instanceName} --type ${instanceType} --startup-script @${startupScript}`;
     const openHands = {
       mode: "simulated",
@@ -401,6 +539,18 @@ async function handleNativeBrev(request, response, url) {
       } else if (body.confirmation !== "CREATE_BREV_INSTANCE") {
         mode = "create_blocked";
         ok = false;
+      } else if (existingInstance?.name) {
+        mode = "already_running";
+        ok = true;
+        events.push({
+          id: `railway_brev_attach_${Date.now()}`,
+          agent_id: manifest.agent.id,
+          type: "agent.started",
+          message: `Attached to existing Brev NemoClaw instance "${existingInstance.name}".`,
+          timestamp: new Date().toISOString(),
+          severity: "success",
+          metadata: { instance_name: existingInstance.name, state: existingInstance.state },
+        });
       } else {
         const created = await run(
           status.cliPath,

@@ -6,18 +6,34 @@ import type { BlueprintResponse, ProviderMode, RuntimeEvent } from "../types";
 
 export type BrevInstanceStatus = "not_installed" | "not_authenticated" | "ready" | "error";
 
+export type BrevDetectedInstance = {
+  name: string | null;
+  state: string | null;
+  running: boolean;
+  raw: Record<string, unknown>;
+};
+
 export type BrevStatus = {
   ok: boolean;
   status: BrevInstanceStatus;
   cliPath: string | null;
   instances: Array<Record<string, unknown>>;
+  targetInstanceName: string | null;
+  targetInstance: BrevDetectedInstance | null;
+  runningNemoClawInstance: BrevDetectedInstance | null;
+  auth: {
+    tokenConfigured: boolean;
+    loginAttempted: boolean;
+    loginSucceeded: boolean | null;
+    message: string | null;
+  };
   message: string;
   installCommand: string;
 };
 
 export type BrevLaunchPlan = {
   ok: boolean;
-  mode: "dry_run" | "create_blocked" | "created" | "create_failed";
+  mode: "dry_run" | "create_blocked" | "created" | "already_running" | "create_failed";
   instanceName: string;
   command: string;
   status: BrevStatus;
@@ -124,6 +140,7 @@ type BrevIntegrationOptions = {
 
 const INSTALL_COMMAND = "brew install brevdev/homebrew-brev/brev";
 const DEFAULT_SERVER_IMAGE = "ghcr.io/openhands/agent-server:main-python";
+const DEFAULT_BREV_INSTANCE_NAME = "clawforge-nemoclaw";
 const BREV_CANDIDATE_PATHS = [
   "/opt/homebrew/bin/brev",
   "/usr/local/bin/brev",
@@ -182,6 +199,86 @@ function sanitizeFilePart(value: string): string {
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 60);
+}
+
+function normalizeInstanceName(value?: string | null): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
+function configuredBrevInstanceName(): string {
+  return (
+    normalizeInstanceName(readEnv("BREV_INSTANCE_NAME")) ??
+    normalizeInstanceName(readEnv("NEMOCLAW_BREV_INSTANCE_NAME")) ??
+    normalizeInstanceName(readEnv("NEMOCLAW_SANDBOX_NAME")) ??
+    DEFAULT_BREV_INSTANCE_NAME
+  );
+}
+
+function authState(
+  loginAttempted = false,
+  loginSucceeded: boolean | null = null,
+  message: string | null = null,
+): BrevStatus["auth"] {
+  return {
+    tokenConfigured: Boolean(readEnv("BREV_TOKEN")),
+    loginAttempted,
+    loginSucceeded,
+    message,
+  };
+}
+
+function redactBrevOutput(value: string): string {
+  const token = readEnv("BREV_TOKEN");
+  if (!token) return value;
+  return value.replaceAll(token, "[redacted-brev-token]");
+}
+
+function stringField(record: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number") return String(value);
+  }
+  return null;
+}
+
+function detectInstance(record: Record<string, unknown>): BrevDetectedInstance {
+  const name = stringField(record, ["name", "instance_name", "instanceName", "machine_name", "id"]);
+  const state = stringField(record, [
+    "status",
+    "state",
+    "phase",
+    "lifecycle_state",
+    "lifecycleState",
+    "health_status",
+    "shell_status",
+    "build_status",
+  ]);
+  const running = state ? /running|ready|active|started|healthy|available/i.test(state) : false;
+  return { name, state, running, raw: record };
+}
+
+function isNemoClawInstance(instance: BrevDetectedInstance): boolean {
+  return /clawforge|nemoclaw|openclaw/i.test(instance.name ?? "");
+}
+
+function selectBrevInstances(
+  instances: Array<Record<string, unknown>>,
+  targetInstanceName: string | null,
+): Pick<BrevStatus, "targetInstance" | "runningNemoClawInstance"> {
+  const detected = instances.map(detectInstance);
+  const targetInstance = targetInstanceName
+    ? (detected.find((instance) => instance.name === targetInstanceName) ?? null)
+    : null;
+  const runningNemoClawInstance =
+    detected.find((instance) => instance.running && isNemoClawInstance(instance)) ?? null;
+  return { targetInstance, runningNemoClawInstance };
+}
+
+function existingRunningInstance(status: BrevStatus): BrevDetectedInstance | null {
+  if (status.targetInstance?.running) return status.targetInstance;
+  return status.runningNemoClawInstance;
 }
 
 function requiredIntegrationIds(blueprint?: BlueprintResponse): Set<string> {
@@ -407,6 +504,13 @@ function parseBrevInstances(stdout: string): Array<Record<string, unknown>> {
     ) {
       return (parsed as { instances: Array<Record<string, unknown>> }).instances;
     }
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      Array.isArray((parsed as { workspaces?: unknown }).workspaces)
+    ) {
+      return (parsed as { workspaces: Array<Record<string, unknown>> }).workspaces;
+    }
   } catch {
     // Text output is still useful to the operator but not structured enough for cards.
   }
@@ -428,7 +532,8 @@ async function resolveBrevCli(): Promise<string | null> {
   return null;
 }
 
-export async function getBrevStatus(): Promise<BrevStatus> {
+export async function getBrevStatus(instanceName?: string | null): Promise<BrevStatus> {
+  const targetInstanceName = normalizeInstanceName(instanceName) ?? configuredBrevInstanceName();
   const cliPath = await resolveBrevCli();
 
   if (!cliPath) {
@@ -437,33 +542,91 @@ export async function getBrevStatus(): Promise<BrevStatus> {
       status: "not_installed",
       cliPath: null,
       instances: [],
+      targetInstanceName,
+      targetInstance: null,
+      runningNemoClawInstance: null,
+      auth: authState(false, null, "Brev CLI was not available in this runtime."),
       message: "Brev CLI is not installed on this machine.",
       installCommand: INSTALL_COMMAND,
     };
   }
 
-  const list = await runCommand(cliPath, ["ls", "--json"], 10_000);
+  let list = await runCommand(cliPath, ["ls", "--json"], 10_000);
+  let auth = authState();
+
   if (!list.ok) {
-    const message = [list.stderr, list.stdout].filter(Boolean).join("\n").trim();
+    const message = redactBrevOutput([list.stderr, list.stdout].filter(Boolean).join("\n")).trim();
+    const needsAuth = /login|auth|token|forbidden|logged out/i.test(message);
+    const token = readEnv("BREV_TOKEN");
+    if (needsAuth && token) {
+      const login = await runCommand(cliPath, ["login", "--token", token], 30_000);
+      if (login.ok) {
+        list = await runCommand(cliPath, ["ls", "--json"], 10_000);
+        auth = authState(
+          true,
+          list.ok,
+          list.ok
+            ? "Authenticated with Railway BREV_TOKEN."
+            : "BREV_TOKEN login succeeded, but Brev instance listing still failed.",
+        );
+      } else {
+        return {
+          ok: false,
+          status: "not_authenticated",
+          cliPath,
+          instances: [],
+          targetInstanceName,
+          targetInstance: null,
+          runningNemoClawInstance: null,
+          auth: authState(true, false, "Brev rejected the configured BREV_TOKEN."),
+          message:
+            "BREV_TOKEN is configured, but Brev login failed. Recreate the Railway secret and redeploy.",
+          installCommand: INSTALL_COMMAND,
+        };
+      }
+    }
+  }
+
+  if (!list.ok) {
+    const message = redactBrevOutput([list.stderr, list.stdout].filter(Boolean).join("\n")).trim();
     const needsAuth = /login|auth|token|forbidden|logged out/i.test(message);
     return {
       ok: false,
       status: needsAuth ? "not_authenticated" : "error",
       cliPath,
       instances: [],
+      targetInstanceName,
+      targetInstance: null,
+      runningNemoClawInstance: null,
+      auth,
       message: needsAuth
-        ? "Brev CLI is installed but needs a fresh login before it can create a NemoClaw instance."
+        ? auth.tokenConfigured
+          ? "Brev CLI is installed and BREV_TOKEN is configured, but authentication is not usable yet."
+          : "Brev CLI is installed but needs a login before it can create a NemoClaw instance. Set Railway BREV_TOKEN or run brev login."
         : message || "Brev CLI is installed but could not list instances.",
       installCommand: INSTALL_COMMAND,
     };
   }
 
+  const instances = parseBrevInstances(list.stdout);
+  const { targetInstance, runningNemoClawInstance } = selectBrevInstances(
+    instances,
+    targetInstanceName,
+  );
+  const detectedRunning = targetInstance?.running ? targetInstance : runningNemoClawInstance;
+
   return {
     ok: true,
     status: "ready",
     cliPath,
-    instances: parseBrevInstances(list.stdout),
-    message: "Brev CLI is installed and reachable.",
+    instances,
+    targetInstanceName,
+    targetInstance,
+    runningNemoClawInstance,
+    auth,
+    message: detectedRunning?.name
+      ? `Brev CLI is authenticated. Running NemoClaw instance "${detectedRunning.name}" is discoverable.`
+      : "Brev CLI is authenticated and reachable. No running NemoClaw instance was detected yet.",
     installCommand: INSTALL_COMMAND,
   };
 }
@@ -520,19 +683,26 @@ async function proxyRemoteRuntimeChat(
 }
 
 export async function createBrevLaunchPlan(
-  instanceName = "clawforge-nemoclaw",
+  instanceName?: string | null,
   options: BrevIntegrationOptions = {},
 ): Promise<BrevLaunchPlan> {
-  const status = await getBrevStatus();
-  const integrationManifest = await buildIntegrationManifest(instanceName, options);
-  const startupScript = await writeStartupScript(instanceName, integrationManifest);
-  const command = `brev create ${instanceName} --type l40s-48gb.1x --startup-script ${
+  const requestedName = normalizeInstanceName(instanceName);
+  const status = await getBrevStatus(requestedName);
+  const runningInstance = existingRunningInstance(status);
+  const resolvedName =
+    requestedName ??
+    runningInstance?.name ??
+    status.targetInstanceName ??
+    configuredBrevInstanceName();
+  const integrationManifest = await buildIntegrationManifest(resolvedName, options);
+  const startupScript = await writeStartupScript(resolvedName, integrationManifest);
+  const command = `brev create ${resolvedName} --type l40s-48gb.1x --startup-script ${
     startupScript.inline ? "<inline-clawforge-startup>" : startupScript.arg
   }`;
   const openHands = openHandsConnection();
   const events = [
     runtimeEvent("agent.started", "Prepared Brev NemoClaw launch plan.", "success", {
-      instance_name: instanceName,
+      instance_name: resolvedName,
       command,
       agent_name: integrationManifest.agent.name,
       integrations: integrationManifest.integrations
@@ -554,10 +724,12 @@ export async function createBrevLaunchPlan(
     runtimeEvent(
       "tool.called",
       status.ok
-        ? "Brev CLI is reachable. Launch is held in dry-run mode until a human confirms cloud creation."
+        ? runningInstance?.name
+          ? `Brev found running NemoClaw instance "${runningInstance.name}". Deploy will attach instead of creating a duplicate.`
+          : "Brev CLI is reachable. Launch is held in dry-run mode until a human confirms cloud creation."
         : status.message,
       status.ok ? "info" : "warning",
-      { brev_status: status.status },
+      { brev_status: status.status, running_instance: runningInstance?.name ?? null },
     ),
     runtimeEvent(
       "policy.checked",
@@ -573,7 +745,7 @@ export async function createBrevLaunchPlan(
   return {
     ok: status.ok,
     mode: "dry_run",
-    instanceName,
+    instanceName: resolvedName,
     command,
     status,
     events,
@@ -587,15 +759,22 @@ export async function createBrevLaunchPlan(
 }
 
 export async function createBrevInstance(
-  instanceName = "clawforge-nemoclaw",
+  instanceName?: string | null,
   instanceType = "l40s-48gb.1x",
   confirmed = false,
   options: BrevIntegrationOptions = {},
 ): Promise<BrevLaunchPlan> {
-  const status = await getBrevStatus();
-  const integrationManifest = await buildIntegrationManifest(instanceName, options);
-  const startupScript = await writeStartupScript(instanceName, integrationManifest);
-  const command = `brev create ${instanceName} --type ${instanceType} --startup-script ${
+  const requestedName = normalizeInstanceName(instanceName);
+  const status = await getBrevStatus(requestedName);
+  const runningInstance = existingRunningInstance(status);
+  const resolvedName =
+    requestedName ??
+    runningInstance?.name ??
+    status.targetInstanceName ??
+    configuredBrevInstanceName();
+  const integrationManifest = await buildIntegrationManifest(resolvedName, options);
+  const startupScript = await writeStartupScript(resolvedName, integrationManifest);
+  const command = `brev create ${resolvedName} --type ${instanceType} --startup-script ${
     startupScript.inline ? "<inline-clawforge-startup>" : startupScript.arg
   }`;
   const openHands = openHandsConnection();
@@ -640,7 +819,7 @@ export async function createBrevInstance(
     return {
       ok: false,
       mode: "create_blocked",
-      instanceName,
+      instanceName: resolvedName,
       command,
       status,
       events,
@@ -662,7 +841,35 @@ export async function createBrevInstance(
     return {
       ok: false,
       mode: "create_failed",
-      instanceName,
+      instanceName: resolvedName,
+      command,
+      status,
+      events,
+      openHands,
+      integrationManifest,
+      startupScript: {
+        path: startupScript.path,
+        inline: startupScript.inline,
+      },
+    };
+  }
+
+  if (runningInstance?.name) {
+    events.push(
+      runtimeEvent(
+        "agent.started",
+        "Attached to existing running Brev NemoClaw instance.",
+        "success",
+        {
+          instance_name: runningInstance.name,
+          state: runningInstance.state,
+        },
+      ),
+    );
+    return {
+      ok: true,
+      mode: "already_running",
+      instanceName: runningInstance.name,
       command,
       status,
       events,
@@ -677,21 +884,21 @@ export async function createBrevInstance(
 
   const result = await runCommand(
     status.cliPath,
-    ["create", instanceName, "--type", instanceType, "--startup-script", startupScript.arg],
+    ["create", resolvedName, "--type", instanceType, "--startup-script", startupScript.arg],
     180_000,
   );
 
   if (!result.ok) {
     events.push(
       runtimeEvent("agent.error", "Brev instance creation failed.", "error", {
-        stderr: result.stderr.slice(0, 600),
+        stderr: redactBrevOutput(result.stderr).slice(0, 600),
         exit_code: result.exitCode,
       }),
     );
     return {
       ok: false,
       mode: "create_failed",
-      instanceName,
+      instanceName: resolvedName,
       command,
       status,
       events,
@@ -706,8 +913,8 @@ export async function createBrevInstance(
 
   events.push(
     runtimeEvent("agent.started", "Brev instance creation started for NemoClaw.", "success", {
-      stdout: result.stdout.slice(0, 800),
-      instance_name: instanceName,
+      stdout: redactBrevOutput(result.stdout).slice(0, 800),
+      instance_name: resolvedName,
       instance_type: instanceType,
     }),
   );
@@ -715,9 +922,9 @@ export async function createBrevInstance(
   return {
     ok: true,
     mode: "created",
-    instanceName,
+    instanceName: resolvedName,
     command,
-    status: await getBrevStatus(),
+    status: await getBrevStatus(resolvedName),
     events,
     openHands,
     integrationManifest,
@@ -728,7 +935,7 @@ export async function createBrevInstance(
   };
 }
 
-export async function chatWithOpenHands(
+export async function chatWithNemoClawAgent(
   message: string,
   env: Record<string, string | undefined> = {},
   provider: ProviderMode = "auto",
@@ -764,9 +971,9 @@ export async function chatWithOpenHands(
   const providerReply = await registry
     .summarize(
       {
-        prompt: `User is chatting with an OpenHands-powered NemoClaw sandbox control panel. Reply in two concise sentences. User request: ${normalized}`,
+        prompt: `User is chatting with a NemoClaw agent runtime. Reply in two concise sentences in friendly, non-technical language. User request: ${normalized}`,
         context: {
-          openhands_mode: openHands.mode,
+          runtime_mode: openHands.mode,
           fallback_chain: fallbackChain,
         },
       },
@@ -774,15 +981,15 @@ export async function chatWithOpenHands(
     )
     .catch(() =>
       openHands.mode === "simulated"
-        ? "I can inspect the generated NemoClaw plan, run predeploy policy checks, and show the sandbox trace. Connect Brev/OpenHands to execute this in a remote workspace."
-        : "OpenHands is ready to route this request into the configured remote NemoClaw workspace.",
+        ? "I can inspect the generated NemoClaw plan, run policy checks, and show the runtime trace. Attach Brev to execute this against the live workspace."
+        : "NemoClaw is ready to route this request into the configured remote runtime.",
     );
   const reply = isReceptionistRequest
     ? `${providerReply}\n\nTo finish this agent, connect Phone/SMS and Calendar access. I will keep booking, texting, and customer-record updates approval-gated before anything changes outside the sandbox.`
     : providerReply;
   const events = [
-    runtimeEvent("agent.thinking", `OpenHands received: ${normalized}`, "info", {
-      openhands_mode: openHands.mode,
+    runtimeEvent("agent.thinking", `NemoClaw received: ${normalized}`, "info", {
+      runtime_mode: openHands.mode,
       conversation_id: openHands.conversationId,
       provider: activeProvider.mode,
       model: activeProvider.model,
@@ -791,13 +998,12 @@ export async function chatWithOpenHands(
     runtimeEvent(
       "tool.called",
       openHands.mode === "simulated"
-        ? "Simulated OpenHands workspace checked the NemoClaw plan locally."
-        : "OpenHands workspace connection prepared for remote sandbox interaction.",
+        ? "NemoClaw preview runtime checked the plan locally."
+        : "NemoClaw remote runtime connection prepared.",
       "success",
       {
         workspace_url: openHands.workspaceUrl,
         runtime_api_url: openHands.runtimeApiUrl,
-        server_image: openHands.serverImage,
       },
     ),
     runtimeEvent(
@@ -818,3 +1024,5 @@ export async function chatWithOpenHands(
     openHands,
   };
 }
+
+export const chatWithOpenHands = chatWithNemoClawAgent;

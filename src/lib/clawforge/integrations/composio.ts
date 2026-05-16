@@ -1,12 +1,17 @@
+import type { BlueprintResponse, IntegrationRequirement } from "../types";
+
 export type IntegrationId =
   | "phone_sms"
   | "calendar"
+  | "calendly"
   | "email"
   | "crm"
   | "github"
   | "google_docs"
   | "google_drive"
+  | "google_slides"
   | "google_sheets"
+  | "jira"
   | "linear"
   | "slack"
   | "agent_email"
@@ -29,6 +34,25 @@ export type IntegrationStatus = {
   dashboard_url: string;
   phone_number: string | null;
   auth_configs: IntegrationConfig[];
+};
+
+export type IntegrationConnectionNeed = {
+  id: IntegrationId;
+  label: string;
+  purpose: string;
+  required: boolean;
+  status: IntegrationConfig["status"];
+  connectable: boolean;
+  connected: boolean;
+  reason: string;
+  action_label: string;
+};
+
+export type IntegrationReadiness = {
+  configured: boolean;
+  requirements: IntegrationRequirement[];
+  connection_needs: IntegrationConnectionNeed[];
+  message: string;
 };
 
 type AuthConfigItem = {
@@ -98,6 +122,13 @@ const integrationDefinitions: Array<{
     connectable: true,
   },
   {
+    id: "calendly",
+    label: "Calendly",
+    toolkit: "calendly",
+    purpose: "Read booking links, scheduled events, and appointment context.",
+    connectable: true,
+  },
+  {
     id: "email",
     label: "Email",
     toolkit: "gmail",
@@ -109,6 +140,13 @@ const integrationDefinitions: Array<{
     label: "Docs",
     toolkit: "googledocs",
     purpose: "Read, draft, and update approved documents for the agent workflow.",
+    connectable: true,
+  },
+  {
+    id: "google_slides",
+    label: "Slides",
+    toolkit: "googleslides",
+    purpose: "Create and update approved slide decks and presentation artifacts.",
     connectable: true,
   },
   {
@@ -140,6 +178,13 @@ const integrationDefinitions: Array<{
     connectable: true,
   },
   {
+    id: "jira",
+    label: "Jira",
+    toolkit: "jira",
+    purpose: "Create approved Jira issues and track operational work.",
+    connectable: true,
+  },
+  {
     id: "linear",
     label: "Linear",
     toolkit: "linear",
@@ -155,6 +200,22 @@ const integrationDefinitions: Array<{
   },
 ];
 
+const integrationDefinitionById = new Map(
+  integrationDefinitions.map((definition) => [definition.id, definition]),
+);
+
+const defaultAuthConfigIds: Partial<Record<IntegrationId, string>> = {
+  calendly: "ac_yb2AEJOZNb-J",
+  calendar: "ac_3LA8268bmt8A",
+  email: "ac_hSM7d6GulrCl",
+  crm: "ac_swe_no0eBDDa",
+  github: "ac_zkTweUJU1hT1",
+  google_sheets: "ac_t6ttinlHgh97",
+  google_slides: "ac_-37jw8sHMtEc",
+  jira: "ac_bTPoel8f780b",
+  slack: "ac_wQZxaoYQ8Qfa",
+};
+
 function runtimeEnv(workerEnv: Record<string, string | undefined> = {}) {
   const viteEnv = import.meta.env as Record<string, string | undefined>;
   const nodeEnv =
@@ -162,6 +223,264 @@ function runtimeEnv(workerEnv: Record<string, string | undefined> = {}) {
       ? (process.env as Record<string, string | undefined>)
       : {};
   return { ...nodeEnv, ...viteEnv, ...workerEnv };
+}
+
+function envAuthConfigKey(integrationId: IntegrationId) {
+  return `COMPOSIO_AUTH_CONFIG_${integrationId.toUpperCase()}`;
+}
+
+function fallbackAuthConfigId(
+  env: Record<string, string | undefined>,
+  integrationId: IntegrationId,
+) {
+  return env[envAuthConfigKey(integrationId)] || defaultAuthConfigIds[integrationId] || null;
+}
+
+function addRequirement(
+  requirements: IntegrationRequirement[],
+  id: IntegrationId,
+  status: IntegrationRequirement["status"],
+  purpose?: string,
+) {
+  if (requirements.some((requirement) => requirement.id === id)) return;
+  const definition = integrationDefinitionById.get(id);
+  if (!definition) return;
+  requirements.push({
+    id,
+    label: definition.label,
+    purpose: purpose ?? definition.purpose,
+    status,
+  });
+}
+
+export function inferIntegrationRequirements(prompt: string): IntegrationRequirement[] {
+  const normalized = prompt.toLowerCase();
+  const requirements: IntegrationRequirement[] = [];
+
+  if (/\b(phone|call|calls|receptionist|voicemail)\b/.test(normalized)) {
+    addRequirement(
+      requirements,
+      "phone_sms",
+      "required",
+      "Answer calls, receive customer replies, and send approved text confirmations.",
+    );
+  }
+  if (/\b(sms|text|texts|message|confirmation)\b/.test(normalized)) {
+    addRequirement(
+      requirements,
+      "phone_sms",
+      "required",
+      "Send approved confirmations and follow-up messages.",
+    );
+  }
+  if (/\b(calendar|schedule|appointment|booking|book|availability)\b/.test(normalized)) {
+    addRequirement(
+      requirements,
+      "calendar",
+      "required",
+      "Read availability and create approved appointments.",
+    );
+    addRequirement(
+      requirements,
+      "calendly",
+      "optional",
+      "Use existing booking links and scheduled-event context when available.",
+    );
+  }
+  if (/\b(email|inbox|follow up|follow-up)\b/.test(normalized)) {
+    addRequirement(requirements, "email", "required", "Send approved follow-ups and summaries.");
+  }
+  if (/\b(dedicated inbox|agent inbox|agent email)\b/.test(normalized)) {
+    addRequirement(
+      requirements,
+      "agent_email",
+      "required",
+      "Create a dedicated email inbox for confirmations, replies, and OTPs.",
+    );
+  }
+  if (/\b(doc|docs|document|documents|google doc|writeup|brief)\b/.test(normalized)) {
+    addRequirement(
+      requirements,
+      "google_docs",
+      "required",
+      "Draft, review, and update approved documents for this workflow.",
+    );
+    addRequirement(
+      requirements,
+      "google_drive",
+      "optional",
+      "Find and store approved documents and generated reports.",
+    );
+  }
+  if (/\b(slide|slides|deck|presentation|presentations)\b/.test(normalized)) {
+    addRequirement(
+      requirements,
+      "google_slides",
+      "required",
+      "Create or update approved slide decks for this workflow.",
+    );
+    addRequirement(
+      requirements,
+      "google_drive",
+      "optional",
+      "Find and store approved slide decks and generated reports.",
+    );
+  }
+  if (/\b(sheet|sheets|spreadsheet|spread spreadsheets|tracker|row|rows)\b/.test(normalized)) {
+    addRequirement(
+      requirements,
+      "google_sheets",
+      "required",
+      "Read and update approved spreadsheets or trackers.",
+    );
+    addRequirement(
+      requirements,
+      "google_drive",
+      "optional",
+      "Find and store approved spreadsheets and generated reports.",
+    );
+  }
+  if (/\b(slack|channel|channels|team notification|internal notification)\b/.test(normalized)) {
+    addRequirement(
+      requirements,
+      "slack",
+      "required",
+      "Send approved internal updates and team handoffs.",
+    );
+  }
+  if (/\b(customer|lead|crm|contact|contacts)\b/.test(normalized)) {
+    addRequirement(
+      requirements,
+      "crm",
+      "optional",
+      "Look up and update customer records after approval.",
+    );
+  }
+  if (/\b(github|repo|repository|issue|pull request|pr)\b/.test(normalized)) {
+    addRequirement(
+      requirements,
+      "github",
+      "required",
+      "Read repository activity and apply approved issue updates.",
+    );
+  }
+  if (/\b(linear|ticket|tickets)\b/.test(normalized)) {
+    addRequirement(
+      requirements,
+      "linear",
+      "required",
+      "Create approved tickets and engineering follow-ups.",
+    );
+  }
+  if (/\b(jira|atlassian|issue key|sprint)\b/.test(normalized)) {
+    addRequirement(
+      requirements,
+      "jira",
+      "required",
+      "Create approved Jira issues and track sprint handoffs.",
+    );
+  }
+
+  return requirements;
+}
+
+function normalizeRequirement(requirement: IntegrationRequirement): IntegrationRequirement | null {
+  const definition = integrationDefinitionById.get(requirement.id as IntegrationId);
+  if (!definition) return null;
+  return {
+    id: definition.id,
+    label: requirement.label || definition.label,
+    purpose: requirement.purpose || definition.purpose,
+    status: requirement.status,
+  };
+}
+
+function dedupeRequirements(requirements: IntegrationRequirement[]): IntegrationRequirement[] {
+  const byId = new Map<string, IntegrationRequirement>();
+  for (const requirement of requirements) {
+    const normalized = normalizeRequirement(requirement);
+    if (!normalized) continue;
+    const previous = byId.get(normalized.id);
+    byId.set(normalized.id, {
+      ...normalized,
+      status: previous?.status === "required" ? "required" : normalized.status,
+    });
+  }
+  return Array.from(byId.values());
+}
+
+function connectionReason(requirement: IntegrationRequirement, config: IntegrationConfig): string {
+  if (config.status === "needs_api_key") {
+    return `${config.label} is needed for this agent, but Integrations is not configured yet.`;
+  }
+  if (!config.connectable) {
+    if (config.id === "phone_sms" || config.id === "voice_agent") {
+      return `${config.label} is needed for this agent. Add a business number or voice provider before calls can run.`;
+    }
+    if (config.id === "agent_email") {
+      return `${config.label} is needed for this agent. Create the agent inbox before email-only workflows run.`;
+    }
+    return `${config.label} is needed for this agent and requires admin setup before it can be connected.`;
+  }
+  if (config.status === "needs_auth_config") {
+    return `${config.label} is needed for this agent. An admin needs to finish setup before the user can connect.`;
+  }
+  return `${config.label} is needed for this agent: ${requirement.purpose}`;
+}
+
+function actionLabel(config: IntegrationConfig): string {
+  if (config.status === "needs_api_key") return "Configure Integrations";
+  if (!config.connectable) return "Setup required";
+  if (config.status === "needs_auth_config") return "Finish setup";
+  return "Connect";
+}
+
+export async function getIntegrationReadiness(
+  workerEnv: Record<string, string | undefined> = {},
+  options: {
+    userId?: string;
+    prompt?: string;
+    requirements?: IntegrationRequirement[];
+    blueprint?: Pick<BlueprintResponse, "integration_requirements"> | null;
+  } = {},
+): Promise<IntegrationReadiness> {
+  const requirements = dedupeRequirements([
+    ...(options.requirements ?? []),
+    ...(options.blueprint?.integration_requirements ?? []),
+    ...(options.prompt ? inferIntegrationRequirements(options.prompt) : []),
+  ]);
+  const status = await getIntegrationStatus(workerEnv, options.userId ?? "clawforge-demo-user");
+  const configsById = new Map(status.auth_configs.map((config) => [config.id, config]));
+  const connectionNeeds = requirements
+    .filter((requirement) => requirement.status !== "connected")
+    .map((requirement) => {
+      const config = configsById.get(requirement.id as IntegrationId);
+      if (!config) return null;
+      return {
+        id: config.id,
+        label: config.label,
+        purpose: requirement.purpose,
+        required: requirement.status === "required",
+        status: config.status,
+        connectable: config.connectable,
+        connected: config.status === "connected",
+        reason: connectionReason(requirement, config),
+        action_label: actionLabel(config),
+      } satisfies IntegrationConnectionNeed;
+    })
+    .filter((need): need is IntegrationConnectionNeed => Boolean(need))
+    .filter((need) => !need.connected);
+
+  return {
+    configured: status.configured,
+    requirements,
+    connection_needs: connectionNeeds,
+    message: connectionNeeds.length
+      ? "Connect these Integrations before the agent can use those tools."
+      : requirements.length
+        ? "All inferred Integrations are connected or ready."
+        : "No external Integrations were inferred for this prompt.",
+  };
 }
 
 function userIdFromRequest(request: Request): string {
@@ -247,6 +566,8 @@ async function ensureAuthConfig(
   const existing = await listAuthConfigs(env);
   const match = existing.find((item) => item.toolkit?.slug === definition.toolkit);
   if (match?.id) return match.id;
+  const fallbackId = fallbackAuthConfigId(env, integrationId);
+  if (fallbackId) return fallbackId;
 
   return createManagedAuthConfig(env, definition.toolkit);
 }
@@ -272,8 +593,11 @@ export async function getIntegrationStatus(
         label: definition.label,
         toolkit: definition.toolkit,
         purpose: definition.purpose,
-        status: "needs_api_key",
-        auth_config_id: null,
+        status:
+          definition.connectable && fallbackAuthConfigId(env, definition.id)
+            ? "ready_to_connect"
+            : "needs_api_key",
+        auth_config_id: fallbackAuthConfigId(env, definition.id),
         connected_account_id: null,
         connectable: definition.connectable,
       })),
@@ -293,10 +617,11 @@ export async function getIntegrationStatus(
       phone_number: env.COMPOSIO_PHONE_NUMBER || null,
       auth_configs: integrationDefinitions.map((definition) => {
         const authConfig = authConfigs.find((item) => item.toolkit?.slug === definition.toolkit);
+        const authConfigId = authConfig?.id ?? fallbackAuthConfigId(env, definition.id);
         const account = connectedAccounts.find(
           (item) =>
             item.toolkit?.slug === definition.toolkit ||
-            (authConfig?.id && item.auth_config?.id === authConfig.id),
+            (authConfigId && item.auth_config?.id === authConfigId),
         );
         return {
           id: definition.id,
@@ -306,12 +631,12 @@ export async function getIntegrationStatus(
           status:
             account?.status === "ACTIVE"
               ? "connected"
-              : authConfig?.id
+              : authConfigId
                 ? "ready_to_connect"
                 : definition.connectable
                   ? "ready_to_connect"
                   : "needs_auth_config",
-          auth_config_id: authConfig?.id ?? null,
+          auth_config_id: authConfigId,
           connected_account_id: account?.id ?? null,
           connectable: definition.connectable,
         };
@@ -328,8 +653,13 @@ export async function getIntegrationStatus(
         label: definition.label,
         toolkit: definition.toolkit,
         purpose: definition.purpose,
-        status: definition.connectable ? "ready_to_connect" : "needs_auth_config",
-        auth_config_id: null,
+        status:
+          definition.connectable && fallbackAuthConfigId(env, definition.id)
+            ? "ready_to_connect"
+            : definition.connectable
+              ? "ready_to_connect"
+              : "needs_auth_config",
+        auth_config_id: fallbackAuthConfigId(env, definition.id),
         connected_account_id: null,
         connectable: definition.connectable,
       })),

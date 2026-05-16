@@ -9,6 +9,7 @@ import type {
   RuntimeEvent,
 } from "./types";
 import { recommendModelForTemplate } from "./models";
+import { inferIntegrationRequirements } from "./integrations/composio";
 
 export const DEMO_AGENT_ID = "agent_sentinelclaw_demo";
 export const DEMO_BLUEPRINT_ID = "bp_sentinelclaw_demo";
@@ -867,106 +868,7 @@ export function selectAgentTemplate(prompt: string): AgentTemplateId {
 }
 
 function integrationRequirementsForGoal(prompt: string): IntegrationRequirement[] {
-  const normalized = prompt.toLowerCase();
-  const integrations: IntegrationRequirement[] = [];
-  const add = (item: IntegrationRequirement) => {
-    if (!integrations.some((integration) => integration.id === item.id)) integrations.push(item);
-  };
-
-  if (/\b(phone|call|calls|receptionist|voicemail)\b/.test(normalized)) {
-    add({
-      id: "phone_sms",
-      label: "AgentPhone",
-      purpose: "Answer calls, receive customer replies, and send approved text confirmations.",
-      status: "required",
-    });
-  }
-  if (/\b(sms|text|texts|message|confirmation)\b/.test(normalized)) {
-    add({
-      id: "phone_sms",
-      label: "AgentPhone",
-      purpose: "Send approved confirmations and follow-up messages.",
-      status: "required",
-    });
-  }
-  if (/\b(calendar|schedule|appointment|booking|book|availability)\b/.test(normalized)) {
-    add({
-      id: "calendar",
-      label: "Calendar",
-      purpose: "Read availability and create approved appointments.",
-      status: "required",
-    });
-  }
-  if (/\b(email|inbox|follow up|follow-up)\b/.test(normalized)) {
-    add({
-      id: "email",
-      label: "Email",
-      purpose: "Send approved follow-ups and summaries.",
-      status: "required",
-    });
-  }
-  if (/\b(doc|docs|document|documents|google doc|writeup|brief)\b/.test(normalized)) {
-    add({
-      id: "google_docs",
-      label: "Docs",
-      purpose: "Draft, review, and update approved documents for this workflow.",
-      status: "required",
-    });
-    add({
-      id: "google_drive",
-      label: "Drive",
-      purpose: "Find and store approved documents and generated reports.",
-      status: "optional",
-    });
-  }
-  if (/\b(sheet|sheets|spreadsheet|spread spreadsheets|tracker|row|rows)\b/.test(normalized)) {
-    add({
-      id: "google_sheets",
-      label: "Sheets",
-      purpose: "Read and update approved spreadsheets or trackers.",
-      status: "required",
-    });
-    add({
-      id: "google_drive",
-      label: "Drive",
-      purpose: "Find and store approved spreadsheets and generated reports.",
-      status: "optional",
-    });
-  }
-  if (/\b(slack|channel|channels|team notification|internal notification)\b/.test(normalized)) {
-    add({
-      id: "slack",
-      label: "Slack",
-      purpose: "Send approved internal updates and team handoffs.",
-      status: "required",
-    });
-  }
-  if (/\b(customer|lead|crm|contact|contacts)\b/.test(normalized)) {
-    add({
-      id: "crm",
-      label: "CRM",
-      purpose: "Look up and update customer records after approval.",
-      status: "optional",
-    });
-  }
-  if (/\b(github|repo|repository|issue|pull request|pr)\b/.test(normalized)) {
-    add({
-      id: "github",
-      label: "GitHub",
-      purpose: "Read repository activity and apply approved issue updates.",
-      status: "required",
-    });
-  }
-  if (/\b(linear|ticket|tickets)\b/.test(normalized)) {
-    add({
-      id: "linear",
-      label: "Linear",
-      purpose: "Create approved tickets and engineering follow-ups.",
-      status: "required",
-    });
-  }
-
-  return integrations;
+  return inferIntegrationRequirements(prompt);
 }
 
 function customAgentName(templateId: AgentTemplateId): string {
