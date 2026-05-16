@@ -460,8 +460,10 @@ export function buildBlueprintWorkflowGraph(
   const outputId = outputNode.id;
 
   // ---- Build edges ----
-  // Connect the main chain: input → workflow steps → policies → model → approval → output
-  const chainIds = [inputId, ...stepIds.slice(1), ...policyIds, modelId, approvalId, outputId];
+  // Connect the main chain: input → workflow steps → approval → output
+  // Policies and memory are informational only — shown as detail, not separate nodes
+  const approvalIdx = stepIds.length + 1; // after steps, before output
+  const chainIds = [inputId, ...stepIds.slice(1), approvalId, outputId];
   for (let i = 0; i < chainIds.length - 1; i++) {
     edges.push({
       id: makeEdgeId(edgeIndex++),
@@ -470,41 +472,6 @@ export function buildBlueprintWorkflowGraph(
       type: "execution",
     });
   }
-
-  // Add dependency edges for memory nodes (dashed) — memory depends on prior steps
-  memoryIds.forEach((memId, idx) => {
-    const depSource = idx === 0 ? approvalId : memoryIds[idx - 1];
-    edges.push({
-      id: makeEdgeId(edgeIndex++),
-      sourceId: depSource,
-      targetId: memId,
-      type: "dependency",
-    });
-    // Memory feeds into output
-    edges.push({
-      id: makeEdgeId(edgeIndex++),
-      sourceId: memId,
-      targetId: outputId,
-      type: "dependency",
-    });
-  });
-
-  // Tool nodes branch off (dependency edges)
-  toolIds.forEach((toolId) => {
-    const lastChain = chainIds[chainIds.length - 2]; // before output
-    edges.push({
-      id: makeEdgeId(edgeIndex++),
-      sourceId: lastChain,
-      targetId: toolId,
-      type: "dependency",
-    });
-    edges.push({
-      id: makeEdgeId(edgeIndex++),
-      sourceId: toolId,
-      targetId: outputId,
-      type: "dependency",
-    });
-  });
 
   return { nodes, edges };
 }

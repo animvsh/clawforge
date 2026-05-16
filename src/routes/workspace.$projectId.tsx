@@ -722,12 +722,13 @@ function WorkspacePage() {
 
         {/* Input */}
         <div className="border-t border-white/10 p-4">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const msg = message.trim();
-              if (!msg) return;
-              setChat((prev) => [...prev, [msg, ""]]);
+          <AgentPromptComposer
+            value={message}
+            onChange={setMessage}
+            onSubmit={(msg) => {
+              const clean = (msg ?? "").trim();
+              if (!clean) return;
+              setChat((prev) => [...prev, [clean, ""]]);
               setMessage("");
               setTimeout(() => {
                 setChat((prev) => {
@@ -737,31 +738,12 @@ function WorkspacePage() {
                 });
               }, 1200);
             }}
-            className="w-full"
-          >
-            <AgentPromptComposer
-              value={message}
-              onChange={setMessage}
-              onSubmit={(msg) => {
-                const clean = (msg ?? "").trim();
-                if (!clean) return;
-                setChat((prev) => [...prev, [clean, ""]]);
-                setMessage("");
-                setTimeout(() => {
-                  setChat((prev) => {
-                    const updated = [...prev];
-                    updated[updated.length - 1][1] = "Got it! I'm processing your request. Watch the workflow on the right — nodes will start lighting up as I execute each step.";
-                    return updated;
-                  });
-                }, 1200);
-              }}
-              ctaLabel="Send"
-              showPlanToggle={false}
-              onAttach={undefined}
-              placeholder="Ask about your agent…"
-              suggestions={[]}
-            />
-          </form>
+            ctaLabel="Send"
+            showPlanToggle={false}
+            onAttach={undefined}
+            placeholder="Ask about your agent…"
+            suggestions={[]}
+          />
         </div>
       </div>
 

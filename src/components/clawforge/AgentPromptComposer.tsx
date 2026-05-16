@@ -45,10 +45,13 @@ export function AgentPromptComposer({
       return;
     }
 
-    const current = suggestions[suggestionIndex] ?? suggestions[0];
+    const safeSuggestions = suggestions && suggestions.length > 0 ? suggestions : DEFAULT_SUGGESTIONS;
+    const current = safeSuggestions[suggestionIndex % safeSuggestions.length];
+    if (!current) return;
+
     if (typingText === current) {
       const timeout = setTimeout(() => {
-        setSuggestionIndex((i) => (i + 1) % suggestions.length);
+        setSuggestionIndex((i) => (i + 1) % safeSuggestions.length);
         setTypingText("");
       }, 3000);
       return () => clearTimeout(timeout);
@@ -163,10 +166,11 @@ export function AgentPromptComposer({
             onClick={handleSubmit}
             disabled={!value.trim() || disabled}
             className="flex items-center gap-2 rounded-full bg-white px-5 py-2 text-sm font-medium text-black transition hover:bg-white/90 disabled:opacity-30"
+            aria-label={ctaLabel}
           >
             {ctaLabel}
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
-              <path d="M7 1l5 6-5 6M2 7h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M7 1l5 6-5 6M2 7h10" />
             </svg>
           </button>
         </div>
