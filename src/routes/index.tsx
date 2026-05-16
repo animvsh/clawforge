@@ -14,11 +14,11 @@ import type {
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "ClawForge — secure NemoClaw agents from one prompt" },
+      { title: "ClawForge — safe agents from one prompt" },
       {
         name: "description",
         content:
-          "ClawForge turns one prompt into a running NemoClaw agent with policies, memory, approvals, and live audit logs.",
+          "ClawForge turns plain English into a safe agent you can review, run, and control.",
       },
     ],
   }),
@@ -75,20 +75,21 @@ function Hero() {
 
         <div className="mt-auto max-w-xl pb-8 pt-16">
           <div className="mb-8 text-[11px] uppercase tracking-[0.34em] text-white/35">
-            prompt · sandbox · audit
+            describe · review · run
           </div>
           <h1 className="text-5xl font-semibold leading-[0.96] tracking-tight text-white md:text-6xl xl:text-[5.25rem]">
-            Build safe NemoClaw agents.
+            Build safe agents from one prompt.
           </h1>
           <p className="mt-7 max-w-md text-base leading-relaxed text-white/58 md:text-lg">
-            One prompt becomes a sandboxed agent with policies, memory, approvals, and live audit.
+            Tell ClawForge what you want done. It builds the agent, adds guardrails, and shows you
+            every step.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <a
               href="#builder"
               className="bg-white px-6 py-3 text-sm font-semibold text-black transition hover:bg-white/90"
             >
-              Build NemoClaw Agent
+              Build an Agent
             </a>
             <a
               href="#dashboard"
@@ -108,10 +109,10 @@ function Hero() {
         />
         <div className="absolute inset-0 bg-black/45" />
         <div className="absolute right-5 top-5 border border-white/18 bg-black/50 px-4 py-2 text-[11px] uppercase tracking-[0.28em] text-white/60">
-          sandbox live
+          safe mode
         </div>
         <div className="absolute bottom-5 left-5 right-5 grid gap-px border border-white/15 bg-white/10 text-xs text-white/72 md:grid-cols-3">
-          {["OpenClaw runtime", "NemoClaw policy", "Nemotron reasoning"].map((item) => (
+          {["agent created", "risky actions paused", "live activity"].map((item) => (
             <div key={item} className="bg-black/72 px-4 py-3 uppercase tracking-[0.2em]">
               {item}
             </div>
@@ -133,14 +134,14 @@ function EmptyState({ title, body }: { title: string; body: string }) {
 
 function HowItWorks() {
   const steps = [
-    ["Describe", "Plain English workflow."],
-    ["Generate", "Sandbox, tools, memory, policies."],
-    ["Deploy", "NemoClaw runtime."],
-    ["Control", "Logs, approval, report."],
+    ["Describe", "Say what the agent should do."],
+    ["Review", "See the plan before it runs."],
+    ["Run", "Watch every action live."],
+    ["Approve", "You decide on risky steps."],
   ];
 
   return (
-    <Section id="how" eyebrow="flow" title="From prompt to protected agent.">
+    <Section id="how" eyebrow="flow" title="How it works.">
       <div className="grid gap-px overflow-hidden border border-white/12 bg-white/10 md:grid-cols-4">
         {steps.map(([title, body], index) => (
           <div key={title} className="bg-black p-5">
@@ -174,7 +175,7 @@ function Index() {
       <Hero />
       <HowItWorks />
 
-      <Section id="builder" eyebrow="builder" title="Describe your NemoClaw agent.">
+      <Section id="builder" eyebrow="builder" title="Describe the agent you want.">
         <AgentBuilder
           onBlueprint={(nextBlueprint) => {
             setBlueprint(nextBlueprint);
@@ -187,7 +188,7 @@ function Index() {
         />
       </Section>
 
-      <Section id="blueprint" eyebrow="review" title="Inspect the sandbox plan.">
+      <Section id="blueprint" eyebrow="review" title="Review the plan.">
         {blueprint ? (
           <BlueprintReview
             blueprint={blueprint}
@@ -201,12 +202,12 @@ function Index() {
         ) : (
           <EmptyState
             title="blueprint waiting"
-            body="Generate the SentinelClaw demo blueprint above to review tools, policies, memory rules, and the NemoClaw deployment profile."
+            body="Generate an agent above to review what it can do, what needs approval, and what is blocked."
           />
         )}
       </Section>
 
-      <Section id="dashboard" eyebrow="runtime" title="Watch NemoClaw enforce control.">
+      <Section id="dashboard" eyebrow="runtime" title="Watch it run.">
         <LiveDashboard
           agentId={agentId}
           onReport={(nextReport) => {
@@ -218,13 +219,13 @@ function Index() {
         />
       </Section>
 
-      <Section id="report" eyebrow="output" title="Finish with a useful report.">
+      <Section id="report" eyebrow="output" title="Get the result.">
         {report ? (
           <IncidentReport report={report} />
         ) : (
           <EmptyState
             title="report waiting"
-            body="Deploy the agent, let it reach the shell approval gate, then approve or deny the command to generate the final incident report."
+            body="Run the agent and approve or deny the risky step to finish the report."
           />
         )}
       </Section>
@@ -232,7 +233,7 @@ function Index() {
       <footer className="border-t border-white/10 px-5 py-8 text-sm text-white/42 md:px-10 lg:px-14">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
           <Logo />
-          <span>The secure agent factory for NemoClaw.</span>
+          <span>Safe agents, built from plain English.</span>
         </div>
       </footer>
     </main>

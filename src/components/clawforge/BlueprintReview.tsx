@@ -51,13 +51,13 @@ export function BlueprintReview({
             {blueprint.agent_name}
           </h3>
           <p className="mt-4 max-w-sm text-sm leading-relaxed text-white/52">
-            Policy-gated incident response inside NemoClaw.
+            A safety-checked incident response agent.
           </p>
 
           <div className="mt-6 grid grid-cols-2 gap-px border border-white/12 bg-white/10 text-sm">
             {[
               ["Workflow", "Incident response"],
-              ["Runtime", "NemoClaw"],
+              ["Runtime", "Protected"],
               ["Model", blueprint.model],
               ["Policy", "Enforced"],
               ["Memory", "Enabled"],

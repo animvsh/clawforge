@@ -7,7 +7,7 @@ export type AgentBuilderProps = {
 };
 
 const defaultPrompt =
-  "Create a NemoClaw agent that monitors system logs, detects suspicious behavior, writes an incident report, and asks before executing commands.";
+  "Create an agent that watches system logs, spots suspicious activity, writes a report, and asks before taking action.";
 
 const loadingSteps = ["Parse", "Sandbox", "Tools", "Policies", "Memory", "Ready"];
 
@@ -15,15 +15,15 @@ const promptTemplates = [
   ["Incident", defaultPrompt],
   [
     "GitHub",
-    "Create a NemoClaw agent that reads GitHub issues, identifies urgent bugs, drafts responses, and asks before posting.",
+    "Create an agent that reads GitHub issues, finds urgent bugs, drafts responses, and asks before posting.",
   ],
   [
     "Inbox",
-    "Create a NemoClaw agent that summarizes important emails, drafts replies, and asks before sending anything.",
+    "Create an agent that summarizes important emails, drafts replies, and asks before sending anything.",
   ],
   [
     "Research",
-    "Create a NemoClaw agent that researches a topic, saves sources to memory, writes a brief, and asks before publishing.",
+    "Create an agent that researches a topic, saves sources, writes a brief, and asks before publishing.",
   ],
 ] as const;
 
@@ -99,7 +99,7 @@ export function AgentBuilder({ provider = "auto", onBlueprint }: AgentBuilderPro
         value={prompt}
         onChange={(event) => setPrompt(event.target.value)}
         className="mt-5 min-h-36 w-full resize-none border-0 bg-transparent text-xl leading-relaxed text-white outline-none placeholder:text-white/25 md:text-2xl"
-        placeholder="Describe the NemoClaw agent you want..."
+        placeholder="Describe the agent you want..."
       />
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-4 border-t border-white/10 pt-5">
@@ -122,7 +122,7 @@ export function AgentBuilder({ provider = "auto", onBlueprint }: AgentBuilderPro
           disabled={loading || !prompt.trim()}
           className="bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {loading ? "Forging" : "Forge Agent"}
+          {loading ? "Building" : "Build Agent"}
         </button>
       </div>
 
