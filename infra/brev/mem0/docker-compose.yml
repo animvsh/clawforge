@@ -2,9 +2,7 @@ version: '3.8'
 
 services:
   mem0:
-    build:
-      context: ${MEM0_SOURCE_DIR}
-      dockerfile: server/Dockerfile
+    image: mem0ai/mem0:latest
     container_name: mem0
     restart: unless-stopped
     ports:
