@@ -1,4 +1,4 @@
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowRight, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ClawForgeFrame, PageShell } from "@/components/clawforge/ClawForgeFrame";
@@ -31,6 +31,7 @@ function statusLabel(status: ClawForgeProject["status"]) {
 }
 
 function DashboardPage() {
+  const navigate = useNavigate();
   const [projects, setProjects] = useState<ClawForgeProject[]>([]);
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
 
@@ -49,8 +50,7 @@ function DashboardPage() {
   );
 
   function createQuickProject() {
-    createProject(quickPrompt);
-    setProjects(listProjects());
+    void navigate({ to: "/chat" });
   }
 
   function handleDelete(projectId: string) {
