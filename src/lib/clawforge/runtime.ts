@@ -1053,3 +1053,486 @@ export function resetLegacyRuntime(): void {
 export function getApprovalStatus(): "pending" | "approved" | "denied" {
   return legacyApprovalStatus;
 }
+
+export function getPendingApproval(): import("./types").ApprovalRequest | null {
+  return legacyPendingApproval;
+}
+
+// =============================================================================
+// ANU-63: New Runtime State Machine + Tool Router
+// States: "created" → "running" → "completed" | "stopped" | "error"
+// =============================================================================
+
+import { checkPolicy } from "./policies";
+import { toolBrokers, getToolBroker } from "./tools/index";
+import type { ToolExecuteParams, ToolExecuteResult } from "./tools/broker";
+import { createAgentMemoryHelper } from "./memory/agent-helper";
+import type { AgentMemoryHelper, MemorySearchOptions } from "./memory/agent-helper";
+import type { MemoryItem } from "./types";
+
+// Re-export MemoryContext so consumers can import it from runtime
+export type MemoryContext = {
+  /** Memory items from recent approval decisions for this agent */
+  recentApprovals: MemoryItem[];
+  /** Memory items for actions that have been blocked for this agent */
+  blockedActions: MemoryItem[];
+  /** User preferences relevant to this agent's operation */
+  preferences: MemoryItem[];
+  /** Agent-specific instructions or guidelines */
+  agentInstructions: MemoryItem[];
+  /** All memory merged into a single context string for LLM reasoning */
+  mergedContext: string;
+};
+
+// Lazy-initialized memory helper (avoids circular deps at module load time)
+let _memoryHelper: AgentMemoryHelper | null = null;
+
+function getMemoryHelper(): AgentMemoryHelper {
+  if (!_memoryHelper) {
+    // Use internal user_id from environment or fall back to agent_id as project_id
+    const user_id = process.env["CLAWFORGE_USER_ID"] ?? "default";
+    const tenant_id = process.env["CLAWFORGE_TENANT_ID"];
+    _memoryHelper = createAgentMemoryHelper({ user_id, tenant_id });
+  }
+  return _memoryHelper;
+}
+
+/** Reset the memory helper (for testing purposes) */
+export function resetRuntimeMemoryHelper(): void {
+  _memoryHelper = null;
+}
+
+/**
+ * Build memory context for an agent before tool execution.
+ * Searches memory for:
+ * - Recent approvals related to this agent
+ * - Blocked actions for this agent
+ * - User preferences (preferred report format, etc.)
+ * - Agent instructions
+ */
+export async function buildMemoryContext(
+  agent_id: string,
+  tool_name: string,
+): Promise<MemoryContext> {
+  const helper = getMemoryHelper();
+  const project_id = process.env["CLAWFORGE_PROJECT_ID"] ?? agent_id;
+
+  // Search for different memory categories in parallel
+  const [approvalsResult, blockedResult, preferencesResult, instructionsResult] = await Promise.allSettled([
+    // Recent approvals - search for approval-related memory
+    helper.search("approval decision recent", {
+      project_id,
+      agent_id,
+      limit: 5,
+    }),
+    // Blocked actions
+    helper.search("blocked action denied prevented", {
+      project_id,
+      agent_id,
+      limit: 5,
+    }),
+    // User preferences
+    helper.search("preference format user choice", {
+      project_id,
+      agent_id,
+      limit: 3,
+    }),
+    // Agent instructions
+    helper.search("instruction guideline rule", {
+      project_id,
+      agent_id,
+      limit: 3,
+    }),
+  ]);
+
+  const recentApprovals = approvalsResult?.status === "fulfilled" ? approvalsResult.value : [];
+  const blockedActions = blockedResult?.status === "fulfilled" ? blockedResult.value : [];
+  const preferences = preferencesResult?.status === "fulfilled" ? preferencesResult.value : [];
+  const agentInstructions = instructionsResult?.status === "fulfilled" ? instructionsResult.value : [];
+
+  // Merge memory into a single context string for the LLM
+  const allItems = [...recentApprovals, ...blockedActions, ...preferences, ...agentInstructions];
+  const mergedContext = buildMergedMemoryString(allItems, agent_id, tool_name);
+
+  return {
+    recentApprovals,
+    blockedActions,
+    preferences,
+    agentInstructions,
+    mergedContext,
+  };
+}
+
+/**
+ * Format memory items into a string for LLM context.
+ */
+function buildMergedMemoryString(items: MemoryItem[], agent_id: string, tool_name: string): string {
+  if (items.length === 0) {
+    return "";
+  }
+
+  const lines = [`[Memory for agent ${agent_id}, tool ${tool_name}]`];
+
+  // Group by type
+  const approvals = items.filter((m) => m.type === "approval");
+  const blocked = items.filter((m) => m.type === "blocked_action");
+  const prefs = items.filter((m) => m.type === "preference");
+  const instructions = items.filter((m) => m.type === "agent_instruction");
+
+  if (approvals.length > 0) {
+    lines.push("\nRecent approvals:");
+    approvals.forEach((m) => lines.push(`  - ${m.content}`));
+  }
+
+  if (blocked.length > 0) {
+    lines.push("\nBlocked actions:");
+    blocked.forEach((m) => lines.push(`  - ${m.content}`));
+  }
+
+  if (prefs.length > 0) {
+    lines.push("\nUser preferences:");
+    prefs.forEach((m) => lines.push(`  - ${m.content}`));
+  }
+
+  if (instructions.length > 0) {
+    lines.push("\nAgent instructions:");
+    instructions.forEach((m) => lines.push(`  - ${m.content}`));
+  }
+
+  return lines.join("\n");
+}
+
+// Runtime state type for the new state machine
+export type RuntimeStatus = "created" | "running" | "completed" | "stopped" | "error";
+
+// Valid transitions for the new Runtime state machine
+const RUNTIME_VALID_TRANSITIONS: { from: RuntimeStatus; to: RuntimeStatus }[] = [
+  { from: "created", to: "running" },
+  { from: "running", to: "completed" },
+  { from: "running", to: "stopped" },
+  { from: "running", to: "error" },
+  { from: "stopped", to: "running" },
+  { from: "error", to: "running" },
+];
+
+function isRuntimeValidTransition(from: RuntimeStatus, to: RuntimeStatus): boolean {
+  return RUNTIME_VALID_TRANSITIONS.some((t) => t.from === from && t.to === to);
+}
+
+function generateRuntimeId(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/**
+ * Runtime object managed by the new state machine.
+ */
+export interface Runtime {
+  id: string;
+  agent_id: string;
+  state: RuntimeStatus;
+  blueprint?: BlueprintResponse;
+  events: RuntimeEvent[];
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Result of a tool call routed through the tool router.
+ */
+export type ToolRouterResult =
+  | { status: "allowed"; result: ToolExecuteResult; event: RuntimeEvent }
+  | { status: "blocked"; reason: string; policy_id: string; event: RuntimeEvent }
+  | { status: "pending_approval"; approval_id: string; reason: string; policy_id: string; event: RuntimeEvent }
+  | { status: "error"; error: string; event: RuntimeEvent };
+
+// Store for active runtimes (keyed by agent_id)
+const activeRuntimes: Map<string, Runtime> = new Map();
+
+/**
+ * Create a new Runtime in the "created" state.
+ */
+export function createRuntime(agent_id: string, blueprint?: BlueprintResponse): Runtime {
+  const now = new Date().toISOString();
+  const runtime: Runtime = {
+    id: generateRuntimeId("rt"),
+    agent_id,
+    state: "created",
+    blueprint,
+    events: [],
+    created_at: now,
+    updated_at: now,
+  };
+  activeRuntimes.set(agent_id, runtime);
+  return runtime;
+}
+
+/**
+ * Transition the runtime to a new state, validating the transition first.
+ */
+export function transitionState(rt: Runtime, newState: RuntimeStatus): Runtime {
+  if (!isRuntimeValidTransition(rt.state, newState)) {
+    throw new Error(
+      `Invalid state transition from '${rt.state}' to '${newState}' for runtime ${rt.id}`,
+    );
+  }
+  rt.state = newState;
+  rt.updated_at = new Date().toISOString();
+  return rt;
+}
+
+/**
+ * Create a RuntimeEvent with the given parameters.
+ */
+export function emitEvent(
+  rt: Runtime,
+  type: RuntimeEventType,
+  message: string,
+  metadata?: Record<string, unknown>,
+): RuntimeEvent {
+  const event: RuntimeEvent = {
+    id: generateRuntimeId("evt"),
+    agent_id: rt.agent_id,
+    type,
+    message,
+    timestamp: new Date().toISOString(),
+    metadata,
+  };
+  rt.events.push(event);
+  rt.updated_at = event.timestamp;
+  return event;
+}
+
+/**
+ * Start a runtime: transition from "created" to "running" and emit agent.started.
+ */
+export function startRuntimeState(agent_id: string): Runtime {
+  const rt = activeRuntimes.get(agent_id);
+  if (!rt) {
+    throw new Error(`Runtime not found for agent_id: ${agent_id}`);
+  }
+  if (rt.state !== "created") {
+    throw new Error(`Cannot start runtime in state '${rt.state}'. Must be 'created'.`);
+  }
+  transitionState(rt, "running");
+  emitEvent(rt, "agent.started", `Agent ${agent_id} started in NemoClaw sandbox.`, {
+    runtime_id: rt.id,
+    blueprint_id: rt.blueprint?.blueprint_id,
+  });
+  return rt;
+}
+
+/**
+ * Stop a runtime: transition to "stopped" and emit agent.completed.
+ */
+export function stopRuntimeState(agent_id: string): Runtime {
+  const rt = activeRuntimes.get(agent_id);
+  if (!rt) {
+    throw new Error(`Runtime not found for agent_id: ${agent_id}`);
+  }
+  transitionState(rt, "stopped");
+  emitEvent(rt, "agent.completed", `Agent ${agent_id} runtime stopped by user.`, {
+    runtime_id: rt.id,
+  });
+  return rt;
+}
+
+/**
+ * Complete a runtime: transition to "completed" and emit agent.completed.
+ */
+export function completeRuntime(agent_id: string): Runtime {
+  const rt = activeRuntimes.get(agent_id);
+  if (!rt) {
+    throw new Error(`Runtime not found for agent_id: ${agent_id}`);
+  }
+  transitionState(rt, "completed");
+  emitEvent(rt, "agent.completed", `Agent ${agent_id} runtime completed successfully.`, {
+    runtime_id: rt.id,
+  });
+  return rt;
+}
+
+/**
+ * Mark a runtime as errored: transition to "error" and emit agent.error.
+ */
+export function errorRuntimeState(agent_id: string, error_message: string): Runtime {
+  const rt = activeRuntimes.get(agent_id);
+  if (!rt) {
+    throw new Error(`Runtime not found for agent_id: ${agent_id}`);
+  }
+  transitionState(rt, "error");
+  emitEvent(rt, "agent.error", `Agent ${agent_id} encountered an error: ${error_message}`, {
+    runtime_id: rt.id,
+    error: error_message,
+  });
+  return rt;
+}
+
+/**
+ * Get a runtime by agent_id.
+ */
+export function getRuntime(agent_id: string): Runtime | undefined {
+  return activeRuntimes.get(agent_id);
+}
+
+/**
+ * Get all events for a runtime.
+ */
+export function getRuntimeEventsByAgent(agent_id: string): RuntimeEvent[] {
+  return activeRuntimes.get(agent_id)?.events ?? [];
+}
+
+// =============================================================================
+// Tool Router
+// =============================================================================
+
+/**
+ * Route a tool call through policy check and execute the appropriate tool.
+ * - DataExport (data.export) is always blocked.
+ * - Every tool call emits a RuntimeEvent.
+ * - Policy check determines allow/deny/require_approval.
+ * - Memory context is fetched and injected into the tool execution context.
+ */
+export async function routeToolCall(
+  tool_name: string,
+  params: Record<string, unknown>,
+  context: { agent_id: string; session_id?: string } = { agent_id: "" },
+): Promise<ToolRouterResult> {
+  const { agent_id } = context;
+
+  // Get or create a runtime for this agent
+  let rt = activeRuntimes.get(agent_id);
+  if (!rt) {
+    rt = createRuntime(agent_id);
+  }
+
+  // Special case: data.export is always blocked
+  if (tool_name === "data.export") {
+    const event = emitEvent(
+      rt,
+      "policy.blocked",
+      "Action 'data.export' is always blocked. Raw logs may contain sensitive data.",
+      { tool: tool_name, blocked_reason: "policy_always_block" },
+    );
+    return {
+      status: "blocked",
+      reason: "Action 'data.export' is always blocked. Raw logs may contain sensitive data.",
+      policy_id: "policy_data_export_always_block",
+      event,
+    };
+  }
+
+  // Check if tool broker exists
+  const broker = getToolBroker(tool_name);
+  if (!broker) {
+    const event = emitEvent(rt, "agent.error", `Unknown tool: '${tool_name}'`, {
+      tool: tool_name,
+    });
+    return {
+      status: "error",
+      error: `Unknown tool: '${tool_name}'`,
+      event,
+    };
+  }
+
+  // Emit tool.called event
+  const toolEvent = emitEvent(rt, "tool.called", `Tool '${tool_name}' called.`, {
+    tool: tool_name,
+    params,
+  });
+
+  // Check policy
+  const decision = checkPolicy(tool_name);
+
+  if (decision.effect === "deny") {
+    const blockedEvent = emitEvent(
+      rt,
+      "policy.blocked",
+      `Blocked by policy: ${decision.reason}`,
+      { tool: tool_name, policy_id: decision.policy_id },
+    );
+    return {
+      status: "blocked",
+      reason: decision.reason,
+      policy_id: decision.policy_id,
+      event: blockedEvent,
+    };
+  }
+
+  if (decision.effect === "require_approval") {
+    const approvalId = generateRuntimeId("approval");
+    const pendingEvent = emitEvent(rt, "approval.requested", `Approval required: ${decision.reason}`, {
+      tool: tool_name,
+      policy_id: decision.policy_id,
+      approval_id: approvalId,
+    });
+    return {
+      status: "pending_approval",
+      approval_id: approvalId,
+      reason: decision.reason,
+      policy_id: decision.policy_id,
+      event: pendingEvent,
+    };
+  }
+
+  // effect === "allow" - execute the tool
+  // First, fetch memory context to inject into tool params
+  const memoryContext = await buildMemoryContext(agent_id, tool_name);
+
+  try {
+    const toolParams: ToolExecuteParams = {
+      agent_id,
+      session_id: context.session_id,
+      params,
+      // Inject memory context into tool params for the LLM provider to reason about
+      context: {
+        ...context,
+        recentMemory: memoryContext.mergedContext,
+        agentMemory: memoryContext,
+      },
+    };
+
+    const result = await broker.execute(toolParams);
+
+    if (result.success) {
+      const successEvent = emitEvent(
+        rt,
+        "tool.called",
+        `Tool '${tool_name}' executed successfully.`,
+        { tool: tool_name, success: true, memory_injected: !!memoryContext.mergedContext },
+      );
+      return {
+        status: "allowed",
+        result,
+        event: successEvent,
+      };
+    } else {
+      const errorEvent = emitEvent(rt, "agent.error", `Tool '${tool_name}' failed: ${result.error}`, {
+        tool: tool_name,
+        error: result.error,
+      });
+      return {
+        status: "error",
+        error: result.error ?? "Unknown error",
+        event: errorEvent,
+      };
+    }
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    const errorEvent = emitEvent(rt, "agent.error", `Tool '${tool_name}' threw: ${errorMsg}`, {
+      tool: tool_name,
+      error: errorMsg,
+    });
+    return {
+      status: "error",
+      error: errorMsg,
+      event: errorEvent,
+    };
+  }
+}
+
+/**
+ * Reset the runtime system (clear all active runtimes).
+ */
+export function resetRuntimeSystem(): void {
+  activeRuntimes.clear();
+}

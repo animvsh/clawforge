@@ -83,9 +83,19 @@ type MemoryParams = MemorySearchParams | MemoryAddParams | MemoryListParams | Me
 export class MemoryHelperTool implements ToolBroker {
   action = "memory.helper";
 
-  private helper = createAgentMemoryHelper();
+  // Lazy initialization - helper is created on first execute(), not at module import time.
+  // This avoids failing at import time when CLAWFORGE_USER_ID is not set.
+  private _helper: ReturnType<typeof createAgentMemoryHelper> | null = null;
+
+  private getHelper(): ReturnType<typeof createAgentMemoryHelper> {
+    if (!this._helper) {
+      this._helper = createAgentMemoryHelper();
+    }
+    return this._helper;
+  }
 
   async execute(params: ToolExecuteParams): Promise<ToolExecuteResult> {
+    const helper = this.getHelper();
     const action = params.params["action"] as MemoryAction | undefined;
     const p = params.params["params"] as MemoryParams | undefined;
 
@@ -100,7 +110,7 @@ export class MemoryHelperTool implements ToolBroker {
       switch (action) {
         case "memory.search": {
           const searchParams = p as MemorySearchParams;
-          const results = await this.helper.search(searchParams.query, {
+          const results = await helper.search(searchParams.query, {
             project_id: searchParams.project_id,
             user_id: searchParams.user_id,
             agent_id: searchParams.agent_id,
@@ -124,7 +134,7 @@ export class MemoryHelperTool implements ToolBroker {
             confidence: addParams.confidence,
             created_by: addParams.created_by,
           };
-          const result = await this.helper.add(addParams.content, addParams.type, metadata);
+          const result = await helper.add(addParams.content, addParams.type, metadata);
           return { success: true, data: result };
         }
 
@@ -138,13 +148,13 @@ export class MemoryHelperTool implements ToolBroker {
             workspace_id: listParams.workspace_id,
             type: listParams.type,
           };
-          const results = await this.helper.list(filters);
+          const results = await helper.list(filters);
           return { success: true, data: results };
         }
 
         case "memory.delete": {
           const deleteParams = p as MemoryDeleteParams;
-          const deleted = await this.helper.delete(deleteParams.memory_id);
+          const deleted = await helper.delete(deleteParams.memory_id);
           return { success: true, data: { deleted } };
         }
 

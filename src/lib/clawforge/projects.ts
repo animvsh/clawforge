@@ -87,3 +87,8 @@ export function ensureDemoProjects() {
   updateProject(demo.id, { status: "ready", blueprintId: "bp_sentinelclaw_demo" });
   return listProjects();
 }
+
+export function deleteProject(projectId: string): void {
+  const projects = listProjects();
+  saveProjects(projects.filter((p) => p.id !== projectId));
+}

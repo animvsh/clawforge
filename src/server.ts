@@ -4,6 +4,14 @@ import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";
 import { handleClawForgeApi } from "./lib/clawforge/api";
 
+// Load .env file into process.env for local dev (Vite doesn't auto-load non-VITE_ vars)
+try {
+  const { config } = await import("dotenv");
+  config();
+} catch {
+  // dotenv may not be installed in all environments
+}
+
 type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
 };
@@ -99,7 +107,7 @@ export default {
 
     const clawForgeApiResponse = await handleClawForgeApi(
       request,
-      env as Record<string, string | undefined>,
+      { ...process.env, ...(env as Record<string, string | undefined>) },
     );
     if (clawForgeApiResponse) {
       return clawForgeApiResponse;

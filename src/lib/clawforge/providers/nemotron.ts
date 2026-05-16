@@ -1,9 +1,87 @@
 import { createMockProvider } from "./mock";
 import type { ReasoningInput, ReasoningProvider } from ".";
 
-const DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
-const DEFAULT_NEMOTRON_MODEL = "nvidia/llama-3.1-nemotron-nano-8b-v1";
-const PROVIDER_TIMEOUT_MS = 18_000;
+const NEMOTRON_BLUEPRINT_SCHEMA = `You are ClawForge's NVIDIA Nemotron planning provider. You generate structured agent blueprints in strict JSON format.
+
+OUTPUT FORMAT: Return ONLY valid JSON matching the schema below. No markdown, no prose, no explanations.
+
+JSON SCHEMA:
+{
+  "agent_name": "string (short descriptive name, 2-4 words, e.g. 'Pizza Shop Receptionist')",
+  "agent_description": "string (1-2 sentences describing the agent's purpose)",
+  "goal": "string (the user's actual request rewritten as an actionable goal, be specific to their domain)",
+  "model": "string (use 'nvidia/llama-3.1-nemotron-nano-8b-v1' unless a specific model is requested)",
+  "provider": "string (use 'nemotron')",
+  "workflow_steps": [
+    {
+      "title": "string (imperative action title specific to the user's request, e.g. 'Handle incoming call' for a receptionist)",
+      "description": "string (1-2 sentences explaining how this step works in the context of the specific task)",
+      "kind": "string (one of: 'input' | 'processing' | 'tool' | 'approval' | 'output')"
+    }
+  ],
+  "tools": [
+    {
+      "name": "string (tool identifier, e.g. 'phone_call' or 'calendar_check')",
+      "permission": "string (one of: 'allowed' | 'read_only' | 'approval_required' | 'blocked')",
+      "risk_level": "string (one of: 'low' | 'medium' | 'high')"
+    }
+  ],
+  "integrations_required": [
+    {
+      "id": "string (kebab-case, e.g. 'google-calendar')",
+      "label": "string (human-readable, e.g. 'Google Calendar')",
+      "purpose": "string (why this integration is needed)"
+    }
+  ],
+  "policies": [
+    {
+      "name": "string (policy name)",
+      "effect": "string (one of: 'allow' | 'deny' | 'require_approval')"
+    }
+  ],
+  "approval_gates": [
+    {
+      "name": "string (gate name, e.g. 'Human approval for external calls')",
+      "trigger": "string (condition that triggers approval, e.g. 'When contacting external phone numbers')"
+    }
+  ],
+  "memory_schema": [
+    {
+      "name": "string (field name)",
+      "type": "string (one of: 'incident' | 'preference' | 'blocked_action' | 'approval' | 'context')"
+    }
+  ],
+  "canvas_graph": {
+    "nodes": [
+      {
+        "id": "string (unique id)",
+        "title": "string (node label)",
+        "kind": "string (one of: 'input' | 'tool' | 'model' | 'policy' | 'approval' | 'memory' | 'output')"
+      }
+    ],
+    "edges": [
+      {
+        "id": "string (unique id)",
+        "sourceId": "string (source node id)",
+        "targetId": "string (target node id)"
+      }
+    ]
+  },
+  "runtime_config": {
+    "mode": "string (use 'openclaw')",
+    "sandbox": "string (use 'nemoclaw')",
+    "runtime": "string (use 'openclaw')"
+  },
+  "files_to_generate": ["string (list of file paths to generate for this agent)"]
+}
+
+IMPORTANT RULES:
+- Do NOT use keyword templates or generic steps. Generate workflow_steps that are SPECIFIC to the user's actual request.
+- If the user asks for a pizza shop receptionist, workflow_steps should include things like "Handle incoming call", "Transcribe voice message", "Check calendar availability" — not generic steps.
+- Make all field values specific to the user's domain and request.
+- workflow_steps must have at least 3 items and no more than 8.
+- tools should be specific to what this agent actually needs to do.
+- Return valid JSON only — no markdown fences, no explanatory text.`;
 
 function sanitizeError(message: string): string {
   return message
@@ -160,6 +238,26 @@ function parsePlan(content: string): string[] {
       ];
 }
 
+function parseBlueprintPlan(content: string): Record<string, unknown> {
+  const parsedObject = parseJsonObject(content);
+  if (parsedObject) return parsedObject;
+
+  // Try to extract from markdown code blocks
+  const fencePattern = /```(?:json)?\s*([\s\S]*?)```/gi;
+  for (const match of content.matchAll(fencePattern)) {
+    try {
+      const parsed = JSON.parse(match[1].trim()) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Continue
+    }
+  }
+
+  return {};
+}
+
 async function nvidiaChatCompletion(
   apiKey: string,
   baseUrl: string,
@@ -210,8 +308,8 @@ export function createNemotronProvider(
   env: Record<string, string | undefined> = {},
 ): ReasoningProvider {
   const apiKey = env.NVIDIA_API_KEY;
-  const baseUrl = env.NVIDIA_BASE_URL || DEFAULT_NVIDIA_BASE_URL;
-  const model = env.NVIDIA_NEMOTRON_MODEL || DEFAULT_NEMOTRON_MODEL;
+  const baseUrl = env.NVIDIA_BASE_URL || "https://integrate.api.nvidia.com/v1";
+  const model = env.NVIDIA_NEMOTRON_MODEL || "nvidia/llama-3.1-nemotron-nano-8b-v1";
 
   if (!apiKey) {
     return createMockProvider();
@@ -230,6 +328,17 @@ export function createNemotronProvider(
         input.prompt,
       );
       return parsePlan(content);
+    },
+    async planBlueprint(input: ReasoningInput): Promise<Record<string, unknown>> {
+      if (!input.prompt.trim()) return {};
+      const content = await nvidiaChatCompletion(
+        apiKey,
+        baseUrl,
+        model,
+        NEMOTRON_BLUEPRINT_SCHEMA,
+        input.prompt,
+      );
+      return parseBlueprintPlan(content);
     },
     async classify(
       input: ReasoningInput,

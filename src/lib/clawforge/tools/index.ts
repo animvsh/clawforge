@@ -23,6 +23,7 @@ export { ReportWriterTool, reportWriterTool } from "./report-writer";
 export { TicketCreatorTool, ticketCreatorTool } from "./ticket-creator";
 export { ShellExecutorTool, shellExecutorTool } from "./shell-executor";
 export { ExternalAlertSenderTool, externalAlertSenderTool } from "./external-alert-sender";
+export { sendAlert, sendAlertWithLogging } from "./alert-sender";
 export { DataExportTool, dataExportTool } from "./data-export";
 export { MemoryHelperTool, memoryHelperTool } from "./memory-helper";
 

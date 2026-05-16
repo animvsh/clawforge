@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ReportRouteImport } from './routes/report'
 import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as ChatRouteImport } from './routes/chat'
 import { Route as BuilderRouteImport } from './routes/builder'
 import { Route as BlueprintRouteImport } from './routes/blueprint'
 import { Route as IndexRouteImport } from './routes/index'
@@ -25,6 +26,11 @@ const ReportRoute = ReportRouteImport.update({
 const DashboardRoute = DashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ChatRoute = ChatRouteImport.update({
+  id: '/chat',
+  path: '/chat',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BuilderRoute = BuilderRouteImport.update({
@@ -57,6 +63,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/blueprint': typeof BlueprintRoute
   '/builder': typeof BuilderRoute
+  '/chat': typeof ChatRoute
   '/dashboard': typeof DashboardRoute
   '/report': typeof ReportRoute
   '/instance/$instanceId': typeof InstanceInstanceIdRoute
@@ -66,6 +73,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/blueprint': typeof BlueprintRoute
   '/builder': typeof BuilderRoute
+  '/chat': typeof ChatRoute
   '/dashboard': typeof DashboardRoute
   '/report': typeof ReportRoute
   '/instance/$instanceId': typeof InstanceInstanceIdRoute
@@ -76,6 +84,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/blueprint': typeof BlueprintRoute
   '/builder': typeof BuilderRoute
+  '/chat': typeof ChatRoute
   '/dashboard': typeof DashboardRoute
   '/report': typeof ReportRoute
   '/instance/$instanceId': typeof InstanceInstanceIdRoute
@@ -87,6 +96,7 @@ export interface FileRouteTypes {
     | '/'
     | '/blueprint'
     | '/builder'
+    | '/chat'
     | '/dashboard'
     | '/report'
     | '/instance/$instanceId'
@@ -96,6 +106,7 @@ export interface FileRouteTypes {
     | '/'
     | '/blueprint'
     | '/builder'
+    | '/chat'
     | '/dashboard'
     | '/report'
     | '/instance/$instanceId'
@@ -105,6 +116,7 @@ export interface FileRouteTypes {
     | '/'
     | '/blueprint'
     | '/builder'
+    | '/chat'
     | '/dashboard'
     | '/report'
     | '/instance/$instanceId'
@@ -115,6 +127,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BlueprintRoute: typeof BlueprintRoute
   BuilderRoute: typeof BuilderRoute
+  ChatRoute: typeof ChatRoute
   DashboardRoute: typeof DashboardRoute
   ReportRoute: typeof ReportRoute
   InstanceInstanceIdRoute: typeof InstanceInstanceIdRoute
@@ -135,6 +148,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/chat': {
+      id: '/chat'
+      path: '/chat'
+      fullPath: '/chat'
+      preLoaderRoute: typeof ChatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/builder': {
@@ -179,6 +199,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BlueprintRoute: BlueprintRoute,
   BuilderRoute: BuilderRoute,
+  ChatRoute: ChatRoute,
   DashboardRoute: DashboardRoute,
   ReportRoute: ReportRoute,
   InstanceInstanceIdRoute: InstanceInstanceIdRoute,

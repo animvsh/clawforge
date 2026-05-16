@@ -28,7 +28,7 @@ type BlueprintTemplate = Pick<
   | "workflow_steps"
 >;
 
-const templateById: Record<AgentTemplateId, BlueprintTemplate> = {
+export const templateById: Record<AgentTemplateId, BlueprintTemplate> = {
   incident_response: {
     blueprint_id: DEMO_BLUEPRINT_ID,
     agent_name: "SentinelClaw",
@@ -1121,6 +1121,39 @@ export const demoEvents: RuntimeEvent[] = [
     message: "Incident report generated.",
     timestamp,
     severity: "success",
+  },
+];
+
+export const TEST_PROMPTS = [
+  {
+    label: "Pizza shop receptionist",
+    prompt:
+      "Create a NemoClaw agent that answers incoming calls, checks calendar availability, books appointments, and asks before texting customers.",
+    description: "Voice + calendar agent for a pizza shop",
+  },
+  {
+    label: "Cybersecurity incident response",
+    prompt:
+      "Create a NemoClaw agent that monitors system logs, detects suspicious behavior, writes an incident report, and asks before executing commands.",
+    description: "Security log monitor + incident reporter",
+  },
+  {
+    label: "GitHub triage",
+    prompt:
+      "Create a NemoClaw agent that reads GitHub issues, finds urgent bugs, drafts responses, and asks before posting.",
+    description: "Issue reader + responder",
+  },
+  {
+    label: "Inbox/email assistant",
+    prompt:
+      "Create a NemoClaw agent that summarizes important emails, drafts replies, and asks before sending anything.",
+    description: "Email summarizer + responder",
+  },
+  {
+    label: "Research agent",
+    prompt:
+      "Create a NemoClaw agent that researches a topic, saves sources, writes a brief, and asks before publishing.",
+    description: "Web researcher + brief writer",
   },
 ];
 

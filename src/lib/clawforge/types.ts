@@ -42,11 +42,40 @@ export type WorkflowStep = {
   tool_id?: string;
 };
 
-export type IntegrationRequirement = {
+export type CanvasGraphNodeKind = "input" | "tool" | "model" | "policy" | "approval" | "memory" | "output";
+export type CanvasGraphNodeStatus = "idle" | "generating" | "ready" | "running" | "waiting" | "blocked" | "done";
+
+export type CanvasGraphNode = {
   id: string;
-  label: string;
-  purpose: string;
-  status: "required" | "optional" | "connected";
+  title: string;
+  subtitle?: string;
+  kind: CanvasGraphNodeKind;
+  status?: CanvasGraphNodeStatus;
+  icon?: string;
+};
+
+export type CanvasGraphEdge = {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  type?: "execution" | "dependency";
+};
+
+export type CanvasGraph = {
+  nodes: CanvasGraphNode[];
+  edges: CanvasGraphEdge[];
+};
+
+export type ApprovalGate = {
+  id: string;
+  name: string;
+  trigger: string;
+};
+
+export type RuntimeConfig = {
+  mode: "openclaw";
+  sandbox: "nemoclaw";
+  runtime: "openclaw";
 };
 
 export type BlueprintResponse = {
@@ -66,6 +95,10 @@ export type BlueprintResponse = {
   integration_requirements: IntegrationRequirement[];
   memory_schema: MemorySchemaItem[];
   workflow_steps: WorkflowStep[];
+  approval_gates: ApprovalGate[];
+  canvas_graph: CanvasGraph;
+  runtime_config: RuntimeConfig;
+  files_to_generate: string[];
   config_preview: string;
 };
 

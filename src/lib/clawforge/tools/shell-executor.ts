@@ -1,5 +1,76 @@
 import type { ToolBroker, ToolExecuteParams, ToolExecuteResult, ToolMetadata } from "./broker";
 
+export type ShellContext = {
+  agent_id: string;
+  sandbox_id?: string;
+  working_dir?: string;
+};
+
+export type ShellResult = {
+  output: string;
+  exitCode: number;
+  durationMs: number;
+};
+
+/**
+ * executeShellCommand - Execute a shell command on the Brev sandbox.
+ * Returns output, exit code, and execution duration.
+ */
+export async function executeShellCommand(
+  command: string,
+  context: ShellContext,
+): Promise<ShellResult> {
+  const start = Date.now();
+
+  if (!command || command.trim().length === 0) {
+    throw new Error("Empty command string is not allowed.");
+  }
+
+  // Import runBrevCommand lazily to avoid SSR issues
+  let runBrevCommand: ((cmd: string, args: string[], timeoutMs?: number) => Promise<{ ok: boolean; stdout: string; stderr: string; exitCode: number | null }>) | null = null;
+
+  if (import.meta.env.SSR === true) {
+    try {
+      const { runBrevCommand: _run } = await import("../sandbox");
+      runBrevCommand = _run;
+    } catch {
+      // Brev not available in this environment
+    }
+  }
+
+  if (runBrevCommand) {
+    // Execute via Brev sandbox
+    const parts = command.trim().split(/\s+/);
+    const cmd = parts[0];
+    const args = parts.slice(1);
+
+    const result = await runBrevCommand(cmd, args, 30_000);
+
+    const durationMs = Date.now() - start;
+
+    return {
+      output: result.stdout || result.stderr || "",
+      exitCode: result.exitCode ?? (result.ok ? 0 : 1),
+      durationMs,
+    };
+  }
+
+  // Fallback: mock execution for non-SSR or when Brev is unavailable
+  const durationMs = Date.now() - start;
+
+  // Simulate command execution
+  if (command === "fail") {
+    return { output: "Command failed.", exitCode: 1, durationMs };
+  }
+
+  // Default: simulate successful execution
+  return {
+    output: `[Mock] Executed in sandbox ${context.sandbox_id ?? "default"}: ${command}`,
+    exitCode: 0,
+    durationMs,
+  };
+}
+
 /**
  * ShellExecutorTool - Executes shell commands with policy gate.
  * Permission: approval_required (high risk, modifies system state)

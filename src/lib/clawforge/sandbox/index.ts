@@ -14,6 +14,7 @@ export {
   createBrevLaunchPlan,
   getBrevStatus,
   openHandsConnection,
+  runCommand as runBrevCommand,
 } from "./brev";
 export type {
   BrevLaunchPlan,
