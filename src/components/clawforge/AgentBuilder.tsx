@@ -149,7 +149,7 @@ export function AgentBuilder({
 
         <button
           type="button"
-          onClick={generateBlueprint}
+          onClick={() => void generateBlueprint()}
           disabled={loading || !prompt.trim()}
           className="w-full bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
         >

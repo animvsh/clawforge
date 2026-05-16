@@ -1,9 +1,10 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import { ArrowUp, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AgentBuilder } from "@/components/clawforge/AgentBuilder";
 import { AuthPanel } from "@/components/clawforge/AuthPanel";
 import { BlueprintReview } from "@/components/clawforge/BlueprintReview";
+import { ClawForgeLogo } from "@/components/clawforge/ClawForgeFrame";
 import { IncidentReport } from "@/components/clawforge/IncidentReport";
 import { LiveDashboard } from "@/components/clawforge/LiveDashboard";
 import heroImage from "@/assets/hero.png";
@@ -28,19 +29,6 @@ export const Route = createFileRoute("/")({
   }),
   component: Index,
 });
-
-function Logo() {
-  return (
-    <div className="flex items-center gap-3" aria-label="ClawForge">
-      <div className="grid h-8 w-8 place-items-center">
-        <div className="h-0 w-0 border-y-[9px] border-l-[15px] border-y-transparent border-l-white" />
-      </div>
-      <span className="text-[11px] font-semibold uppercase tracking-[0.32em] text-white/50">
-        clawforge
-      </span>
-    </div>
-  );
-}
 
 function Section({
   id,
@@ -82,7 +70,7 @@ function Hero({ onBuild }: { onBuild: (prompt: string) => void }) {
     <section className="grid min-h-screen bg-black lg:grid-cols-[34%_66%]">
       <div className="order-1 flex min-h-[58vh] flex-col border-b border-white/10 px-6 py-6 md:px-10 lg:min-h-screen lg:border-b-0 lg:border-r lg:px-14 lg:py-8">
         <div className="flex items-start justify-between gap-5">
-          <Logo />
+          <ClawForgeLogo />
           <AuthPanel />
         </div>
 
@@ -282,8 +270,13 @@ function Index() {
 
       <footer className="border-t border-white/10 px-5 py-8 text-sm text-white/42 md:px-10 lg:px-14">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
-          <Logo />
-          <span>Safe agents, built from plain English.</span>
+          <ClawForgeLogo />
+          <div className="flex flex-wrap items-center gap-4">
+            <span>Safe agents, built from plain English.</span>
+            <Link to="/builder" className="text-white/62 transition hover:text-white">
+              Open builder
+            </Link>
+          </div>
         </div>
       </footer>
     </main>
