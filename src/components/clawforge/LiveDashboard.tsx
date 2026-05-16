@@ -1,4 +1,4 @@
-import type { IncidentReport, MemoryItem, RuntimeEvent } from "@/lib/clawforge/types";
+import type { IncidentReport, MemoryItem, ProviderMode, RuntimeEvent } from "@/lib/clawforge/types";
 import { useEffect, useMemo, useState } from "react";
 
 type BrevPanelState = {
@@ -22,6 +22,26 @@ type LaunchPanelState = {
   };
 };
 
+type ComposioPanelState = {
+  configured: boolean;
+  mcp_url: string;
+  dashboard_url: string;
+  phone_number: string | null;
+  auth_configs: Array<{
+    id: string;
+    label: string;
+    purpose: string;
+    status: string;
+  }>;
+};
+
+type IntegrationNeed = {
+  id: string;
+  label: string;
+  reason: string;
+  status: "connected" | "connect";
+};
+
 const policies = [
   ["allow", "Log reading allowed"],
   ["allow", "Report writing allowed"],
@@ -37,6 +57,30 @@ const commands = [
   "Show current incident.",
   "Why did NemoClaw pause this?",
   "Show memory.",
+];
+
+const chatModelOptions: Record<ProviderMode, Array<[string, string]>> = {
+  auto: [["auto", "Auto fallback"]],
+  nemotron: [
+    ["nvidia/llama-3.1-nemotron-nano-8b-v1", "Nemotron Nano 8B"],
+    ["nvidia/llama-3.1-nemotron-70b-instruct", "Nemotron 70B"],
+    ["nvidia/nemotron-4-340b-instruct", "Nemotron 340B"],
+  ],
+  minimax: [
+    ["minimax/token-plan", "MiniMax token plan"],
+    ["abab6.5s-chat", "MiniMax abab6.5s"],
+    ["MiniMax-Text-01", "MiniMax Text 01"],
+  ],
+  pi: [["pi-3-mini", "Pi coding"]],
+  mock: [["mock/sentinelclaw", "Mock demo"]],
+};
+
+const chatProviderOptions: Array<[ProviderMode, string]> = [
+  ["auto", "Auto"],
+  ["nemotron", "Nemotron"],
+  ["minimax", "MiniMax"],
+  ["pi", "Pi"],
+  ["mock", "Mock"],
 ];
 
 function eventTone(event: RuntimeEvent) {
@@ -65,8 +109,13 @@ export function LiveDashboard({
   const [chatReply, setChatReply] = useState("Deploy SentinelClaw to inspect the running agent.");
   const [brevStatus, setBrevStatus] = useState<BrevPanelState | null>(null);
   const [launchPlan, setLaunchPlan] = useState<LaunchPanelState | null>(null);
+  const [composioStatus, setComposioStatus] = useState<ComposioPanelState | null>(null);
   const [sandboxMessage, setSandboxMessage] = useState("Inspect the generated NemoClaw sandbox.");
   const [sandboxReply, setSandboxReply] = useState("OpenHands sandbox chat is ready.");
+  const [chatProvider, setChatProvider] = useState<ProviderMode>("auto");
+  const [chatModel, setChatModel] = useState("auto");
+  const [chatMeta, setChatMeta] = useState("Auto routes Nemotron, then MiniMax, then mock.");
+  const [integrationNeeds, setIntegrationNeeds] = useState<IntegrationNeed[]>([]);
   const [creatingBrev, setCreatingBrev] = useState(false);
 
   useEffect(() => {
@@ -120,6 +169,13 @@ export function LiveDashboard({
           installCommand: "brew install brevdev/homebrew-brev/brev",
         }),
       );
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/clawforge/composio/status")
+      .then((response) => response.json())
+      .then((data) => setComposioStatus(data.composio ?? null))
+      .catch(() => setComposioStatus(null));
   }, []);
 
   const statusRows = useMemo(
@@ -233,14 +289,57 @@ export function LiveDashboard({
   }
 
   async function sendSandboxMessage() {
+    const lowerMessage = sandboxMessage.toLowerCase();
+    const nextNeeds: IntegrationNeed[] = [];
+    if (/\b(phone|call|calls|receptionist|sms|text|voicemail)\b/.test(lowerMessage)) {
+      nextNeeds.push({
+        id: "phone_sms",
+        label: "Phone/SMS",
+        reason: "Needed to answer calls and send customer confirmations.",
+        status: "connect",
+      });
+    }
+    if (/\b(calendar|schedule|appointment|booking|book|availability)\b/.test(lowerMessage)) {
+      nextNeeds.push({
+        id: "calendar",
+        label: "Calendar",
+        reason: "Needed to check availability and book appointments.",
+        status: "connect",
+      });
+    }
+    if (/\b(email|follow up|confirmation|intake)\b/.test(lowerMessage)) {
+      nextNeeds.push({
+        id: "email",
+        label: "Email",
+        reason: "Needed for follow-up summaries and confirmations.",
+        status: "connect",
+      });
+    }
+    if (nextNeeds.length) setIntegrationNeeds(nextNeeds);
+
     const response = await fetch("/api/clawforge/openhands/chat", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ message: sandboxMessage }),
+      body: JSON.stringify({ message: sandboxMessage, provider: chatProvider, model: chatModel }),
     });
     const data = await response.json();
     if (data.ok && data.chat) {
       setSandboxReply(data.chat.reply);
+      const thinkingEvent = (data.chat.events as RuntimeEvent[] | undefined)?.find(
+        (event) => event.type === "agent.thinking",
+      );
+      const provider = thinkingEvent?.metadata?.provider;
+      const model = thinkingEvent?.metadata?.model;
+      const fallback = thinkingEvent?.metadata?.fallback_chain;
+      setChatMeta(
+        [
+          provider ? `Provider: ${provider}` : undefined,
+          model ? `Model: ${model}` : undefined,
+          fallback ? `Fallback: ${fallback}` : undefined,
+        ]
+          .filter(Boolean)
+          .join(" · ") || "Sandbox chat completed.",
+      );
       setEvents((current) => [
         ...current,
         ...((data.chat.events as RuntimeEvent[] | undefined) ?? []),
@@ -424,7 +523,7 @@ export function LiveDashboard({
                 disabled={creatingBrev || brevStatus?.status !== "ready"}
                 className="border border-white/25 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-45"
               >
-                {creatingBrev ? "Creating" : "Create Brev instance"}
+                {creatingBrev ? "Deploying" : "Deploy NemoClaw instance"}
               </button>
               <span className="border border-amber-300/20 px-3 py-2 text-xs text-amber-100/72">
                 about $1.63/hr
@@ -434,7 +533,41 @@ export function LiveDashboard({
 
           <div className="border border-white/12 bg-white/[0.025] p-5">
             <div className="text-[11px] uppercase tracking-[0.24em] text-white/38">
-              OpenHands chat
+              Agent test chat
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <label className="grid gap-2 text-[10px] uppercase tracking-[0.18em] text-white/35">
+                Model family
+                <select
+                  value={chatProvider}
+                  onChange={(event) => {
+                    const nextProvider = event.target.value as ProviderMode;
+                    setChatProvider(nextProvider);
+                    setChatModel(chatModelOptions[nextProvider][0][0]);
+                  }}
+                  className="h-10 border border-white/12 bg-black px-3 text-sm normal-case tracking-normal text-white outline-none"
+                >
+                  {chatProviderOptions.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="grid gap-2 text-[10px] uppercase tracking-[0.18em] text-white/35">
+                Model
+                <select
+                  value={chatModel}
+                  onChange={(event) => setChatModel(event.target.value)}
+                  className="h-10 border border-white/12 bg-black px-3 text-sm normal-case tracking-normal text-white outline-none"
+                >
+                  {chatModelOptions[chatProvider].map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
             <textarea
               value={sandboxMessage}
@@ -451,6 +584,67 @@ export function LiveDashboard({
             </button>
             <div className="mt-3 border border-white/10 p-3 text-xs leading-relaxed text-white/58">
               {sandboxReply}
+            </div>
+            {integrationNeeds.length > 0 && (
+              <div className="mt-3 grid gap-2">
+                {integrationNeeds.map((need) => (
+                  <div
+                    key={need.id}
+                    className="grid gap-3 border border-white/10 bg-black p-3 text-xs sm:grid-cols-[1fr_auto]"
+                  >
+                    <div>
+                      <div className="font-semibold text-white">{need.label} access needed</div>
+                      <div className="mt-1 leading-relaxed text-white/45">{need.reason}</div>
+                    </div>
+                    <a
+                      href={composioStatus?.dashboard_url ?? "https://dashboard.composio.dev/"}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="self-start bg-white px-3 py-2 font-semibold text-black"
+                    >
+                      Connect
+                    </a>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="mt-2 text-[11px] leading-relaxed text-white/38">{chatMeta}</div>
+          </div>
+
+          <div className="border border-white/12 bg-white/[0.025] p-5">
+            <div className="text-[11px] uppercase tracking-[0.24em] text-white/38">
+              Integrations
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-white/45">
+              Connect Phone/SMS and Calendar so agents can answer calls, text customers, and book
+              appointments. Each integration stays scoped and approval-gated.
+            </p>
+            <div className="mt-4 grid gap-2">
+              {(composioStatus?.auth_configs ?? []).map((config) => (
+                <div key={config.id} className="grid grid-cols-[82px_1fr] gap-3 text-xs">
+                  <span className="text-white/72">{config.label}</span>
+                  <span className="text-white/38">{config.status.replaceAll("_", " ")}</span>
+                </div>
+              ))}
+              {!composioStatus && (
+                <div className="text-xs text-white/38">Checking integrations.</div>
+              )}
+            </div>
+            <div className="mt-4 grid gap-2 text-xs text-white/45">
+              <div>
+                Phone/SMS:{" "}
+                <span className="text-white/68">
+                  {composioStatus?.phone_number ?? "Connect a business number"}
+                </span>
+              </div>
+              <a
+                href={composioStatus?.dashboard_url ?? "https://dashboard.composio.dev/"}
+                target="_blank"
+                rel="noreferrer"
+                className="text-white underline decoration-white/25 underline-offset-4"
+              >
+                Manage integrations
+              </a>
             </div>
           </div>
 

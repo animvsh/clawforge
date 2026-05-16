@@ -382,10 +382,14 @@ export async function chatWithOpenHands(
 ): Promise<OpenHandsChatResponse> {
   const openHands = openHandsConnection();
   const normalized = message.trim() || "Inspect the NemoClaw sandbox.";
+  const isReceptionistRequest =
+    /\b(phone|call|calls|receptionist|sms|text|calendar|schedule|appointment|booking)\b/i.test(
+      normalized,
+    );
   const registry = createProviderRegistry(env);
   const activeProvider = registry.getProvider(provider);
   const fallbackChain = registry.getConfig().fallback_chain.join(" -> ");
-  const reply = await registry
+  const providerReply = await registry
     .summarize(
       {
         prompt: `User is chatting with an OpenHands-powered NemoClaw sandbox control panel. Reply in two concise sentences. User request: ${normalized}`,
@@ -401,11 +405,15 @@ export async function chatWithOpenHands(
         ? "I can inspect the generated NemoClaw plan, run predeploy policy checks, and show the sandbox trace. Connect Brev/OpenHands to execute this in a remote workspace."
         : "OpenHands is ready to route this request into the configured remote NemoClaw workspace.",
     );
+  const reply = isReceptionistRequest
+    ? `${providerReply}\n\nTo finish this agent, connect Phone/SMS and Calendar access. I will keep booking, texting, and customer-record updates approval-gated before anything changes outside the sandbox.`
+    : providerReply;
   const events = [
     runtimeEvent("agent.thinking", `OpenHands received: ${normalized}`, "info", {
       openhands_mode: openHands.mode,
       conversation_id: openHands.conversationId,
       provider: activeProvider.mode,
+      model: activeProvider.model,
       fallback_chain: fallbackChain,
     }),
     runtimeEvent(

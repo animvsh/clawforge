@@ -3,6 +3,14 @@ import { useState } from "react";
 
 const deploymentSteps = ["Sandbox", "Model", "Policy", "Tools", "Memory", "Audit", "Run"];
 
+const workflowLabels: Record<BlueprintResponse["template_id"], string> = {
+  incident_response: "Incident response",
+  github_triage: "GitHub triage",
+  inbox_approval: "Inbox approval",
+  phone_receptionist: "Phone receptionist",
+  research_sandbox: "Research sandbox",
+};
+
 function StatusPill({ value }: { value: string }) {
   return (
     <span className="border border-white/12 px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-white/56">
@@ -51,17 +59,16 @@ export function BlueprintReview({
             {blueprint.agent_name}
           </h3>
           <p className="mt-4 max-w-sm text-sm leading-relaxed text-white/52">
-            A safety-checked incident response agent.
+            {blueprint.description}
           </p>
 
           <div className="mt-6 grid grid-cols-2 gap-px border border-white/12 bg-white/10 text-sm">
             {[
-              ["Workflow", "Incident response"],
+              ["Workflow", workflowLabels[blueprint.template_id]],
+              ["Goal", blueprint.custom_goal],
               ["Runtime", "Protected"],
               ["Model", blueprint.model],
               ["Policy", "Enforced"],
-              ["Memory", "Enabled"],
-              ["Audit", "Live"],
             ].map(([label, value]) => (
               <div key={label} className="bg-black p-3">
                 <div className="text-[10px] uppercase tracking-[0.18em] text-white/32">{label}</div>
@@ -79,7 +86,9 @@ export function BlueprintReview({
             >
               {deploying ? "Deploying" : deployed ? "Deploy Again" : "Deploy in NemoClaw"}
             </button>
-            {deployed && <span className="text-sm text-emerald-300">SentinelClaw is running.</span>}
+            {deployed && (
+              <span className="text-sm text-emerald-300">{blueprint.agent_name} is running.</span>
+            )}
           </div>
           {error && (
             <div className="mt-4 border border-red-400/30 p-3 text-sm text-red-100">{error}</div>
@@ -120,6 +129,25 @@ export function BlueprintReview({
       )}
 
       <div className="grid gap-5 xl:grid-cols-3">
+        {blueprint.integration_requirements.length > 0 && (
+          <div className="border border-white/12 bg-white/[0.025] p-5 xl:col-span-3">
+            <div className="text-[11px] uppercase tracking-[0.24em] text-white/38">
+              integrations needed
+            </div>
+            <div className="mt-5 grid gap-3 md:grid-cols-3">
+              {blueprint.integration_requirements.map((integration) => (
+                <div key={integration.id} className="border border-white/10 p-3">
+                  <div className="text-sm font-semibold text-white/82">{integration.label}</div>
+                  <div className="mt-1 text-xs leading-relaxed text-white/48">
+                    {integration.purpose}
+                  </div>
+                  <StatusPill value={integration.status} />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="border border-white/12 bg-white/[0.025] p-5">
           <div className="text-[11px] uppercase tracking-[0.24em] text-white/38">workflow</div>
           <div className="mt-5 grid gap-4">

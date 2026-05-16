@@ -180,6 +180,19 @@ function normalizeProvider(value: unknown): ProviderMode | null {
   return null; // Invalid provider - caller should return 400
 }
 
+function providerModelEnvOverride(
+  provider: ProviderMode,
+  value: unknown,
+): Record<string, string | undefined> {
+  if (typeof value !== "string") return {};
+  const model = value.trim();
+  if (!model || model === "auto") return {};
+  if (provider === "nemotron") return { NVIDIA_NEMOTRON_MODEL: model };
+  if (provider === "minimax") return { MINIMAX_MODEL: model };
+  if (provider === "pi") return { PI_CODING_MODEL: model };
+  return {};
+}
+
 function normalizePredeployScenario(
   value: unknown,
 ): "happy_path" | "raw_export" | "policy_tamper" | "timeout" {
@@ -212,6 +225,97 @@ provider_status: fallback
 provider_error: live provider unavailable; using deterministic fallback`;
 }
 
+function cleanProviderSummary(value: string): string {
+  const cleaned = value
+    .replace(/^\s*(?:here(?:'s| is)|sure|certainly)[\s\S]*?:\s*/i, "")
+    .replace(/["“”]/g, "")
+    .replace(/\s*\((?:safety controls|if you'd like|note:)[\s\S]*$/i, "")
+    .replace(/\n{2,}[\s\S]*$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned
+    .split(/(?<=[.!?])\s+(?=[A-Z])/)
+    .slice(0, 2)
+    .join(" ");
+}
+
+function cleanProviderSteps(steps: string[], fallbackSteps: string[]): string[] {
+  const cleaned = steps
+    .map((step) =>
+      step
+        .replace(/^\s*(?:[-*]|\d+[.)-])\s*/, "")
+        .replace(/^["'`]+|["'`,]+$/g, "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
+    .filter(
+      (step) =>
+        step.length >= 3 &&
+        step.length <= 80 &&
+        !/```|import\s|from\s+['"]|function\s|\b(?:const|let|var)\s|=>|=/.test(step) &&
+        !/\b(?:api[_ -]?key|auth[_ -]?key|account[_ -]?id|twilio|python)\b/i.test(step),
+    );
+
+  return cleaned.length >= 3 ? cleaned : fallbackSteps;
+}
+
+function composioStatus(workerEnv: Record<string, string | undefined> = {}) {
+  const env = runtimeEnv(workerEnv);
+  const configured = Boolean(env.COMPOSIO_API_KEY);
+  return {
+    configured,
+    mcp_url: env.COMPOSIO_MCP_URL || "https://connect.composio.dev/mcp",
+    dashboard_url:
+      env.COMPOSIO_DASHBOARD_URL ||
+      "https://dashboard.composio.dev/aalang_workspace/clawforge/getting-started",
+    phone_number: env.COMPOSIO_PHONE_NUMBER || null,
+    auth_configs: [
+      {
+        id: "phone_sms",
+        label: "Phone/SMS",
+        purpose: "Answer calls, send texts, and receive customer replies.",
+        status: configured ? "ready_to_connect" : "needs_api_key",
+      },
+      {
+        id: "calendar",
+        label: "Calendar",
+        purpose: "Read availability, book appointments, reschedule, and send confirmations.",
+        status: configured ? "ready_to_connect" : "needs_api_key",
+      },
+      {
+        id: "email",
+        label: "Email",
+        purpose: "Send confirmations, intake follow-ups, and call summaries after approval.",
+        status: configured ? "ready_to_connect" : "needs_api_key",
+      },
+      {
+        id: "crm",
+        label: "CRM",
+        purpose: "Create or update customer records after calls.",
+        status: configured ? "ready_to_connect" : "needs_api_key",
+      },
+      {
+        id: "github",
+        label: "GitHub",
+        purpose: "Issues, pull requests, repository context, and agent deployment tasks.",
+        status: configured ? "ready_to_connect" : "needs_api_key",
+      },
+      {
+        id: "linear",
+        label: "Linear",
+        purpose: "Tickets, engineering tasks, and audit-linked follow-up work.",
+        status: configured ? "ready_to_connect" : "needs_api_key",
+      },
+      {
+        id: "business_number",
+        label: "Business number",
+        purpose: "A phone number for approval prompts and incident notifications.",
+        status: env.COMPOSIO_PHONE_NUMBER ? "ready" : "needs_phone_number",
+      },
+    ],
+  };
+}
+
 async function createProviderBackedBlueprint(
   provider: ProviderMode,
   prompt: string,
@@ -231,21 +335,22 @@ async function createProviderBackedBlueprint(
     }
 
     const liveModel = liveProvider.model;
-    const [steps, summary, classification] = await Promise.all([
+    const [steps, rawSummary, classification] = await Promise.all([
       registry.plan({ prompt }, provider),
       registry.summarize({ prompt }, provider),
       registry.classify({ prompt }, provider),
     ]);
+    const summary = cleanProviderSummary(rawSummary);
+    const fallbackSteps = blueprint.workflow_steps.map((step) => step.title);
     const providerSteps =
       steps.length >= 4 && !steps.every((step) => /^initialize\.?$/i.test(step))
-        ? steps
-        : blueprint.workflow_steps.map((step) => step.title);
+        ? cleanProviderSteps(steps, fallbackSteps)
+        : fallbackSteps;
 
     return {
       ...blueprint,
       model: liveModel,
       description: summary || blueprint.description,
-      goal: summary || blueprint.goal,
       workflow_steps: providerSteps.slice(0, 6).map((step, index) => ({
         id: `step_provider_${index + 1}`,
         title: step,
@@ -363,6 +468,13 @@ export async function handleClawForgeApi(
   }
 
   if (
+    (apiPath === "/api/clawforge/composio/status" || apiPath === "/clawforge/composio/status") &&
+    request.method === "GET"
+  ) {
+    return successResponse({ composio: composioStatus(workerEnv) });
+  }
+
+  if (
     (apiPath === "/api/clawforge/brev/launch-plan" || apiPath === "/clawforge/brev/launch-plan") &&
     request.method === "POST"
   ) {
@@ -403,7 +515,9 @@ export async function handleClawForgeApi(
     (apiPath === "/api/clawforge/openhands/chat" || apiPath === "/clawforge/openhands/chat") &&
     request.method === "POST"
   ) {
-    const body = await readJsonBody<{ message?: unknown; provider?: unknown }>(request);
+    const body = await readJsonBody<{ message?: unknown; provider?: unknown; model?: unknown }>(
+      request,
+    );
     const message = typeof body.message === "string" ? body.message : "";
     const provider = normalizeProvider(body.provider);
     if (provider === null) {
@@ -415,7 +529,14 @@ export async function handleClawForgeApi(
       );
     }
     return successResponse({
-      chat: await chatWithOpenHands(message, runtimeEnv(workerEnv), provider),
+      chat: await chatWithOpenHands(
+        message,
+        {
+          ...runtimeEnv(workerEnv),
+          ...providerModelEnvOverride(provider, body.model),
+        },
+        provider,
+      ),
     });
   }
 

@@ -3,6 +3,7 @@ export type AgentTemplateId =
   | "incident_response"
   | "github_triage"
   | "inbox_approval"
+  | "phone_receptionist"
   | "research_sandbox";
 
 export type ToolPermission = "allowed" | "read_only" | "approval_required" | "blocked";
@@ -41,9 +42,17 @@ export type WorkflowStep = {
   tool_id?: string;
 };
 
+export type IntegrationRequirement = {
+  id: string;
+  label: string;
+  purpose: string;
+  status: "required" | "optional" | "connected";
+};
+
 export type BlueprintResponse = {
   blueprint_id: string;
   template_id: AgentTemplateId;
+  custom_goal: string;
   agent_name: string;
   description: string;
   goal: string;
@@ -54,6 +63,7 @@ export type BlueprintResponse = {
   sandbox: "nemoclaw";
   tools: ToolDefinition[];
   policies: PolicyDefinition[];
+  integration_requirements: IntegrationRequirement[];
   memory_schema: MemorySchemaItem[];
   workflow_steps: WorkflowStep[];
   config_preview: string;
