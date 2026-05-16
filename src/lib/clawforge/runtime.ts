@@ -10,7 +10,35 @@ import type {
   ToolDefinition,
 } from "./types";
 
-export type SessionState = "created" | "running" | "paused" | "waiting_for_approval" | "completed" | "stopped";
+export type SessionState =
+  | "created"
+  | "deployed"
+  | "running"
+  | "paused"
+  | "waiting_for_approval"
+  | "completed"
+  | "stopped";
+
+type ValidTransition = {
+  from: SessionState;
+  to: SessionState;
+};
+
+const VALID_TRANSITIONS: ValidTransition[] = [
+  { from: "created", to: "deployed" },
+  { from: "deployed", to: "running" },
+  { from: "running", to: "paused" },
+  { from: "paused", to: "running" },
+  { from: "running", to: "waiting_for_approval" },
+  { from: "waiting_for_approval", to: "running" },
+  { from: "waiting_for_approval", to: "stopped" },
+  { from: "running", to: "completed" },
+  { from: "deployed", to: "stopped" },
+];
+
+function isValidTransition(from: SessionState, to: SessionState): boolean {
+  return VALID_TRANSITIONS.some((t) => t.from === from && t.to === to);
+}
 
 export type SandboxAction = {
   action: string;
@@ -19,6 +47,7 @@ export type SandboxAction = {
 
 export type LifecycleEventType =
   | "session.created"
+  | "session.deployed"
   | "session.running"
   | "session.paused"
   | "session.waiting_for_approval"
@@ -156,15 +185,24 @@ export class NemoClawSandboxSession {
     status: SessionState;
     events: LifecycleEvent[];
   } {
+    if (!isValidTransition(this.state, "deployed")) {
+      throw new Error(`Invalid transition from ${this.state} to deployed`);
+    }
     this.blueprint = blueprint;
     this.tools = blueprint.tools;
     this.policies = blueprint.policies;
-    this.state = "running";
 
-    this.emit(createLifecycleEvent(this.sessionId, "session.created", `NemoClaw sandbox session created for agent ${blueprint.agent_name}.`, "success", {
+    this.emit(createLifecycleEvent(this.sessionId, "session.deployed", `Agent ${blueprint.agent_name} deployed into NemoClaw sandbox.`, "success", {
       blueprint_id: blueprint.blueprint_id,
       agent_name: blueprint.agent_name,
     }));
+
+    this.state = "deployed";
+
+    if (!isValidTransition(this.state, "running")) {
+      throw new Error(`Invalid transition from ${this.state} to running`);
+    }
+    this.state = "running";
 
     this.emit(createLifecycleEvent(this.sessionId, "session.running", "Sandbox session is now running.", "info"));
 
@@ -199,6 +237,9 @@ export class NemoClawSandboxSession {
     }
 
     if (policyCheck.approvalRequired) {
+      if (!isValidTransition(this.state, "waiting_for_approval")) {
+        throw new Error(`Invalid transition from ${this.state} to waiting_for_approval`);
+      }
       this.state = "waiting_for_approval";
       this.pendingAction = action;
 
@@ -233,7 +274,7 @@ export class NemoClawSandboxSession {
     status: SessionState;
     events: LifecycleEvent[];
   } {
-    if (this.state !== "running") {
+    if (!isValidTransition(this.state, "paused")) {
       this.emit(createLifecycleEvent(this.sessionId, "session.paused", `Cannot pause: session is ${this.state}.`, "warning"));
       return { status: this.state, events: this.getEvents() };
     }
@@ -304,7 +345,9 @@ export class NemoClawSandboxSession {
     status: SessionState;
     events: LifecycleEvent[];
   } {
-    this.state = "stopped";
+    if (!isValidTransition(this.state, "stopped") && this.state !== "stopped") {
+      throw new Error(`Invalid transition from ${this.state} to stopped`);
+    }
 
     this.emit(createLifecycleEvent(this.sessionId, "session.terminated", "Sandbox session terminated and cleaned up.", "warning"));
 
@@ -319,6 +362,9 @@ export class NemoClawSandboxSession {
     events: LifecycleEvent[];
     report: IncidentReport;
   } {
+    if (!isValidTransition(this.state, "completed") && this.state !== "completed") {
+      throw new Error(`Invalid transition from ${this.state} to completed`);
+    }
     this.state = "completed";
     this.report = report;
 
@@ -330,13 +376,30 @@ export class NemoClawSandboxSession {
 }
 
 // Legacy runtime support - maintains backwards compatibility
-let legacyState: RuntimeState = "created";
+type LegacyRuntimeState = "created" | "deployed" | "running" | "waiting_for_approval" | "completed" | "stopped";
+
+const LEGACY_VALID_TRANSITIONS: { from: LegacyRuntimeState; to: LegacyRuntimeState }[] = [
+  { from: "created", to: "deployed" },
+  { from: "deployed", to: "running" },
+  { from: "running", to: "waiting_for_approval" },
+  { from: "waiting_for_approval", to: "completed" },
+  { from: "waiting_for_approval", to: "stopped" },
+  { from: "running", to: "completed" },
+  { from: "deployed", to: "stopped" },
+];
+
+function isLegacyValidTransition(from: LegacyRuntimeState, to: LegacyRuntimeState): boolean {
+  return LEGACY_VALID_TRANSITIONS.some((t) => t.from === from && t.to === to);
+}
+
+let legacyState: LegacyRuntimeState = "created";
 let legacyEvents: RuntimeEvent[] = [];
-let legacyMemory: MemoryItem[] = [...demoMemory];
+let legacyMemory: MemoryItem[] = [];
 let legacyReport: IncidentReport | null = null;
 let legacyApprovalStatus: "pending" | "approved" | "denied" = "pending";
+let legacyPendingApprovalId: string | null = null;
 
-export type RuntimeState = "created" | "running" | "waiting_for_approval" | "completed" | "stopped";
+export type RuntimeState = "created" | "deployed" | "running" | "waiting_for_approval" | "completed" | "stopped";
 
 function legacyEvent(
   type: RuntimeEvent["type"],
@@ -362,7 +425,17 @@ function addLegacyEvent(nextEvent: RuntimeEvent): RuntimeEvent {
 
 function buildInitialEvents(): RuntimeEvent[] {
   legacyEvents = [];
-  addLegacyEvent(legacyEvent("agent.started", "Agent started inside NemoClaw sandbox.", "success"));
+
+  if (!isLegacyValidTransition(legacyState, "deployed")) {
+    throw new Error(`Invalid transition from ${legacyState} to deployed`);
+  }
+  legacyState = "deployed";
+  addLegacyEvent(legacyEvent("agent.started", "Agent deployed into NemoClaw sandbox.", "success"));
+
+  if (!isLegacyValidTransition(legacyState, "running")) {
+    throw new Error(`Invalid transition from ${legacyState} to running`);
+  }
+  legacyState = "running";
 
   const logDecision = routeToolCall("logs.read");
   addLegacyEvent(legacyEvent("policy.checked", logDecision.message, "info", { action: "logs.read" }));
@@ -401,6 +474,13 @@ function buildInitialEvents(): RuntimeEvent[] {
       action: "shell.execute",
     }),
   );
+
+  if (!isLegacyValidTransition(legacyState, "waiting_for_approval")) {
+    throw new Error(`Invalid transition from ${legacyState} to waiting_for_approval`);
+  }
+  legacyState = "waiting_for_approval";
+  legacyPendingApprovalId = demoApproval.id;
+
   addLegacyEvent(
     legacyEvent("approval.requested", shellDecision.message, "warning", {
       approval_id: demoApproval.id,
@@ -411,16 +491,18 @@ function buildInitialEvents(): RuntimeEvent[] {
   return legacyEvents;
 }
 
-export function startRuntime(): { agent_id: string; status: RuntimeState } {
-  legacyState = "waiting_for_approval";
-  legacyApprovalStatus = "pending";
+export function startRuntime(): { agent_id: string; status: RuntimeState; events: RuntimeEvent[] } {
   legacyMemory = [...demoMemory];
   legacyReport = null;
+  legacyApprovalStatus = "pending";
   buildInitialEvents();
-  return { agent_id: DEMO_AGENT_ID, status: legacyState };
+  return { agent_id: DEMO_AGENT_ID, status: legacyState, events: legacyEvents };
 }
 
 export function stopRuntime(): { agent_id: string; status: RuntimeState } {
+  if (!isLegacyValidTransition(legacyState, "stopped")) {
+    throw new Error(`Invalid transition from ${legacyState} to stopped`);
+  }
   legacyState = "stopped";
   addLegacyEvent(legacyEvent("agent.completed", "Agent runtime stopped by user.", "warning"));
   return { agent_id: DEMO_AGENT_ID, status: legacyState };
@@ -445,21 +527,27 @@ export function resolveApproval(decision: "approved" | "denied"): {
   events: RuntimeEvent[];
   report: IncidentReport;
 } {
+  if (legacyState !== "waiting_for_approval") {
+    throw new Error(`Cannot resolve approval in state: ${legacyState}`);
+  }
+
   legacyApprovalStatus = decision;
-  const createdAt = now();
+  const memoryContent =
+    decision === "approved"
+      ? "User approved shell execution for 185.92.XX.XX."
+      : "User denied shell execution for 185.92.XX.XX.";
+
   const memoryItem: MemoryItem = {
     id: `memory_approval_${Date.now()}`,
     agent_id: DEMO_AGENT_ID,
     type: "approval",
-    content:
-      decision === "approved"
-        ? "User approved shell execution for 185.92.XX.XX."
-        : "User denied shell execution for 185.92.XX.XX.",
-    created_at: createdAt,
+    content: memoryContent,
+    created_at: now(),
   };
 
   if (!legacyMemory.some((item) => item.content === memoryItem.content)) {
     legacyMemory.push(memoryItem);
+    addLegacyEvent(legacyEvent("memory.updated", memoryContent, "success"));
   }
 
   const resolvedEvents = [
@@ -468,9 +556,9 @@ export function resolveApproval(decision: "approved" | "denied"): {
         "approval.resolved",
         `User ${decision} shell execution for block_ip 185.92.XX.XX.`,
         decision === "approved" ? "success" : "warning",
+        { approval_id: legacyPendingApprovalId, decision },
       ),
     ),
-    addLegacyEvent(legacyEvent("memory.updated", memoryItem.content, "success")),
   ];
 
   legacyReport = {
@@ -483,10 +571,26 @@ export function resolveApproval(decision: "approved" | "denied"): {
     memory_updates: legacyMemory.map((item) => item.content),
   };
   resolvedEvents.push(addLegacyEvent(legacyEvent("report.created", "Incident report generated.", "success")));
-  resolvedEvents.push(
-    addLegacyEvent(legacyEvent("agent.completed", "Agent completed the workflow safely.", "success")),
-  );
-  legacyState = "completed";
+
+  if (decision === "denied") {
+    if (!isLegacyValidTransition(legacyState, "stopped")) {
+      throw new Error(`Invalid transition from ${legacyState} to stopped`);
+    }
+    legacyState = "stopped";
+    resolvedEvents.push(
+      addLegacyEvent(legacyEvent("agent.completed", "Agent workflow stopped due to denied approval.", "warning")),
+    );
+  } else {
+    if (!isLegacyValidTransition(legacyState, "completed")) {
+      throw new Error(`Invalid transition from ${legacyState} to completed`);
+    }
+    legacyState = "completed";
+    resolvedEvents.push(
+      addLegacyEvent(legacyEvent("agent.completed", "Agent completed the workflow safely.", "success")),
+    );
+  }
+
+  legacyPendingApprovalId = null;
 
   return {
     agent_id: DEMO_AGENT_ID,

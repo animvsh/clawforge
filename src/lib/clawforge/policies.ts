@@ -5,7 +5,6 @@ import type {
   ActionEnvelope,
   AgentCapabilityManifest,
   Capability,
-  PolicyDecision,
 } from "./types";
 
 export type PolicyDecision = {
@@ -13,6 +12,50 @@ export type PolicyDecision = {
   policy_id: string;
   reason: string;
 };
+
+// Policy event types for logging
+export type PolicyEventType = "policy.allow" | "policy.deny" | "policy.require_approval";
+
+export type PolicyEvent = {
+  type: PolicyEventType;
+  action: string;
+  policy_id: string;
+  reason: string;
+  timestamp: string;
+  agent_id?: string;
+};
+
+// Policy event log - accumulates events for audit trail
+const policyEventLog: PolicyEvent[] = [];
+
+function emitPolicyEvent(event: PolicyEvent): PolicyEvent {
+  policyEventLog.push(event);
+  return event;
+}
+
+export function createPolicyEvent(
+  action: string,
+  effect: PolicyEffect,
+  policyId: string,
+  reason: string,
+  agentId?: string,
+): PolicyEvent {
+  const eventType: PolicyEventType =
+    effect === "allow"
+      ? "policy.allow"
+      : effect === "deny"
+        ? "policy.deny"
+        : "policy.require_approval";
+
+  return emitPolicyEvent({
+    type: eventType,
+    action,
+    policy_id: policyId,
+    reason,
+    timestamp: new Date().toISOString(),
+    agent_id: agentId,
+  });
+}
 
 const defaultPolicies = createSentinelBlueprint("mock").policies;
 
@@ -34,6 +77,34 @@ export function checkPolicy(
     policy_id: policy.id,
     reason: policy.reason,
   };
+}
+
+/**
+ * Check policy and emit a policy event.
+ * Returns the decision and the emitted event.
+ */
+export function checkPolicyWithEvent(
+  action: string,
+  policies: PolicyDefinition[] = defaultPolicies,
+  agentId?: string,
+): { decision: PolicyDecision; event: PolicyEvent } {
+  const decision = checkPolicy(action, policies);
+  const event = createPolicyEvent(action, decision.effect, decision.policy_id, decision.reason, agentId);
+  return { decision, event };
+}
+
+/**
+ * Get all policy events from the log.
+ */
+export function getPolicyEventLog(): PolicyEvent[] {
+  return [...policyEventLog];
+}
+
+/**
+ * Clear the policy event log.
+ */
+export function clearPolicyEventLog(): void {
+  policyEventLog.length = 0;
 }
 
 // ANU-57: Policy broker evaluates ActionEnvelope against policy rules
