@@ -17,7 +17,7 @@ import {
   ReactFlowProvider,
   type NodeDragEndEvent,
   BackgroundVariant,
-  type SelectionMode,
+  SelectionMode,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type {
