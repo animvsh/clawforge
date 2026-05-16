@@ -8,6 +8,7 @@ import type {
   ProviderMode,
   RuntimeEvent,
 } from "./types";
+import { recommendModelForTemplate } from "./models";
 
 export const DEMO_AGENT_ID = "agent_sentinelclaw_demo";
 export const DEMO_BLUEPRINT_ID = "bp_sentinelclaw_demo";
@@ -800,12 +801,13 @@ const templateById: Record<AgentTemplateId, BlueprintTemplate> = {
   },
 };
 
-function modelForProvider(provider: ProviderMode): string {
+function modelForProvider(provider: ProviderMode, templateId?: AgentTemplateId): string {
+  if (provider === "auto") return recommendModelForTemplate(templateId).model;
   const selectedProvider = provider === "auto" ? "nemotron" : provider;
   if (selectedProvider === "minimax") return "minimax/token-plan";
   if (selectedProvider === "mock") return "mock/nemoclaw-blueprint";
   if (selectedProvider === "pi") return "pi-coding/default";
-  return "nvidia/nemotron";
+  return recommendModelForTemplate(templateId).model;
 }
 
 function configPreview(
@@ -946,7 +948,7 @@ export function createTemplateBlueprint(
   blueprintId = templateById[templateId].blueprint_id,
 ): BlueprintResponse {
   const template = templateById[templateId];
-  const model = modelForProvider(provider);
+  const model = modelForProvider(provider, templateId);
   const integrations = integrationRequirementsForGoal(customGoal);
 
   return {

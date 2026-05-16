@@ -295,7 +295,11 @@ async function createProviderBackedBlueprint(
   if (provider === "mock") return blueprint;
 
   try {
-    const registry = createProviderRegistry(runtimeEnv(workerEnv));
+    const modelProvider: ProviderMode = provider === "auto" ? "nemotron" : provider;
+    const registry = createProviderRegistry({
+      ...runtimeEnv(workerEnv),
+      ...providerModelEnvOverride(modelProvider, blueprint.model),
+    });
     const liveProvider = registry.getProvider(provider);
     if (liveProvider.mode === "mock") {
       return {
@@ -321,6 +325,7 @@ async function createProviderBackedBlueprint(
 
     return {
       ...blueprint,
+      provider: liveProvider.mode,
       model: liveModel,
       description: summary || blueprint.description,
       workflow_steps: providerSteps.slice(0, 6).map((step, index) => ({

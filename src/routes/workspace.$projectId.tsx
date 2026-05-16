@@ -4,7 +4,6 @@ import {
   Check,
   FileText,
   MemoryStick,
-  Play,
   Rocket,
   Shield,
   Sparkles,
@@ -15,11 +14,20 @@ import { ClawForgeLogo } from "@/components/clawforge/ClawForgeFrame";
 import { AuthPanel } from "@/components/clawforge/AuthPanel";
 import { useClawForgeAuth } from "@/lib/clawforge/auth";
 import { saveLaunchInstance } from "@/lib/clawforge/instances";
+import {
+  chatModelOptions,
+  matchModelCommand,
+  modelKey,
+  optionForModel,
+  parseModelKey,
+  recommendModelForTemplate,
+} from "@/lib/clawforge/models";
 import { type ClawForgeProject, getProject, updateProject } from "@/lib/clawforge/projects";
 import type {
   BlueprintResponse,
   IncidentReport,
   PolicyDefinition,
+  ProviderMode,
   RuntimeEvent,
   ToolDefinition,
 } from "@/lib/clawforge/types";
@@ -143,9 +151,35 @@ function WorkspacePage() {
   const [instanceChatId, setInstanceChatId] = useState<string | null>(null);
   const [panel, setPanel] = useState<"files" | "policies" | "memory">("files");
   const [error, setError] = useState<string | null>(null);
+  const [provider, setProvider] = useState<ProviderMode>("auto");
+  const [model, setModel] = useState("auto");
+  const [modelTouched, setModelTouched] = useState(false);
 
   const currentStatus = project?.status ?? "draft";
   const projectName = blueprint?.agent_name ?? project?.name ?? "NemoClaw Instance";
+  const selectedModel = optionForModel(provider, model);
+  const recommendedModel = recommendModelForTemplate(blueprint?.template_id);
+
+  function blueprintWithModel(nextBlueprint = blueprint): BlueprintResponse | null {
+    if (!nextBlueprint) return null;
+    const nextProvider = provider === "auto" ? recommendedModel.provider : provider;
+    const nextModel = model === "auto" ? recommendedModel.model : model;
+    return {
+      ...nextBlueprint,
+      provider: nextProvider,
+      model: nextModel,
+      fallback_provider: nextProvider === "nemotron" ? "minimax" : nextBlueprint.fallback_provider,
+      config_preview: nextBlueprint.config_preview.replace(/^model: .*$/m, `model: ${nextModel}`),
+    };
+  }
+
+  function selectModel(value: string, touched = true) {
+    const selected = parseModelKey(value);
+    if (!selected) return;
+    setProvider(selected.provider);
+    setModel(selected.model);
+    if (touched) setModelTouched(true);
+  }
 
   const buildLog = useMemo(() => {
     if (!blueprint) return buildSteps.slice(0, Math.min(activeIndex + 1, buildSteps.length));
@@ -170,7 +204,7 @@ function WorkspacePage() {
           ["user", nextProject.prompt],
           [
             "assistant",
-            "I’ll create a secure NemoClaw agent. I’m generating the workflow graph, tool permissions, policies, memory rules, and deployment config.",
+            "I’ll build the agent, choose the tools it needs, add safety checks, and show the plan on the canvas.",
           ],
         ]);
       }
@@ -183,6 +217,11 @@ function WorkspacePage() {
         const data = await response.json();
         if (!response.ok || !data.ok) throw new Error(data.error?.message || "Blueprint failed.");
         setBlueprint(data.blueprint);
+        const recommended = recommendModelForTemplate(data.blueprint.template_id);
+        if (!modelTouched) {
+          setProvider(recommended.provider);
+          setModel(recommended.model);
+        }
         setProject(
           updateProject(nextProject.id, {
             name: data.blueprint.agent_name,
@@ -196,7 +235,7 @@ function WorkspacePage() {
         return null;
       }
     },
-    [],
+    [modelTouched],
   );
 
   useEffect(() => {
@@ -284,6 +323,7 @@ function WorkspacePage() {
   }
 
   async function deploy(nextBlueprint = blueprint) {
+    nextBlueprint = blueprintWithModel(nextBlueprint);
     if (!nextBlueprint) return;
     setError(null);
     setActiveIndex(0);
@@ -338,6 +378,7 @@ function WorkspacePage() {
   }
 
   async function prepareBrevLaunch(nextBlueprint = blueprint) {
+    nextBlueprint = blueprintWithModel(nextBlueprint);
     if (!nextBlueprint) return null;
     const instanceName = `clawforge-${nextBlueprint.agent_name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
     const response = await fetch("/api/clawforge/brev/launch-plan", {
@@ -366,6 +407,7 @@ function WorkspacePage() {
   }
 
   async function deployToBrev(nextBlueprint = blueprint) {
+    nextBlueprint = blueprintWithModel(nextBlueprint);
     if (!nextBlueprint) return;
     setCloudDeploying(true);
     setError(null);
@@ -445,6 +487,7 @@ function WorkspacePage() {
     if (!clean) return;
     setMessage("");
     const lower = clean.toLowerCase();
+    const requestedModel = matchModelCommand(clean);
     setChat((current) => [...current, ["user", clean]]);
     setChatLoading(true);
 
@@ -463,33 +506,28 @@ function WorkspacePage() {
       | "augment"
       | "brev_plan"
       | "brev_deploy"
+      | "model"
       | null = null;
 
-    if (
+    if (requestedModel) {
+      action = "model";
+      selectModel(modelKey(requestedModel));
+      actionReply = `Switched this agent to ${requestedModel.label}. ${requestedModel.note}`;
+    } else if (
       lower.includes("deploy") ||
       lower.includes("run test") ||
       lower === "run it" ||
       lower === "run"
     ) {
-      if (
-        lower.includes("brev") ||
-        lower.includes("cloud") ||
-        lower.includes("one click") ||
-        lower.includes("one-click")
-      ) {
-        action = "brev_deploy";
-        actionReply = "Creating the custom NemoClaw cloud instance on Brev.";
-      } else {
-        action = "deploy";
-        actionReply = "Starting the local NemoClaw deployment now.";
-      }
+      action = "brev_deploy";
+      actionReply = "Deploying the custom NemoClaw instance.";
     } else if (
       lower.includes("brev") ||
       lower.includes("cloud launch") ||
       lower.includes("launch plan")
     ) {
       action = "brev_plan";
-      actionReply = "Preparing a Brev launch plan for this custom NemoClaw instance.";
+      actionReply = "Preparing the cloud workspace for this custom NemoClaw instance.";
     } else if (lower.includes("polic")) {
       action = "show_policies";
       setPanel("policies");
@@ -553,8 +591,8 @@ function WorkspacePage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           message: clean,
-          provider: blueprint?.provider ?? "auto",
-          model: blueprint?.model ?? "auto",
+          provider: requestedModel?.provider ?? provider,
+          model: requestedModel?.model ?? model,
         }),
       });
       const data = await response.json();
@@ -588,21 +626,21 @@ function WorkspacePage() {
       if (!activeBlueprint && project) {
         activeBlueprint = await loadBlueprint(project, { preserveChat: true });
       }
-      void deploy(activeBlueprint);
+      void deploy(blueprintWithModel(activeBlueprint));
     } else if (action === "brev_plan") {
       let activeBlueprint = blueprint;
       if (!activeBlueprint && project) {
         activeBlueprint = await loadBlueprint(project, { preserveChat: true });
       }
       if (activeBlueprint) {
-        void prepareBrevLaunch(activeBlueprint)
+        void prepareBrevLaunch(blueprintWithModel(activeBlueprint))
           .then((launch) => {
             if (!launch) return;
             setChat((current) => [
               ...current,
               [
                 "assistant",
-                `Brev launch plan is ready for ${launch.instanceName}. Required secrets and integrations are attached to the NemoClaw startup manifest.`,
+                `The cloud workspace plan is ready for ${launch.instanceName}. Required connections and memory settings are attached.`,
               ],
             ]);
           })
@@ -618,7 +656,7 @@ function WorkspacePage() {
       if (!activeBlueprint && project) {
         activeBlueprint = await loadBlueprint(project, { preserveChat: true });
       }
-      void deployToBrev(activeBlueprint);
+      void deployToBrev(blueprintWithModel(activeBlueprint));
     } else if (action === "deny") {
       void decide("denied");
     } else if (action === "approve") {
@@ -709,25 +747,12 @@ function WorkspacePage() {
             </Link>
             <button
               type="button"
-              onClick={() => void deploy()}
-              disabled={
-                !blueprint ||
-                currentStatus === "running" ||
-                currentStatus === "waiting_for_approval"
-              }
-              className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-black transition hover:bg-white/88 disabled:cursor-not-allowed disabled:opacity-45"
-            >
-              <Play className="h-4 w-4" aria-hidden="true" />
-              {agentId ? "Run agent" : "Deploy"}
-            </button>
-            <button
-              type="button"
               onClick={() => void deployToBrev()}
               disabled={!blueprint || cloudDeploying}
-              className="hidden items-center gap-2 rounded-full border border-white/12 px-4 py-2 text-sm font-semibold text-white/70 transition hover:border-white/28 hover:text-white disabled:cursor-not-allowed disabled:opacity-45 md:inline-flex"
+              className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-black transition hover:bg-white/88 disabled:cursor-not-allowed disabled:opacity-45"
             >
               <Rocket className="h-4 w-4" aria-hidden="true" />
-              {cloudDeploying ? "Launching" : "Brev"}
+              {cloudDeploying ? "Launching" : "Deploy"}
             </button>
             <AuthPanel />
           </div>
@@ -735,14 +760,17 @@ function WorkspacePage() {
       </header>
 
       <div className="grid min-h-[calc(100vh-73px)] lg:grid-cols-[34%_66%]">
-        <aside className="flex min-h-[560px] flex-col border-b border-white/10 bg-[#050505] lg:border-b-0 lg:border-r">
+        <aside className="flex min-h-[560px] flex-col border-b border-white/10 bg-[#050505] lg:sticky lg:top-[73px] lg:h-[calc(100vh-73px)] lg:border-b-0 lg:border-r">
           <div className="border-b border-white/10 p-5">
             <div className="text-[11px] uppercase tracking-[0.28em] text-white/35">chat</div>
             <h1 className="mt-4 max-w-[12ch] text-4xl font-semibold leading-[0.98] tracking-tight md:text-5xl">
               Build the instance.
             </h1>
+            <p className="mt-4 max-w-sm text-sm leading-relaxed text-white/48">
+              Tell ClawForge what the agent should do. The canvas updates as it builds.
+            </p>
           </div>
-          <div className="flex-1 space-y-4 overflow-y-auto p-5">
+          <div className="flex-1 space-y-4 overflow-y-auto p-5 pb-6">
             {chat.map(([role, body], index) => (
               <div
                 key={`${role}-${index}`}
@@ -771,20 +799,41 @@ function WorkspacePage() {
               </div>
             </div>
           </div>
-          <div className="border-t border-white/10 p-4">
+          <div className="sticky bottom-0 border-t border-white/10 bg-[#050505]/96 p-4 backdrop-blur-xl">
             <div className="mb-3 flex flex-wrap gap-2">
-              {["Show policies", "One-click Brev deploy", "Run test logs", "Deny it"].map(
-                (chip) => (
-                  <button
-                    key={chip}
-                    type="button"
-                    onClick={() => void sendChat(chip)}
-                    className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/42 transition hover:text-white"
-                  >
-                    {chip}
-                  </button>
-                ),
-              )}
+              {["Show safety", "Deploy", "Run test", "Use Nemotron Super"].map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  onClick={() => void sendChat(chip)}
+                  className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/42 transition hover:text-white"
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
+            <div className="mb-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+              <label
+                htmlFor="workspace-model"
+                className="text-[10px] uppercase tracking-[0.22em] text-white/35"
+              >
+                Brain
+              </label>
+              <select
+                id="workspace-model"
+                value={modelKey(selectedModel)}
+                onChange={(event) => selectModel(event.target.value)}
+                className="mt-2 w-full bg-transparent text-sm text-white outline-none"
+              >
+                {chatModelOptions.map((option) => (
+                  <option key={modelKey(option)} value={modelKey(option)} className="bg-black">
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2 text-xs leading-relaxed text-white/38">
+                {modelTouched ? selectedModel.note : `Recommended: ${recommendedModel.label}.`}
+              </p>
             </div>
             <form
               onSubmit={(event) => {
@@ -820,11 +869,8 @@ function WorkspacePage() {
           <div className="grid gap-px border-b border-white/10 bg-white/10 md:grid-cols-4">
             {[
               ["Status", currentStatus.replaceAll("_", " ")],
-              ["Model", blueprint?.model ?? "Auto"],
-              [
-                "Cloud",
-                brevLaunch?.mode ? `Brev ${brevLaunch.mode.replace("_", " ")}` : "Brev ready",
-              ],
+              ["Model", selectedModel.shortLabel],
+              ["Cloud", brevLaunch?.mode ? brevLaunch.mode.replace("_", " ") : "ready"],
               ["Memory", "Shared"],
             ].map(([label, value]) => (
               <div key={label} className="bg-black p-4">
@@ -933,8 +979,8 @@ function WorkspacePage() {
                         Deployment
                       </div>
                       <p className="text-sm leading-relaxed text-white/58">
-                        Deploy the blueprint to run the instance, stream logs, and trigger the
-                        approval gate.
+                        Press Deploy to create the agent workspace, attach memory, and open the live
+                        chat.
                       </p>
                     </>
                   )}
@@ -1008,7 +1054,7 @@ function WorkspacePage() {
               <div className="mt-4 border border-white/12 bg-white/[0.025] p-4">
                 <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-white/35">
                   <Rocket className="h-4 w-4" aria-hidden="true" />
-                  brev cloud
+                  cloud workspace
                 </div>
                 <div className="mt-4 space-y-3 text-sm leading-relaxed text-white/55">
                   <p>
@@ -1016,7 +1062,7 @@ function WorkspacePage() {
                   </p>
                   <p>
                     {brevLaunch?.status?.message ??
-                      "One-click deploy attaches blueprint, integrations, OpenHands, and startup config."}
+                      "Deploy creates the agent workspace, tools, memory, and safety checks."}
                   </p>
                   {brevLaunch?.command && (
                     <code className="block overflow-hidden text-ellipsis whitespace-nowrap border-t border-white/8 pt-3 text-xs text-white/38">

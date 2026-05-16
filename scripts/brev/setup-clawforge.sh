@@ -88,6 +88,8 @@ const fs = require("node:fs");
 const manifest = JSON.parse(fs.readFileSync(".runtime/integrations/active.json", "utf8"));
 console.log(`  agent: ${manifest.agent?.name || "ClawForge Agent"}`);
 console.log(`  blueprint: ${manifest.agent?.blueprint_id || "none"}`);
+console.log(`  model: ${manifest.agent?.model || process.env.CLAWFORGE_MODEL || "auto"}`);
+console.log(`  memory: ${manifest.memory?.engine || "mem0"} on ${manifest.memory?.hosted_on || "brev"}`);
 console.log(`  inbox: ${manifest.inbox?.email || "not created"}`);
 for (const integration of manifest.integrations || []) {
   if (integration.required || integration.connected_account_id || integration.auth_config_id) {
@@ -98,6 +100,19 @@ NODE
 else
   log "No custom integration manifest supplied."
 fi
+
+log "Configuring workspace memory"
+cat > .runtime/memory/mem0-runtime.json <<EOF
+{
+  "engine": "mem0",
+  "hosted_on": "brev",
+  "scope": "workspace",
+  "reasoning_model": "${CLAWFORGE_MODEL:-nvidia/llama-3.1-nemotron-nano-8b-v1}",
+  "embedding_model": "nvidia/nv-embedqa-e5-v5",
+  "storage_path": ".runtime/memory"
+}
+EOF
+chmod 600 .runtime/memory/mem0-runtime.json
 
 log "Checking required Brev secret names. Values are intentionally hidden."
 required_secret_names=(
@@ -111,6 +126,8 @@ required_secret_names=(
 optional_secret_names=(
   SUPABASE_SERVICE_ROLE_KEY
   COMPOSIO_API_KEY
+  MEM0_API_URL
+  MEM0_API_KEY
   NEMOCLAW_INSTALL_URL
   AGENTMAIL_API_KEY
   VAPI_API_KEY

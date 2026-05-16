@@ -5,6 +5,12 @@ import { AuthPanel } from "@/components/clawforge/AuthPanel";
 import { ClawForgeLogo } from "@/components/clawforge/ClawForgeFrame";
 import { useClawForgeAuth } from "@/lib/clawforge/auth";
 import { getInstance, type ClawForgeInstance } from "@/lib/clawforge/instances";
+import {
+  chatModelOptions,
+  modelKey,
+  parseModelKey,
+  recommendModelForTemplate,
+} from "@/lib/clawforge/models";
 import type { ProviderMode, RuntimeEvent } from "@/lib/clawforge/types";
 
 export const Route = createFileRoute("/instance/$instanceId")({
@@ -19,27 +25,6 @@ export const Route = createFileRoute("/instance/$instanceId")({
   }),
   component: InstanceChatPage,
 });
-
-const modelOptions: Array<{
-  provider: ProviderMode;
-  model: string;
-  label: string;
-}> = [
-  { provider: "auto", model: "auto", label: "Auto" },
-  {
-    provider: "nemotron",
-    model: "nvidia/llama-3.1-nemotron-ultra-253b-v1",
-    label: "Nemotron Ultra",
-  },
-  {
-    provider: "nemotron",
-    model: "nvidia/llama-3.3-nemotron-super-49b-v1",
-    label: "Nemotron Super",
-  },
-  { provider: "nemotron", model: "nvidia/llama-3.1-nemotron-70b-instruct", label: "Nemotron 70B" },
-  { provider: "minimax", model: "minimax-text-01", label: "MiniMax Text" },
-  { provider: "pi", model: "pi-coding-agent", label: "Pi Coding SDK" },
-];
 
 function timeLabel(value: string) {
   if (!value) return "now";
@@ -79,8 +64,9 @@ function InstanceChatPage() {
     const stored = getInstance(instanceId);
     setInstance(stored);
     if (stored) {
-      setProvider(stored.blueprint?.provider ?? "auto");
-      setModel(stored.blueprint?.model ?? "auto");
+      const recommended = recommendModelForTemplate(stored.blueprint?.template_id);
+      setProvider(stored.blueprint?.provider ?? recommended.provider);
+      setModel(stored.blueprint?.model ?? recommended.model);
       setEvents([
         {
           id: `instance_loaded_${stored.id}`,
@@ -183,7 +169,7 @@ function InstanceChatPage() {
   }
 
   function selectModel(value: string) {
-    const selected = modelOptions.find((option) => `${option.provider}:${option.model}` === value);
+    const selected = parseModelKey(value);
     if (!selected) return;
     setProvider(selected.provider);
     setModel(selected.model);
@@ -325,15 +311,12 @@ function InstanceChatPage() {
                 <label className="flex items-center gap-2 text-sm text-white/48">
                   Model
                   <select
-                    value={`${provider}:${model}`}
+                    value={modelKey({ provider, model })}
                     onChange={(event) => selectModel(event.target.value)}
                     className="rounded-full border border-white/12 bg-black px-3 py-2 text-sm text-white outline-none"
                   >
-                    {modelOptions.map((option) => (
-                      <option
-                        key={`${option.provider}:${option.model}`}
-                        value={`${option.provider}:${option.model}`}
-                      >
+                    {chatModelOptions.map((option) => (
+                      <option key={modelKey(option)} value={modelKey(option)}>
                         {option.label}
                       </option>
                     ))}

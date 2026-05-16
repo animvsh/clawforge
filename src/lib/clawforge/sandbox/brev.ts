@@ -61,6 +61,16 @@ export type NemoClawIntegrationManifest = {
     blueprint_id: string | null;
     template_id: string | null;
     goal: string | null;
+    model: string | null;
+    provider: ProviderMode | null;
+  };
+  memory: {
+    engine: "mem0";
+    hosted_on: "brev";
+    embedding_model: string;
+    reasoning_model: string | null;
+    scope: "workspace";
+    status: "configured";
   };
   integrations: Array<{
     id: string;
@@ -203,6 +213,16 @@ async function buildIntegrationManifest(
       blueprint_id: options.blueprint?.blueprint_id ?? null,
       template_id: options.blueprint?.template_id ?? null,
       goal: options.blueprint?.goal ?? null,
+      model: options.blueprint?.model ?? null,
+      provider: options.blueprint?.provider ?? null,
+    },
+    memory: {
+      engine: "mem0",
+      hosted_on: "brev",
+      embedding_model: "nvidia/nv-embedqa-e5-v5",
+      reasoning_model: options.blueprint?.model ?? null,
+      scope: "workspace",
+      status: "configured",
     },
     integrations,
     inbox: {
@@ -236,6 +256,10 @@ export CLAWFORGE_INTEGRATION_MANIFEST_B64=${shellQuote(manifestB64)}
 export CLAWFORGE_REQUIRED_SECRET_NAMES=${shellQuote(secretNames)}
 export CLAWFORGE_AGENT_NAME=${shellQuote(manifest.agent.name)}
 export CLAWFORGE_BLUEPRINT_ID=${shellQuote(manifest.agent.blueprint_id ?? "")}
+export CLAWFORGE_MODEL=${shellQuote(manifest.agent.model ?? "")}
+export CLAWFORGE_PROVIDER=${shellQuote(manifest.agent.provider ?? "")}
+export CLAWFORGE_MEMORY_ENGINE="mem0"
+export CLAWFORGE_MEMORY_HOST="brev"
 if ! command -v git >/dev/null 2>&1; then
   sudo apt-get update
   sudo apt-get install -y git
