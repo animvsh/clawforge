@@ -81,6 +81,14 @@ export class ProviderRegistry {
     return true;
   }
 
+  private fallbackModes(mode: ProviderMode): ProviderMode[] {
+    const chain = this.getConfig().fallback_chain;
+    if (mode === "auto") return chain;
+
+    const preferred = this.resolveMode(mode);
+    return [preferred, ...chain.filter((fallbackMode) => fallbackMode !== preferred)];
+  }
+
   getProvider(mode: ProviderMode = "auto"): ReasoningProvider {
     const resolvedMode = this.resolveMode(mode);
     const provider = this.providers.get(resolvedMode);
@@ -132,36 +140,45 @@ export class ProviderRegistry {
   }
 
   async plan(input: ReasoningInput, mode: ProviderMode = "auto"): Promise<string[]> {
-    const requestedMode = mode;
-    const provider = this.getProvider(mode);
-    try {
-      return await provider.plan(input);
-    } catch (error) {
-      throw new Error(sanitizeError(requestedMode, error));
+    const errors: string[] = [];
+    for (const fallbackMode of this.fallbackModes(mode)) {
+      const provider = this.getProvider(fallbackMode);
+      try {
+        return await provider.plan(input);
+      } catch (error) {
+        errors.push(sanitizeError(provider.mode, error));
+      }
     }
+    throw new Error(errors.join("; ") || sanitizeError(mode, new Error("No provider available")));
   }
 
   async classify(
     input: ReasoningInput,
     mode: ProviderMode = "auto",
   ): Promise<{ label: string; severity: "low" | "medium" | "high" }> {
-    const requestedMode = mode;
-    const provider = this.getProvider(mode);
-    try {
-      return await provider.classify(input);
-    } catch (error) {
-      throw new Error(sanitizeError(requestedMode, error));
+    const errors: string[] = [];
+    for (const fallbackMode of this.fallbackModes(mode)) {
+      const provider = this.getProvider(fallbackMode);
+      try {
+        return await provider.classify(input);
+      } catch (error) {
+        errors.push(sanitizeError(provider.mode, error));
+      }
     }
+    throw new Error(errors.join("; ") || sanitizeError(mode, new Error("No provider available")));
   }
 
   async summarize(input: ReasoningInput, mode: ProviderMode = "auto"): Promise<string> {
-    const requestedMode = mode;
-    const provider = this.getProvider(mode);
-    try {
-      return await provider.summarize(input);
-    } catch (error) {
-      throw new Error(sanitizeError(requestedMode, error));
+    const errors: string[] = [];
+    for (const fallbackMode of this.fallbackModes(mode)) {
+      const provider = this.getProvider(fallbackMode);
+      try {
+        return await provider.summarize(input);
+      } catch (error) {
+        errors.push(sanitizeError(provider.mode, error));
+      }
     }
+    throw new Error(errors.join("; ") || sanitizeError(mode, new Error("No provider available")));
   }
 }
 

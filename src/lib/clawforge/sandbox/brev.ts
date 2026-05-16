@@ -1,5 +1,6 @@
 import { DEMO_AGENT_ID } from "../fixtures";
-import type { RuntimeEvent } from "../types";
+import { createProviderRegistry } from "../providers";
+import type { ProviderMode, RuntimeEvent } from "../types";
 
 export type BrevInstanceStatus = "not_installed" | "not_authenticated" | "ready" | "error";
 
@@ -338,13 +339,38 @@ export async function createBrevInstance(
   };
 }
 
-export function chatWithOpenHands(message: string): OpenHandsChatResponse {
+export async function chatWithOpenHands(
+  message: string,
+  env: Record<string, string | undefined> = {},
+  provider: ProviderMode = "auto",
+): Promise<OpenHandsChatResponse> {
   const openHands = openHandsConnection();
   const normalized = message.trim() || "Inspect the NemoClaw sandbox.";
+  const registry = createProviderRegistry(env);
+  const activeProvider = registry.getProvider(provider);
+  const fallbackChain = registry.getConfig().fallback_chain.join(" -> ");
+  const reply = await registry
+    .summarize(
+      {
+        prompt: `User is chatting with an OpenHands-powered NemoClaw sandbox control panel. Reply in two concise sentences. User request: ${normalized}`,
+        context: {
+          openhands_mode: openHands.mode,
+          fallback_chain: fallbackChain,
+        },
+      },
+      provider,
+    )
+    .catch(() =>
+      openHands.mode === "simulated"
+        ? "I can inspect the generated NemoClaw plan, run predeploy policy checks, and show the sandbox trace. Connect Brev/OpenHands to execute this in a remote workspace."
+        : "OpenHands is ready to route this request into the configured remote NemoClaw workspace.",
+    );
   const events = [
     runtimeEvent("agent.thinking", `OpenHands received: ${normalized}`, "info", {
       openhands_mode: openHands.mode,
       conversation_id: openHands.conversationId,
+      provider: activeProvider.mode,
+      fallback_chain: fallbackChain,
     }),
     runtimeEvent(
       "tool.called",
@@ -371,10 +397,7 @@ export function chatWithOpenHands(message: string): OpenHandsChatResponse {
 
   return {
     ok: true,
-    reply:
-      openHands.mode === "simulated"
-        ? "I can inspect the generated NemoClaw plan, run predeploy policy checks, and show the sandbox trace. Connect Brev/OpenHands to execute this in a remote workspace."
-        : "OpenHands is ready to route this request into the configured remote NemoClaw workspace.",
+    reply,
     events,
     openHands,
   };

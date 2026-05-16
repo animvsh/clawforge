@@ -3,6 +3,7 @@ import type { ReasoningInput, ReasoningProvider } from ".";
 
 const DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
 const DEFAULT_NEMOTRON_MODEL = "nvidia/llama-3.1-nemotron-nano-8b-v1";
+const PROVIDER_TIMEOUT_MS = 18_000;
 
 function sanitizeError(message: string): string {
   return message
@@ -166,8 +167,11 @@ async function nvidiaChatCompletion(
   systemPrompt: string,
   userPrompt: string,
 ): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
   const response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
+    signal: controller.signal,
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
@@ -181,7 +185,7 @@ async function nvidiaChatCompletion(
       temperature: 0.2,
       max_tokens: 700,
     }),
-  });
+  }).finally(() => clearTimeout(timeout));
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "Unknown NVIDIA error");

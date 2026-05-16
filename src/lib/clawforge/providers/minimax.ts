@@ -2,6 +2,7 @@ import { createMockProvider } from "./mock";
 import type { ReasoningInput, ReasoningProvider } from "./index";
 
 const MINIMAX_API_BASE = "https://api.minimax.chat/v1";
+const PROVIDER_TIMEOUT_MS = 18_000;
 
 function sanitizeError(message: string, context?: Record<string, unknown>): string {
   // Strip any key values, tokens, or sensitive patterns from error messages
@@ -20,8 +21,11 @@ async function miniMaxChatCompletion(
   systemPrompt: string,
   userPrompt: string,
 ): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
   const response = await fetch(`${MINIMAX_API_BASE}/chat/completions`, {
     method: "POST",
+    signal: controller.signal,
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
@@ -35,7 +39,7 @@ async function miniMaxChatCompletion(
       temperature: 0.3,
       max_tokens: 1024,
     }),
-  });
+  }).finally(() => clearTimeout(timeout));
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "Unknown error");

@@ -167,6 +167,7 @@ async function readJsonBody<T extends Record<string, unknown>>(request: Request)
 }
 
 function normalizeProvider(value: unknown): ProviderMode | null {
+  if (value === undefined || value === null || value === "") return "auto";
   if (
     value === "nemotron" ||
     value === "minimax" ||
@@ -402,9 +403,20 @@ export async function handleClawForgeApi(
     (apiPath === "/api/clawforge/openhands/chat" || apiPath === "/clawforge/openhands/chat") &&
     request.method === "POST"
   ) {
-    const body = await readJsonBody<{ message?: unknown }>(request);
+    const body = await readJsonBody<{ message?: unknown; provider?: unknown }>(request);
     const message = typeof body.message === "string" ? body.message : "";
-    return successResponse({ chat: chatWithOpenHands(message) });
+    const provider = normalizeProvider(body.provider);
+    if (provider === null) {
+      return errorResponse(
+        "Invalid provider value. Must be one of: auto, nemotron, minimax, pi, mock.",
+        400,
+        "INVALID_REQUEST",
+        "provider",
+      );
+    }
+    return successResponse({
+      chat: await chatWithOpenHands(message, runtimeEnv(workerEnv), provider),
+    });
   }
 
   const predeployEventsMatch = path.match(/^\/api\/clawforge\/predeploy-runs\/([^/]+)\/events$/);

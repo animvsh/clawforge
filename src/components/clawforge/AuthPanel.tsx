@@ -1,6 +1,6 @@
 import { isSupabaseConfigured, supabase, type SupabaseSession } from "@/lib/supabase/client";
 import { X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export function AuthPanel() {
   const [session, setSession] = useState<SupabaseSession | null>(null);
@@ -12,12 +12,24 @@ export function AuthPanel() {
   const [messageTone, setMessageTone] = useState<"info" | "error">("info");
   const [loading, setLoading] = useState(false);
 
+  const ensureProfile = useCallback(async (nextSession: SupabaseSession | null) => {
+    if (!supabase || !nextSession?.user?.id || !nextSession.user.email) return;
+    await supabase.from("profiles").upsert({
+      id: nextSession.user.id,
+      email: nextSession.user.email,
+      updated_at: new Date().toISOString(),
+    });
+  }, []);
+
   useEffect(() => {
     if (!supabase) return;
 
     supabase.auth
       .getSession()
-      .then(({ data }) => setSession(data.session))
+      .then(async ({ data }) => {
+        setSession(data.session);
+        await ensureProfile(data.session);
+      })
       .catch(() => {
         setMessageTone("error");
         setMessage("Could not load your session. You can still build in guest mode.");
@@ -26,11 +38,12 @@ export function AuthPanel() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
+      void ensureProfile(nextSession);
       setMessage("");
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [ensureProfile]);
 
   useEffect(() => {
     if (!open) return;
@@ -74,6 +87,7 @@ export function AuthPanel() {
           ? "Account created."
           : "Check your email to confirm your account.",
     );
+    await ensureProfile(data.session);
     setPassword("");
   }
 
