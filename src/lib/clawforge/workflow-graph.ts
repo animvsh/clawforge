@@ -109,13 +109,15 @@ function nodeStatusForTool(tool?: ToolDefinition): WorkflowNodeStatus {
 }
 
 function compactRows(graph: WorkflowGraph): WorkflowGraph {
-  const perRow = graph.nodes.length > 7 ? 3 : 4;
+  // Keep the workflow in execution order. The canvas supports pan/zoom, and a
+  // single lane avoids the crossed/looped edges that happen when sequential
+  // steps are wrapped into rows.
   return {
     ...graph,
     nodes: graph.nodes.map((item, index) => ({
       ...item,
-      x: index % perRow,
-      y: Math.floor(index / perRow),
+      x: index,
+      y: 0,
     })),
   };
 }

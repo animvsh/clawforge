@@ -506,10 +506,21 @@ function runtimeWorkflowTarget(nodes: WorkflowNode[], event: RuntimeEvent, fallb
     return { index: lastIndex, status: "done" as const, activity: "Final output ready" };
   }
   if (event.type === "agent.error") {
+    const isDeployLikeError =
+      /deploy|brev|cloud|instance|launch|runtime|sandbox/.test(text) ||
+      event.metadata?.["phase"] === "deploy";
+    const targetIndex = isDeployLikeError
+      ? findWorkflowNodeIndex(
+          nodes,
+          (node) =>
+            node.kind === "output" || /deploy|runtime|launch|instance/i.test(node.title),
+          lastIndex,
+        )
+      : findWorkflowNodeIndex(nodes, (node) => node.kind === "policy", lastIndex);
     return {
-      index: Math.min(Math.max(fallbackIndex, 0), lastIndex),
+      index: targetIndex,
       status: "blocked" as const,
-      activity: "Runtime needs attention",
+      activity: isDeployLikeError ? "Cloud deploy needs attention" : "Runtime needs attention",
     };
   }
   return {

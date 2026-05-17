@@ -6,10 +6,8 @@ import {
   MiniMap,
   useNodesState,
   useEdgesState,
-  addEdge,
   type Node,
   type Edge,
-  type Connection,
   type NodeTypes,
   type NodeProps,
   Handle,
@@ -33,6 +31,8 @@ import type {
 
 const COL_SPACING = 200;
 const ROW_SPACING = 120;
+const TARGET_HANDLE_ID = "target-left";
+const SOURCE_HANDLE_ID = "source-right";
 
 const KIND_COLORS: Record<WorkflowNodeKind, string> = {
   input: "#22c55e",
@@ -121,6 +121,8 @@ function graphNodesToFlowNodes(
       position: { x, y },
       data: { ...node, isActive: node.id === activeNodeId },
       selected: node.id === selectedNodeId,
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
     };
   });
 }
@@ -130,8 +132,11 @@ function graphEdgesToFlowEdges(graph: WorkflowGraph): Edge[] {
     id: edge.id,
     source: edge.sourceId,
     target: edge.targetId,
-    type: edge.type === "dependency" ? "default" : "default",
+    type: "smoothstep",
+    sourceHandle: SOURCE_HANDLE_ID,
+    targetHandle: TARGET_HANDLE_ID,
     markerEnd: { type: MarkerType.ArrowClosed },
+    interactionWidth: 8,
     style: {
       stroke: "rgba(255,255,255,0.35)",
       strokeWidth: 1.5,
@@ -145,33 +150,7 @@ function graphEdgesToFlowEdges(graph: WorkflowGraph): Edge[] {
 // ---------------------------------------------------------------------------
 
 function computeDefaultPositions(graph: WorkflowGraph): WorkflowNode[] {
-  if (graph.nodes.some((n) => n.x !== undefined)) {
-    return graph.nodes;
-  }
-
-  const kindOrder: WorkflowNodeKind[] = [
-    "input",
-    "tool",
-    "model",
-    "policy",
-    "approval",
-    "memory",
-    "output",
-  ];
-
-  const groups = new Map<WorkflowNodeKind, WorkflowNode[]>();
-  for (const kind of kindOrder) groups.set(kind, []);
-  for (const node of graph.nodes) {
-    groups.get(node.kind)?.push(node);
-  }
-
-  return graph.nodes.map((n) => {
-    if (n.x !== undefined && n.y !== undefined) return n;
-    const kindCol = kindOrder.indexOf(n.kind);
-    const group = groups.get(n.kind) ?? [];
-    const y = group.indexOf(n);
-    return { ...n, x: kindCol, y };
-  });
+  return graph.nodes.map((n, index) => ({ ...n, x: index, y: 0 }));
 }
 
 // ---------------------------------------------------------------------------
@@ -268,13 +247,15 @@ function WorkflowNodeCard({ data }: NodeProps) {
       >
         {/* Left handle (target / input) */}
         <Handle
+          id={TARGET_HANDLE_ID}
           type="target"
           position={Position.Left}
+          isConnectable={false}
           style={{
-            width: 10,
-            height: 10,
-            background: "rgba(255,255,255,0.2)",
-            border: "1.5px solid rgba(255,255,255,0.5)",
+            width: 7,
+            height: 7,
+            background: "rgba(255,255,255,0.08)",
+            border: "1px solid rgba(255,255,255,0.28)",
             borderRadius: "50%",
           }}
         />
@@ -294,13 +275,15 @@ function WorkflowNodeCard({ data }: NodeProps) {
 
         {/* Right handle (source / output) */}
         <Handle
+          id={SOURCE_HANDLE_ID}
           type="source"
           position={Position.Right}
+          isConnectable={false}
           style={{
-            width: 10,
-            height: 10,
-            background: "rgba(255,255,255,0.2)",
-            border: "1.5px solid rgba(255,255,255,0.5)",
+            width: 7,
+            height: 7,
+            background: "rgba(255,255,255,0.08)",
+            border: "1px solid rgba(255,255,255,0.28)",
             borderRadius: "50%",
           }}
         />
@@ -458,20 +441,6 @@ function CanvasInner({
     [onEdgesChangeInternal],
   );
 
-  const handleConnect = useCallback(
-    (connection: Connection) => {
-      if (!connection.source || !connection.target) return;
-      const newEdge: WorkflowEdge = {
-        id: `edge-${Date.now().toString(36)}`,
-        sourceId: connection.source,
-        targetId: connection.target,
-        type: "execution",
-      };
-      onEdgesChange?.(newEdge);
-    },
-    [onEdgesChange],
-  );
-
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
       onNodeClick?.(node.id);
@@ -511,10 +480,13 @@ function CanvasInner({
         edges={edges}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
-        onConnect={handleConnect}
         onNodeClick={handleNodeClick}
         onNodeDragStop={handleNodeDragStop}
         nodeTypes={nodeTypes}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        edgesFocusable={false}
+        connectOnClick={false}
         fitViewOptions={{ padding: 0.3 }}
         defaultEdgeOptions={{
           markerEnd: { type: MarkerType.ArrowClosed },
