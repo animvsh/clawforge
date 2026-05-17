@@ -361,6 +361,7 @@ function nativeManifest(instanceName, blueprint) {
     google_sheets: "ac_t6ttinlHgh97",
     google_slides: "ac_-37jw8sHMtEc",
     jira: "ac_bTPoel8f780b",
+    linear: "ac_jUzcwbDPs6nm",
     slack: "ac_wQZxaoYQ8Qfa",
   };
   const authConfigId = (id) =>
@@ -732,7 +733,10 @@ async function handleNativeBrev(request, response, url) {
       launch: {
         ok,
         mode,
-        instanceName: existingInstance?.name && mode === "already_running" ? existingInstance.name : instanceName,
+        instanceName:
+          existingInstance?.name && mode === "already_running"
+            ? existingInstance.name
+            : instanceName,
         command,
         status: mode === "created" ? await nativeBrevStatus() : status,
         events,

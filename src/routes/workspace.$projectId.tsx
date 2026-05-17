@@ -97,6 +97,29 @@ type IntegrationNeed = {
   action_label: string;
 };
 
+const integrationCommandLabels: Record<string, string> = {
+  calendar: "Calendar",
+  googlecalendar: "Calendar",
+  gmail: "Email",
+  email: "Email",
+  github: "GitHub",
+  linear: "Linear",
+  slack: "Slack",
+  sheets: "Sheets",
+  google_sheets: "Sheets",
+  googlesheets: "Sheets",
+  docs: "Docs",
+  google_docs: "Docs",
+  drive: "Drive",
+  google_drive: "Drive",
+  slides: "Slides",
+  google_slides: "Slides",
+  jira: "Jira",
+  calendly: "Calendly",
+  hubspot: "CRM",
+  crm: "CRM",
+};
+
 type ProgressRow = {
   label: string;
   detail: string;
@@ -583,6 +606,24 @@ function clarificationMessage(questions: ClarificationQuestion[]) {
 
 function suggestedAnswerText(question: ClarificationQuestion, suggestion: string) {
   return `${question.question} ${suggestion}`;
+}
+
+function integrationIdFromText(text: string) {
+  const lower = text.toLowerCase();
+  if (!/\b(connect|authorize|auth|link|sign in|signin|refresh)\b/.test(lower)) return null;
+  if (/\bgoogle calendar|calendar|availability|booking\b/.test(lower)) return "calendar";
+  if (/\bgmail|email|inbox\b/.test(lower)) return "email";
+  if (/\bgithub|repo|repository|pull request|pr\b/.test(lower)) return "github";
+  if (/\blinear|ticket|tickets\b/.test(lower)) return "linear";
+  if (/\bslack|channel\b/.test(lower)) return "slack";
+  if (/\bgoogle sheets|googlesheets|spreadsheet|sheets?\b/.test(lower)) return "google_sheets";
+  if (/\bgoogle docs|googledocs|docs?|document\b/.test(lower)) return "google_docs";
+  if (/\bgoogle drive|drive\b/.test(lower)) return "google_drive";
+  if (/\bgoogle slides|googleslides|slides?|deck\b/.test(lower)) return "google_slides";
+  if (/\bjira|atlassian\b/.test(lower)) return "jira";
+  if (/\bcalendly\b/.test(lower)) return "calendly";
+  if (/\bhubspot|crm\b/.test(lower)) return "crm";
+  return null;
 }
 
 function preparingActivityForNode(node: WorkflowNode, index: number) {
@@ -1574,7 +1615,7 @@ function WorkspacePage() {
     nextBlueprint = blueprint,
     options: { announce?: boolean } = {},
   ) {
-    if (!promptText && !nextBlueprint) return;
+    if (!promptText && !nextBlueprint) return [];
     try {
       const response = await fetch("/api/clawforge/integrations/needs", {
         method: "POST",
@@ -1591,6 +1632,7 @@ function WorkspacePage() {
         : [];
       setIntegrationNeeds(needs);
       if (options.announce && needs.length > 0) {
+        setPanel("tools");
         addProgress(
           `Integrations: ${needs
             .slice(0, 3)
@@ -1600,34 +1642,50 @@ function WorkspacePage() {
             )} ${needs.length > 3 ? `and ${needs.length - 3} more ` : ""}will be requested before the agent uses those tools.`,
         );
       }
+      return needs;
     } catch {
       setIntegrationNeeds([]);
+      return [];
     }
   }
 
   async function connectIntegration(need: IntegrationNeed) {
-    setConnectingIntegrationId(need.id);
-    addProgress(`Integrations: opening secure connection for ${need.label}...`);
+    await connectIntegrationById(need.id, need.label);
+  }
+
+  async function connectIntegrationById(integrationId: string, label?: string) {
+    const integrationLabel =
+      label ??
+      integrationNeeds.find((need) => need.id === integrationId)?.label ??
+      integrationCommandLabels[integrationId] ??
+      "Integration";
+    setConnectingIntegrationId(integrationId);
+    addProgress(`Integrations: opening secure connection for ${integrationLabel}...`);
     try {
       const response = await fetch("/api/clawforge/integrations/connect", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          integration_id: need.id,
+          integration_id: integrationId,
           user_id: auth.email ?? "clawforge-demo-user",
           callback_url: window.location.href,
         }),
       });
       const data = await response.json();
       if (!response.ok || !data.ok) {
-        throw new Error(data.error?.message || `Could not connect ${need.label}.`);
+        throw new Error(data.error?.message || `Could not connect ${integrationLabel}.`);
       }
       const url = data.connect?.redirect_url as string | undefined;
       if (url) {
         window.open(url, "_blank", "noopener,noreferrer");
+        addRuntimeLog(
+          `Integration link created for ${integrationLabel}. Waiting for the user to finish account connection.`,
+          "tool.called",
+          "success",
+        );
         addChat(
           "assistant",
-          `I opened the secure ${need.label} connection flow. Once it finishes, come back here and I’ll refresh the agent’s tool access.`,
+          `I opened the ${integrationLabel} connection flow. Once it finishes, come back here and say “refresh connections” so I can update the agent’s tool access.`,
         );
         const refreshOnReturn = () => {
           if (document.visibilityState === "visible") {
@@ -1637,16 +1695,40 @@ function WorkspacePage() {
         window.addEventListener("focus", refreshOnReturn, { once: true });
         document.addEventListener("visibilitychange", refreshOnReturn, { once: true });
       } else {
+        addRuntimeLog(
+          `${integrationLabel} needs admin setup before the agent can use that integration.`,
+          "policy.checked",
+          "warning",
+        );
         addChat(
           "assistant",
-          data.connect?.message ?? `${need.label} needs admin setup before it can be connected.`,
+          data.connect?.message ??
+            `${integrationLabel} needs admin setup before it can be connected.`,
         );
       }
-      await refreshIntegrationNeeds(project?.prompt ?? blueprint?.goal ?? message, blueprint);
+      const connectedAccountId = data.connect?.connected_account_id as string | undefined;
+      if (connectedAccountId) {
+        setIntegrationNeeds((current) =>
+          current.map((item) =>
+            item.id === integrationId
+              ? {
+                  ...item,
+                  connected: false,
+                  status: "ready_to_connect",
+                  action_label: "Finish",
+                  reason: `${integrationLabel} has a connection session ready for this workspace.`,
+                }
+              : item,
+          ),
+        );
+      }
+      await refreshIntegrationNeeds(project?.prompt ?? blueprint?.goal ?? message, blueprint, {
+        announce: false,
+      });
     } catch (err) {
       addChat(
         "assistant",
-        err instanceof Error ? err.message : `${need.label} connection needs attention.`,
+        err instanceof Error ? err.message : `${integrationLabel} connection needs attention.`,
       );
     } finally {
       setConnectingIntegrationId(null);
@@ -1659,12 +1741,46 @@ function WorkspacePage() {
     setMessage("");
     const lower = clean.toLowerCase();
     const requestedModel = matchModelCommand(clean);
+    const requestedIntegrationId = integrationIdFromText(clean);
     setChat((current) => [...current, ["user", clean]]);
     setChatLoading(true);
     addProgress(
       "Thinking: reading your request, updating the agent plan, and checking required tools...",
     );
     void refreshIntegrationNeeds(clean, blueprintWithModel(blueprint), { announce: true });
+
+    if (lower.includes("refresh connection") || lower.includes("refresh integration")) {
+      const needs = await refreshIntegrationNeeds(
+        project?.prompt ?? blueprint?.goal ?? clean,
+        blueprint,
+        {
+          announce: true,
+        },
+      );
+      setPanel("tools");
+      setChat((current) => [
+        ...current,
+        [
+          "assistant",
+          needs.length
+            ? "I refreshed the connected tools. The Tools tab now shows what still needs access."
+            : "I refreshed the connected tools. This agent does not need any more external account access right now.",
+        ],
+      ]);
+      setChatLoading(false);
+      return;
+    }
+
+    if (requestedIntegrationId) {
+      setPanel("tools");
+      focusWorkflowFromChat("augment", clean, { doneBefore: true });
+      await connectIntegrationById(
+        requestedIntegrationId,
+        integrationCommandLabels[requestedIntegrationId],
+      );
+      setChatLoading(false);
+      return;
+    }
 
     const pendingClarification =
       project && !blueprint && setupQuestionsForPrompt(project.prompt).length > 0;

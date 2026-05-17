@@ -239,10 +239,7 @@ function fallbackAuthConfigId(
 
 function hasVapiCredentials(env: Record<string, string | undefined>) {
   return Boolean(
-    env.VAPI_API_KEY ||
-      env.VAPI_PRIVATE_KEY ||
-      env.VITE_VAPI_PUBLIC_KEY ||
-      env.VAPI_PUBLIC_KEY,
+    env.VAPI_API_KEY || env.VAPI_PRIVATE_KEY || env.VITE_VAPI_PUBLIC_KEY || env.VAPI_PUBLIC_KEY,
   );
 }
 
@@ -257,7 +254,8 @@ function integrationStatusForDefinition(
     return hasVapiCredentials(env) ? "ready_to_connect" : "needs_auth_config";
   }
   if (!definition.connectable) return "needs_auth_config";
-  return authConfigId ? "ready_to_connect" : "needs_api_key";
+  if (authConfigId || env.COMPOSIO_API_KEY) return "ready_to_connect";
+  return "needs_api_key";
 }
 
 function addRequirement(
@@ -661,17 +659,14 @@ export async function getIntegrationStatus(
             item.toolkit?.slug === definition.toolkit ||
             (authConfigId && item.auth_config?.id === authConfigId),
         );
+        const accountIsConnected =
+          Boolean(account?.id) && !/failed|expired|deleted/i.test(account.status ?? "");
         return {
           id: definition.id,
           label: definition.label,
           toolkit: definition.toolkit,
           purpose: definition.purpose,
-          status: integrationStatusForDefinition(
-            definition,
-            env,
-            authConfigId,
-            account?.status === "ACTIVE",
-          ),
+          status: integrationStatusForDefinition(definition, env, authConfigId, accountIsConnected),
           auth_config_id: authConfigId,
           connected_account_id: account?.id ?? null,
           connectable: definition.connectable,
