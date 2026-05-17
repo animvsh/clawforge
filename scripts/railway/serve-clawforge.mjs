@@ -352,18 +352,7 @@ function requiredIds(blueprint) {
 
 function nativeManifest(instanceName, blueprint) {
   const required = requiredIds(blueprint);
-  const defaultAuthConfigIds = {
-    calendly: "ac_yb2AEJOZNb-J",
-    calendar: "ac_3LA8268bmt8A",
-    email: "ac_hSM7d6GulrCl",
-    crm: "ac_swe_no0eBDDa",
-    github: "ac_zkTweUJU1hT1",
-    google_sheets: "ac_t6ttinlHgh97",
-    google_slides: "ac_-37jw8sHMtEc",
-    jira: "ac_bTPoel8f780b",
-    linear: "ac_jUzcwbDPs6nm",
-    slack: "ac_wQZxaoYQ8Qfa",
-  };
+  const defaultAuthConfigIds = {};
   const authConfigId = (id) =>
     process.env[`COMPOSIO_AUTH_CONFIG_${id.toUpperCase()}`] || defaultAuthConfigIds[id] || null;
   const integrations = [

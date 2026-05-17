@@ -1735,6 +1735,111 @@ function WorkspacePage() {
     }
   }
 
+  async function streamWorkspaceChat({
+    clean,
+    actionReply,
+    requestedModel,
+  }: {
+    clean: string;
+    actionReply: string;
+    requestedModel: ReturnType<typeof matchModelCommand>;
+  }) {
+    let assistantIndex = -1;
+    let assistantBody = actionReply ? `${actionReply}\n\n` : "";
+    setChat((current) => {
+      assistantIndex = current.length;
+      return [...current, ["assistant", assistantBody || ""]];
+    });
+
+    const updateAssistant = (nextBody: string) => {
+      assistantBody = nextBody;
+      setChat((current) =>
+        current.map((item, index) =>
+          index === assistantIndex ? (["assistant", assistantBody] as ChatMessage) : item,
+        ),
+      );
+    };
+
+    const response = await fetch("/api/clawforge/nemoclaw/chat/stream", {
+      method: "POST",
+      headers: {
+        accept: "text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        message: clean,
+        provider: requestedModel?.provider ?? provider,
+        model: requestedModel?.model ?? model,
+        blueprint: blueprintWithModel(blueprint),
+      }),
+    });
+    if (!response.ok || !response.body) {
+      const data = await response.json().catch(() => null);
+      throw new Error(data?.error?.message || "NemoClaw chat stream failed.");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalChat: { reply?: string; events?: RuntimeEvent[] } | null = null;
+
+    const consumeBlock = (block: string) => {
+      const eventName = block.match(/^event:\s*(.+)$/m)?.[1]?.trim() ?? "message";
+      const data = block
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart())
+        .join("\n");
+      if (!data) return;
+      const payload = JSON.parse(data) as {
+        message?: string;
+        text?: string;
+        event?: RuntimeEvent;
+        integrations?: { connection_needs?: IntegrationNeed[] };
+        chat?: { reply?: string; events?: RuntimeEvent[] };
+      };
+
+      if (eventName === "progress" && payload.message) {
+        addProgress(payload.message);
+      } else if (eventName === "runtime" && payload.event) {
+        setEvents((current) => [...current, payload.event as RuntimeEvent]);
+        syncWorkflowFromRuntimeEvents([payload.event as RuntimeEvent]);
+      } else if (eventName === "integrations" && payload.integrations) {
+        const needs = Array.isArray(payload.integrations.connection_needs)
+          ? payload.integrations.connection_needs
+          : [];
+        setIntegrationNeeds(needs);
+        if (needs.length > 0) setPanel("tools");
+      } else if (eventName === "delta" && payload.text) {
+        updateAssistant(`${assistantBody}${payload.text}`);
+      } else if (eventName === "chat" && payload.chat) {
+        finalChat = payload.chat;
+      } else if (eventName === "error" && payload.message) {
+        throw new Error(payload.message);
+      }
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (value) {
+        buffer += decoder.decode(value, { stream: !done });
+        const blocks = buffer.split("\n\n");
+        buffer = blocks.pop() ?? "";
+        for (const block of blocks) consumeBlock(block);
+      }
+      if (done) break;
+    }
+    if (buffer.trim()) consumeBlock(buffer);
+
+    if (finalChat?.events?.length) {
+      setEvents((current) => [...current, ...(finalChat?.events ?? [])]);
+      syncWorkflowFromRuntimeEvents(finalChat.events);
+    }
+    if (!assistantBody.trim()) {
+      updateAssistant(finalChat?.reply || "NemoClaw inspected the workspace.");
+    }
+  }
+
   async function sendChat(nextMessage = message) {
     const clean = nextMessage.trim();
     if (!clean) return;
@@ -1935,34 +2040,8 @@ function WorkspacePage() {
       focusWorkflowFromChat("augment", clean, { doneBefore: true });
     }
 
-    const stopProgress = queueProgress([
-      "Thinking: mapping your request to the current graph...",
-      "Thinking: checking tools, policies, and memory boundaries...",
-      "Thinking: updating the canvas with the safest next step...",
-    ]);
     try {
-      const response = await fetch("/api/clawforge/nemoclaw/chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          message: clean,
-          provider: requestedModel?.provider ?? provider,
-          model: requestedModel?.model ?? model,
-          blueprint: blueprintWithModel(blueprint),
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.ok) {
-        throw new Error(data.error?.message || "NemoClaw chat failed.");
-      }
-      const nemoClawReply = data.chat?.reply || "NemoClaw inspected the workspace.";
-      const nemoClawEvents = Array.isArray(data.chat?.events) ? data.chat.events : [];
-      setEvents((current) => [...current, ...nemoClawEvents]);
-      syncWorkflowFromRuntimeEvents(nemoClawEvents);
-      setChat((current) => [
-        ...current,
-        ["assistant", actionReply ? `${actionReply}\n\n${nemoClawReply}` : nemoClawReply],
-      ]);
+      await streamWorkspaceChat({ clean, actionReply, requestedModel });
     } catch (err) {
       setChat((current) => [
         ...current,
@@ -1975,7 +2054,6 @@ function WorkspacePage() {
         ],
       ]);
     } finally {
-      stopProgress();
       setChatLoading(false);
     }
 

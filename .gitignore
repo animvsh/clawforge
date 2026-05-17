@@ -19,10 +19,32 @@ dist-ssr
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars
+.dev.vars.*
 .runtime/
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Generated deploy output should not be tracked in public repos.
+railway-dist/
 
 # Supabase local/link state
 supabase/.temp/
+
+# Secret material and local machine artifacts
+*.pem
+*.key
+*.p8
+*.p12
+*.mobileprovision
+*.keystore
+id_rsa*
+id_ed25519*
+*.credentials.json
+service-account*.json
 
 # Editor directories and files
 .vscode/*

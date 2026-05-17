@@ -333,14 +333,14 @@ describe("ANU-57: secrets verification", () => {
   it("evaluateEnvelope does not leak secrets from the envelope into policy decisions", () => {
     const envelope = createValidEnvelope({
       params: {
-        api_key: "sk-actual-secret-key-1234567890",
+        api_key: "test-redaction-secret-key",
         password: "super_secret_password",
       },
     });
     const result = evaluateEnvelope(envelope);
     // Policy decision should not contain any secrets from params
     const resultStr = JSON.stringify(result);
-    expect(resultStr).not.toContain("sk-actual-secret");
+    expect(resultStr).not.toContain("test-redaction-secret");
     expect(resultStr).not.toContain("super_secret_password");
   });
 });

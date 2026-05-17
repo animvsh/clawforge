@@ -390,6 +390,58 @@ function sse(events: unknown[]): Response {
   });
 }
 
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([
+    promise,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
+  ]);
+}
+
+function sseStream(start: (send: (type: string, payload: unknown) => void) => Promise<void>) {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (type: string, payload: unknown) => {
+        controller.enqueue(encoder.encode(`event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`));
+      };
+      try {
+        await start(send);
+      } catch (error) {
+        send("error", {
+          message: error instanceof Error ? error.message : "Chat stream failed.",
+        });
+      } finally {
+        send("done", { ok: true });
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+    },
+  });
+}
+
+function chatRuntimeEvent(message: string, type: RuntimeEvent["type"] = "agent.thinking") {
+  return {
+    id: `chat_stream_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    agent_id: "workspace-chat",
+    type,
+    message,
+    timestamp: new Date().toISOString(),
+    severity: "info" as const,
+  } satisfies RuntimeEvent;
+}
+
 // ============================================================
 // API Handler
 // ============================================================
@@ -717,6 +769,91 @@ export async function handleClawForgeApi(
     );
     return successResponse({
       chat: publicNemoClawChatPayload(chat),
+    });
+  }
+
+  if (
+    (apiPath === "/api/clawforge/nemoclaw/chat/stream" ||
+      apiPath === "/clawforge/nemoclaw/chat/stream") &&
+    request.method === "POST"
+  ) {
+    const body = await readJsonBody<{
+      message?: unknown;
+      provider?: unknown;
+      model?: unknown;
+      instance_name?: unknown;
+      blueprint_id?: unknown;
+      blueprint?: unknown;
+      conversation_id?: unknown;
+    }>(request);
+    const message = typeof body.message === "string" ? body.message : "";
+    const provider = normalizeProvider(body.provider);
+    if (provider === null) {
+      return errorResponse(
+        "Invalid provider value. Must be one of: auto, nemotron, minimax, pi, mock.",
+        400,
+        "INVALID_REQUEST",
+        "provider",
+      );
+    }
+    const blueprint = isBlueprintResponse(body.blueprint) ? body.blueprint : undefined;
+    const selectedProvider = provider ?? "auto";
+
+    return sseStream(async (send) => {
+      const steps = [
+        "Reading your request against the current NemoClaw blueprint.",
+        "Checking which tools, policies, and memory rules are affected.",
+        "Inspecting required Integrations before the agent can use external tools.",
+        "Rendering the next workspace update into the visual workflow.",
+      ];
+      for (const step of steps) {
+        send("progress", { message: step });
+        send("runtime", { event: chatRuntimeEvent(step) });
+        await delay(35);
+      }
+
+      const readiness = await withTimeout(
+        getIntegrationReadiness(workerEnv, {
+          prompt: message,
+          blueprint,
+          userId: "clawforge-demo-user",
+        }).catch(() => null),
+        650,
+      );
+      if (readiness?.connection_needs.length) {
+        send("integrations", { integrations: readiness });
+        send("progress", {
+          message: `Found ${readiness.connection_needs.length} tool connection${readiness.connection_needs.length === 1 ? "" : "s"} to handle before external actions run.`,
+        });
+        await delay(25);
+      }
+
+      const chat = await chatWithNemoClawAgent(
+        message,
+        {
+          ...runtimeEnv(workerEnv),
+          ...providerModelEnvOverride(selectedProvider, body.model),
+          CLAWFORGE_INSTANCE_NAME:
+            typeof body.instance_name === "string" ? body.instance_name : undefined,
+          CLAWFORGE_BLUEPRINT_ID:
+            typeof body.blueprint_id === "string" ? body.blueprint_id : undefined,
+          CLAWFORGE_BLUEPRINT_JSON: blueprint ? JSON.stringify(blueprint) : undefined,
+          CLAWFORGE_CONVERSATION_ID:
+            typeof body.conversation_id === "string" ? body.conversation_id : undefined,
+        },
+        selectedProvider,
+      );
+      const publicChat = publicNemoClawChatPayload(chat);
+      for (const event of publicChat.events ?? []) {
+        send("runtime", { event });
+      }
+      const reply = publicChat.reply || "NemoClaw inspected the workspace.";
+      const chunks = reply.match(/.{1,140}(?:\s|$)/g) ?? [reply];
+      for (const chunk of chunks) {
+        send("delta", { text: chunk });
+        await delay(8);
+      }
+      send("chat", { chat: publicChat });
     });
   }
 

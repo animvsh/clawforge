@@ -155,7 +155,7 @@ describe("ProviderRegistry", () => {
 
   describe("sanitizeError - secret redaction", () => {
     it("API key in error message is redacted", () => {
-      const error = new Error("Invalid API key: sk-1234567890abcdefghij");
+      const error = new Error("Invalid API key: test-redaction-secret");
       const registry = new ProviderRegistry({});
       // Can't call sanitizeError directly as it's private, but we can test via plan()
       // This test would need to be done via the public API

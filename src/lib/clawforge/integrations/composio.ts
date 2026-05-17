@@ -204,18 +204,7 @@ const integrationDefinitionById = new Map(
   integrationDefinitions.map((definition) => [definition.id, definition]),
 );
 
-const defaultAuthConfigIds: Partial<Record<IntegrationId, string>> = {
-  calendly: "ac_yb2AEJOZNb-J",
-  calendar: "ac_3LA8268bmt8A",
-  email: "ac_hSM7d6GulrCl",
-  crm: "ac_swe_no0eBDDa",
-  github: "ac_zkTweUJU1hT1",
-  google_sheets: "ac_t6ttinlHgh97",
-  google_slides: "ac_-37jw8sHMtEc",
-  jira: "ac_bTPoel8f780b",
-  linear: "ac_jUzcwbDPs6nm",
-  slack: "ac_wQZxaoYQ8Qfa",
-};
+const defaultAuthConfigIds: Partial<Record<IntegrationId, string>> = {};
 
 function runtimeEnv(workerEnv: Record<string, string | undefined> = {}) {
   const viteEnv = import.meta.env as Record<string, string | undefined>;
@@ -317,7 +306,7 @@ export function inferIntegrationRequirements(prompt: string): IntegrationRequire
       "Use existing booking links and scheduled-event context when available.",
     );
   }
-  if (/\b(email|inbox|follow up|follow-up)\b/.test(normalized)) {
+  if (/\b(gmail|email|inbox|follow up|follow-up)\b/.test(normalized)) {
     addRequirement(requirements, "email", "required", "Send approved follow-ups and summaries.");
   }
   if (/\b(dedicated inbox|agent inbox|agent email)\b/.test(normalized)) {
