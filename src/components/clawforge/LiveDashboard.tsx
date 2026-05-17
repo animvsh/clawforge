@@ -333,7 +333,7 @@ export function LiveDashboard({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           instance_name: "clawforge-nemoclaw",
-          instance_type: "verda_L40S",
+          instance_type: "massedcompute_L40S",
           confirmation: "CREATE_BREV_INSTANCE",
           blueprint,
           agent_inbox: agentInbox,

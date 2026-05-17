@@ -623,7 +623,7 @@ export async function handleClawForgeApi(
     const instanceType =
       typeof body.instance_type === "string" && body.instance_type.trim()
         ? body.instance_type.trim()
-        : "l40s-48gb.1x";
+        : "massedcompute_L40S";
     const agentInbox =
       body.agent_inbox && typeof body.agent_inbox === "object" && !Array.isArray(body.agent_inbox)
         ? (body.agent_inbox as { email?: string; status?: string })
@@ -679,9 +679,14 @@ export async function handleClawForgeApi(
       apiPath === "/clawforge/openhands/chat") &&
     request.method === "POST"
   ) {
-    const body = await readJsonBody<{ message?: unknown; provider?: unknown; model?: unknown }>(
-      request,
-    );
+    const body = await readJsonBody<{
+      message?: unknown;
+      provider?: unknown;
+      model?: unknown;
+      instance_name?: unknown;
+      blueprint_id?: unknown;
+      conversation_id?: unknown;
+    }>(request);
     const message = typeof body.message === "string" ? body.message : "";
     const provider = normalizeProvider(body.provider);
     if (provider === null) {
@@ -697,6 +702,12 @@ export async function handleClawForgeApi(
       {
         ...runtimeEnv(workerEnv),
         ...providerModelEnvOverride(provider, body.model),
+        CLAWFORGE_INSTANCE_NAME:
+          typeof body.instance_name === "string" ? body.instance_name : undefined,
+        CLAWFORGE_BLUEPRINT_ID:
+          typeof body.blueprint_id === "string" ? body.blueprint_id : undefined,
+        CLAWFORGE_CONVERSATION_ID:
+          typeof body.conversation_id === "string" ? body.conversation_id : undefined,
       },
       provider,
     );

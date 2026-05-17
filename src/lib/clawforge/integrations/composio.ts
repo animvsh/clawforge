@@ -213,6 +213,7 @@ const defaultAuthConfigIds: Partial<Record<IntegrationId, string>> = {
   google_sheets: "ac_t6ttinlHgh97",
   google_slides: "ac_-37jw8sHMtEc",
   jira: "ac_bTPoel8f780b",
+  linear: "ac_jUzcwbDPs6nm",
   slack: "ac_wQZxaoYQ8Qfa",
 };
 
@@ -234,6 +235,29 @@ function fallbackAuthConfigId(
   integrationId: IntegrationId,
 ) {
   return env[envAuthConfigKey(integrationId)] || defaultAuthConfigIds[integrationId] || null;
+}
+
+function hasVapiCredentials(env: Record<string, string | undefined>) {
+  return Boolean(
+    env.VAPI_API_KEY ||
+      env.VAPI_PRIVATE_KEY ||
+      env.VITE_VAPI_PUBLIC_KEY ||
+      env.VAPI_PUBLIC_KEY,
+  );
+}
+
+function integrationStatusForDefinition(
+  definition: (typeof integrationDefinitions)[number],
+  env: Record<string, string | undefined>,
+  authConfigId: string | null,
+  connected = false,
+): IntegrationConfig["status"] {
+  if (connected) return "connected";
+  if (definition.id === "phone_sms" || definition.id === "voice_agent") {
+    return hasVapiCredentials(env) ? "ready_to_connect" : "needs_auth_config";
+  }
+  if (!definition.connectable) return "needs_auth_config";
+  return authConfigId ? "ready_to_connect" : "needs_api_key";
 }
 
 function addRequirement(
@@ -263,6 +287,14 @@ export function inferIntegrationRequirements(prompt: string): IntegrationRequire
       "phone_sms",
       "required",
       "Answer calls, receive customer replies, and send approved text confirmations.",
+    );
+  }
+  if (/\b(phone|call|calls|receptionist|voicemail|voice|voice agent)\b/.test(normalized)) {
+    addRequirement(
+      requirements,
+      "voice_agent",
+      "required",
+      "Create a live voice agent with approval-gated tools and NemoClaw policies.",
     );
   }
   if (/\b(sms|text|texts|message|confirmation)\b/.test(normalized)) {
@@ -415,6 +447,9 @@ function connectionReason(requirement: IntegrationRequirement, config: Integrati
   }
   if (!config.connectable) {
     if (config.id === "phone_sms" || config.id === "voice_agent") {
+      if (config.status === "ready_to_connect") {
+        return `${config.label} is configured. Deploy will attach the voice or phone capability before calls run.`;
+      }
       return `${config.label} is needed for this agent. Add a business number or voice provider before calls can run.`;
     }
     if (config.id === "agent_email") {
@@ -430,7 +465,7 @@ function connectionReason(requirement: IntegrationRequirement, config: Integrati
 
 function actionLabel(config: IntegrationConfig): string {
   if (config.status === "needs_api_key") return "Configure Integrations";
-  if (!config.connectable) return "Setup required";
+  if (!config.connectable) return config.status === "ready_to_connect" ? "Ready" : "Setup required";
   if (config.status === "needs_auth_config") return "Finish setup";
   return "Connect";
 }
@@ -563,11 +598,11 @@ async function ensureAuthConfig(
   const definition = integrationDefinitions.find((integration) => integration.id === integrationId);
   if (!definition || !definition.connectable) return null;
 
+  const fallbackId = fallbackAuthConfigId(env, integrationId);
+  if (fallbackId) return fallbackId;
   const existing = await listAuthConfigs(env);
   const match = existing.find((item) => item.toolkit?.slug === definition.toolkit);
   if (match?.id) return match.id;
-  const fallbackId = fallbackAuthConfigId(env, integrationId);
-  if (fallbackId) return fallbackId;
 
   return createManagedAuthConfig(env, definition.toolkit);
 }
@@ -593,10 +628,11 @@ export async function getIntegrationStatus(
         label: definition.label,
         toolkit: definition.toolkit,
         purpose: definition.purpose,
-        status:
-          definition.connectable && fallbackAuthConfigId(env, definition.id)
-            ? "ready_to_connect"
-            : "needs_api_key",
+        status: integrationStatusForDefinition(
+          definition,
+          env,
+          fallbackAuthConfigId(env, definition.id),
+        ),
         auth_config_id: fallbackAuthConfigId(env, definition.id),
         connected_account_id: null,
         connectable: definition.connectable,
@@ -616,8 +652,10 @@ export async function getIntegrationStatus(
       dashboard_url: dashboardUrl,
       phone_number: env.COMPOSIO_PHONE_NUMBER || null,
       auth_configs: integrationDefinitions.map((definition) => {
-        const authConfig = authConfigs.find((item) => item.toolkit?.slug === definition.toolkit);
-        const authConfigId = authConfig?.id ?? fallbackAuthConfigId(env, definition.id);
+        const authConfigId =
+          fallbackAuthConfigId(env, definition.id) ??
+          authConfigs.find((item) => item.toolkit?.slug === definition.toolkit)?.id ??
+          null;
         const account = connectedAccounts.find(
           (item) =>
             item.toolkit?.slug === definition.toolkit ||
@@ -628,14 +666,12 @@ export async function getIntegrationStatus(
           label: definition.label,
           toolkit: definition.toolkit,
           purpose: definition.purpose,
-          status:
-            account?.status === "ACTIVE"
-              ? "connected"
-              : authConfigId
-                ? "ready_to_connect"
-                : definition.connectable
-                  ? "ready_to_connect"
-                  : "needs_auth_config",
+          status: integrationStatusForDefinition(
+            definition,
+            env,
+            authConfigId,
+            account?.status === "ACTIVE",
+          ),
           auth_config_id: authConfigId,
           connected_account_id: account?.id ?? null,
           connectable: definition.connectable,
@@ -653,12 +689,11 @@ export async function getIntegrationStatus(
         label: definition.label,
         toolkit: definition.toolkit,
         purpose: definition.purpose,
-        status:
-          definition.connectable && fallbackAuthConfigId(env, definition.id)
-            ? "ready_to_connect"
-            : definition.connectable
-              ? "ready_to_connect"
-              : "needs_auth_config",
+        status: integrationStatusForDefinition(
+          definition,
+          env,
+          fallbackAuthConfigId(env, definition.id),
+        ),
         auth_config_id: fallbackAuthConfigId(env, definition.id),
         connected_account_id: null,
         connectable: definition.connectable,

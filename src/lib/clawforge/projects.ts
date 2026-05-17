@@ -78,6 +78,10 @@ export function updateProject(
   return next;
 }
 
+export function deleteProject(projectId: string) {
+  saveProjects(listProjects().filter((project) => project.id !== projectId));
+}
+
 export function ensureDemoProjects() {
   const existing = listProjects();
   if (existing.length > 0) return existing;

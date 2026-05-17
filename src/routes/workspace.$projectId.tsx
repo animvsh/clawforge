@@ -2,6 +2,7 @@ import { Link, createFileRoute } from "@tanstack/react-router";
 import {
   ArrowUp,
   Check,
+  CircleAlert,
   FileText,
   MessagesSquare,
   Rocket,
@@ -70,6 +71,39 @@ type ChatAction =
   | "brev_deploy"
   | "model";
 
+type ChatRole = "user" | "assistant" | "progress";
+type ChatMessage = [ChatRole, string];
+type DeploymentPhase =
+  | "idle"
+  | "planning"
+  | "packaging"
+  | "provisioning"
+  | "runtime"
+  | "memory"
+  | "chat"
+  | "ready"
+  | "failed";
+
+type IntegrationNeed = {
+  id: string;
+  label: string;
+  purpose: string;
+  required: boolean;
+  status: string;
+  connectable: boolean;
+  connected: boolean;
+  reason: string;
+  action_label: string;
+};
+
+type ProgressRow = {
+  label: string;
+  detail: string;
+  done: boolean;
+  active: boolean;
+  failed: boolean;
+};
+
 const buildSteps = [
   "Generating agent instructions",
   "Creating NemoClaw policy pack",
@@ -98,6 +132,37 @@ const generatedFiles = [
   ["workflow.json", "Generated execution graph"],
   ["runtime.json", "Deployment and provider config"],
 ] as const;
+
+const deploymentPhaseOrder: DeploymentPhase[] = [
+  "idle",
+  "planning",
+  "packaging",
+  "provisioning",
+  "runtime",
+  "memory",
+  "chat",
+  "ready",
+  "failed",
+];
+
+function deploymentPhaseIndex(phase: DeploymentPhase) {
+  return deploymentPhaseOrder.indexOf(phase);
+}
+
+function deploymentRuntimeEvent(message: string, severity: RuntimeEvent["severity"] = "info") {
+  return {
+    id: `deploy_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    agent_id: "brev-deploy",
+    type: "agent.thinking" as const,
+    message,
+    timestamp: new Date().toISOString(),
+    severity,
+  };
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
 
 type BrevLaunchState = {
   mode: string;
@@ -134,6 +199,7 @@ type BrevLaunchState = {
     secret_names?: string[];
     capabilities?: Record<string, boolean>;
   };
+  events?: RuntimeEvent[];
 };
 
 type ClarificationQuestion = {
@@ -496,11 +562,15 @@ function WorkspacePage() {
   const [events, setEvents] = useState<RuntimeEvent[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [message, setMessage] = useState("");
-  const [chat, setChat] = useState<Array<[string, string]>>([]);
+  const [chat, setChat] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [cloudDeploying, setCloudDeploying] = useState(false);
+  const [deploymentPhase, setDeploymentPhase] = useState<DeploymentPhase>("idle");
+  const [deploymentEvents, setDeploymentEvents] = useState<RuntimeEvent[]>([]);
   const [brevLaunch, setBrevLaunch] = useState<BrevLaunchState | null>(null);
   const [instanceChatId, setInstanceChatId] = useState<string | null>(null);
+  const [integrationNeeds, setIntegrationNeeds] = useState<IntegrationNeed[]>([]);
+  const [connectingIntegrationId, setConnectingIntegrationId] = useState<string | null>(null);
   const [panel, setPanel] = useState<"logs" | "agent" | "tools" | "instance">("logs");
   const [error, setError] = useState<string | null>(null);
   const [provider, setProvider] = useState<ProviderMode>("auto");
@@ -509,6 +579,7 @@ function WorkspacePage() {
   const [workflowGraph, setWorkflowGraph] = useState<WorkflowGraph>({ nodes: [], edges: [] });
   const workflowGraphRef = useRef<WorkflowGraph>({ nodes: [], edges: [] });
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   const currentStatus = project?.status ?? "draft";
   const projectName = blueprint?.agent_name ?? project?.name ?? "NemoClaw Instance";
@@ -526,10 +597,158 @@ function WorkspacePage() {
     () => workflowGraph.nodes.find((node) => node.id === selectedNodeId) ?? null,
     [selectedNodeId, workflowGraph.nodes],
   );
+  const visibleWorkflowGraph = useMemo(() => {
+    const shouldReveal =
+      currentStatus === "generating" || (!blueprint && workflowGraph.nodes.length > 0);
+    if (!shouldReveal) return workflowGraph;
+    const visible = new Set(
+      workflowGraph.nodes.slice(0, Math.max(activeIndex + 1, 1)).map((node) => node.id),
+    );
+    return {
+      nodes: workflowGraph.nodes.filter((node) => visible.has(node.id)),
+      edges: workflowGraph.edges.filter(
+        (edge) => visible.has(edge.sourceId) && visible.has(edge.targetId),
+      ),
+    };
+  }, [activeIndex, blueprint, currentStatus, workflowGraph]);
   const clarificationQuestions = useMemo(
     () => (project && !blueprint ? setupQuestionsForPrompt(project.prompt) : []),
     [blueprint, project],
   );
+  const deploySteps = useMemo(() => {
+    const mode = brevLaunch?.mode ?? "";
+    const failed = mode.includes("failed") || brevLaunch?.status?.ok === false;
+    const cloudReady = mode === "created" || mode === "already_running";
+    const phase = failed ? "failed" : cloudReady ? "ready" : deploymentPhase;
+    const phaseIndex = deploymentPhaseIndex(phase);
+    const isDryRun = mode === "dry_run";
+    const row = (
+      rowPhase: DeploymentPhase,
+      label: string,
+      detail: string,
+      readyDetail = detail,
+    ): ProgressRow => {
+      const rowIndex = deploymentPhaseIndex(rowPhase);
+      return {
+        label,
+        detail: cloudReady || (phase !== "failed" && phaseIndex > rowIndex) ? readyDetail : detail,
+        done: cloudReady || (phase !== "failed" && phaseIndex > rowIndex),
+        active:
+          !cloudReady &&
+          phase !== "failed" &&
+          (phase === rowPhase ||
+            (isDryRun && rowPhase === "planning") ||
+            (phase === "idle" && rowPhase === "planning" && Boolean(blueprint))),
+        failed: phase === "failed" && (rowPhase === "provisioning" || rowPhase === "runtime"),
+      };
+    };
+    return [
+      {
+        label: "Plan",
+        detail: isDryRun
+          ? "Launch plan generated. Deploy to start the Brev runtime."
+          : blueprint
+            ? "Agent files, policies, memory, and integrations generated"
+            : "Generating agent files, policies, memory, and integrations",
+        done: Boolean(blueprint),
+        active:
+          Boolean(blueprint) &&
+          !brevLaunch &&
+          !cloudDeploying &&
+          deploymentPhase === "idle",
+        failed: false,
+      },
+      row(
+        "packaging",
+        "Package",
+        "Waiting to bundle the generated NemoClaw files",
+        "Generated files bundled for Brev",
+      ),
+      row(
+        "provisioning",
+        "Brev",
+        brevLaunch?.instanceName
+          ? `Connecting to ${brevLaunch.instanceName}`
+          : "Waiting for deploy",
+        cloudReady
+          ? `Attached to ${brevLaunch?.instanceName ?? "Brev"}`
+          : `Launch target: ${brevLaunch?.instanceName ?? "Brev"}`,
+      ),
+      row(
+        "runtime",
+        "Runtime",
+        "Starting the NemoClaw API and checking health",
+        "NemoClaw runtime health check passed",
+      ),
+      row(
+        "memory",
+        "Memory",
+        "Attaching self-hosted mem0 on the Brev instance",
+        "Self-hosted mem0 runtime attached",
+      ),
+      row(
+        "chat",
+        "Chat",
+        instanceChatId ? `/instance/${instanceChatId}` : "Creating the agent chat link",
+        instanceChatId ? `/instance/${instanceChatId}` : "Agent chat link created",
+      ),
+    ];
+  }, [blueprint, brevLaunch, cloudDeploying, deploymentPhase, instanceChatId]);
+  const progressCard = useMemo(() => {
+    const isDeployView = cloudDeploying || Boolean(brevLaunch) || Boolean(instanceChatId);
+    if (isDeployView) {
+      return {
+        title: "Deploy progress",
+        rows: deploySteps,
+        footer:
+          instanceChatId
+            ? `Ready at /instance/${instanceChatId}`
+            : cloudDeploying
+              ? "Creating runtime and checking health..."
+              : brevLaunch?.status?.message || "Deploy when ready.",
+      };
+    }
+    return {
+      title: currentStatus === "generating" ? "Building live" : "Build progress",
+      rows: buildSteps.map((step, index) => ({
+        label: step.replace(/^Creating /, "").replace(/^Configuring /, ""),
+        detail:
+          index === 0
+            ? "Reading the goal"
+            : index === 1
+              ? "Writing sandbox rules"
+              : index === 2
+                ? "Adding canvas nodes"
+                : index === 3
+                  ? "Preparing shared memory"
+                  : "Preparing Brev deployment",
+        done: Boolean(blueprint) || index < activeIndex,
+        active: currentStatus === "generating" && index === activeIndex,
+        failed: false,
+      })),
+      footer: blueprint
+        ? `${blueprint.agent_name} is ready to deploy.`
+        : currentStatus === "generating"
+          ? "Nodes appear as the instance is forged."
+          : "Start with a prompt or edit request.",
+    };
+  }, [activeIndex, blueprint, brevLaunch, cloudDeploying, currentStatus, deploySteps, instanceChatId]);
+
+  function addChat(role: ChatRole, body: string) {
+    setChat((current) => [...current, [role, body]]);
+  }
+
+  function addProgress(body: string) {
+    addChat("progress", body);
+  }
+
+  function queueProgress(steps: string[], interval = 850) {
+    if (typeof window === "undefined") return () => {};
+    const timers = steps.map((step, index) =>
+      window.setTimeout(() => addProgress(step), (index + 1) * interval),
+    );
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }
 
   function blueprintWithModel(nextBlueprint = blueprint): BlueprintResponse | null {
     if (!nextBlueprint) return null;
@@ -565,6 +784,10 @@ function WorkspacePage() {
   useEffect(() => {
     workflowGraphRef.current = workflowGraph;
   }, [workflowGraph]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [chat.length, chatLoading, integrationNeeds.length]);
 
   function focusWorkflowFromChat(
     action: ChatAction,
@@ -612,6 +835,10 @@ function WorkspacePage() {
       setAgentId(null);
       setReport(null);
       setEvents([]);
+      setDeploymentPhase("idle");
+      setDeploymentEvents([]);
+      setBrevLaunch(null);
+      setInstanceChatId(null);
       const optimisticGraph = buildOptimisticWorkflowGraph(nextProject.prompt);
       setWorkflowGraph(
         focusWorkflowNode(optimisticGraph, 0, "generating", "Reading chat goal", {
@@ -659,6 +886,7 @@ function WorkspacePage() {
         const data = await response.json();
         if (!response.ok || !data.ok) throw new Error(data.error?.message || "Blueprint failed.");
         setBlueprint(data.blueprint);
+        void refreshIntegrationNeeds(nextProject.prompt, data.blueprint);
         const blueprintGraph = buildBlueprintWorkflowGraph(nextProject.prompt, data.blueprint);
         setActiveIndex(blueprintGraph.nodes.length - 1);
         setWorkflowGraph({
@@ -707,7 +935,7 @@ function WorkspacePage() {
 
   useEffect(() => {
     if (currentStatus !== "generating" && currentStatus !== "running") return;
-    const nodeCount = Math.max(workflowGraph.nodes.length, workflowNodes.length);
+    const nodeCount = Math.max(workflowGraph.nodes.length, 1);
     const timer = window.setInterval(
       () => {
         setActiveIndex((current) => Math.min(current + 1, nodeCount - 1));
@@ -719,6 +947,15 @@ function WorkspacePage() {
 
   useEffect(() => {
     if (workflowGraph.nodes.length === 0) return;
+    if (
+      currentStatus !== "generating" &&
+      currentStatus !== "running" &&
+      currentStatus !== "deployed" &&
+      currentStatus !== "waiting_for_approval" &&
+      currentStatus !== "completed"
+    ) {
+      return;
+    }
     setWorkflowGraph((current) => ({
       ...current,
       nodes: current.nodes.map((node, index) => ({
@@ -873,8 +1110,14 @@ function WorkspacePage() {
   async function prepareBrevLaunch(nextBlueprint = blueprint) {
     nextBlueprint = blueprintWithModel(nextBlueprint);
     if (!nextBlueprint) return null;
+    setDeploymentPhase("planning");
     focusWorkflowFromChat("brev_plan", nextBlueprint.goal);
     const instanceName = `clawforge-${nextBlueprint.agent_name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+    const planEvent = deploymentRuntimeEvent(
+      `Preparing Brev launch plan for ${nextBlueprint.agent_name}.`,
+    );
+    setDeploymentEvents((current) => [...current, planEvent]);
+    setEvents((current) => [...current, planEvent]);
     const response = await fetch("/api/clawforge/brev/launch-plan", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -888,8 +1131,15 @@ function WorkspacePage() {
       throw new Error(data.error?.message || "Could not prepare Brev launch.");
     }
     setBrevLaunch(data.launch);
+    const readyEvent = deploymentRuntimeEvent(
+      `Launch plan ready for ${data.launch?.instanceName ?? instanceName}.`,
+      "success",
+    );
+    setDeploymentEvents((current) => [...current, readyEvent]);
+    setEvents((current) => [...current, readyEvent]);
     setInstanceChatId(null);
     const launchEvents = Array.isArray(data.launch?.events) ? data.launch.events : [];
+    setDeploymentEvents((current) => [...current, ...launchEvents]);
     setEvents((current) => [...current, ...launchEvents]);
     syncWorkflowFromRuntimeEvents(launchEvents);
     return data.launch as BrevLaunchState;
@@ -899,17 +1149,44 @@ function WorkspacePage() {
     nextBlueprint = blueprintWithModel(nextBlueprint);
     if (!nextBlueprint) return;
     setCloudDeploying(true);
+    setDeploymentPhase("planning");
+    setDeploymentEvents([]);
     setError(null);
     focusWorkflowFromChat("brev_deploy", nextBlueprint.goal);
+    setPanel("instance");
+    const runEvents: RuntimeEvent[] = [];
+    const recordDeploy = (phase: DeploymentPhase, message: string, severity: RuntimeEvent["severity"] = "info") => {
+      const event = deploymentRuntimeEvent(message, severity);
+      runEvents.push(event);
+      setDeploymentPhase(phase);
+      setDeploymentEvents((current) => [...current, event]);
+      setEvents((current) => [...current, event]);
+      return event;
+    };
+    addProgress(
+      "Deploying: checking Brev, packaging the instance, attaching memory, and creating the chat link...",
+    );
+    recordDeploy("planning", `Deploy plan started for ${nextBlueprint.agent_name}.`);
     try {
+      await wait(250);
       const launchPlan = brevLaunch ?? (await prepareBrevLaunch(nextBlueprint));
+      addProgress(`Deploying: launch plan ready for ${launchPlan?.instanceName ?? nextBlueprint.agent_name}.`);
+      recordDeploy(
+        "packaging",
+        "Packaging generated NemoClaw files, policy YAML, memory config, and integration manifest.",
+      );
+      await wait(350);
+      recordDeploy(
+        "provisioning",
+        `Connecting to Brev target ${launchPlan?.instanceName ?? "mad-coral-donkey"} and preparing the remote runtime.`,
+      );
       const response = await fetch("/api/clawforge/brev/instances", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           instance_name:
             launchPlan?.instanceName ?? `clawforge-${nextBlueprint.agent_name.toLowerCase()}`,
-          instance_type: "l40s-48gb.1x",
+          instance_type: "massedcompute_L40S",
           confirmation: "CREATE_BREV_INSTANCE",
           blueprint: nextBlueprint,
         }),
@@ -918,26 +1195,69 @@ function WorkspacePage() {
       if (!response.ok || !data.ok) {
         throw new Error(data.error?.message || "Brev deploy failed.");
       }
+      recordDeploy("runtime", "Brev responded. Verifying NemoClaw runtime health and startup logs.");
       setBrevLaunch(data.launch);
       const createdOnBrev =
         data.launch?.mode === "created" || data.launch?.mode === "already_running";
+      const launchEvents = Array.isArray(data.launch?.events) ? data.launch.events : [];
+      runEvents.push(...launchEvents);
+      setDeploymentEvents((current) => [...current, ...launchEvents]);
+      setEvents((current) => [...current, ...launchEvents]);
+      syncWorkflowFromRuntimeEvents(launchEvents);
+      await wait(350);
+      if (createdOnBrev) {
+        recordDeploy("memory", "Self-hosted mem0 is attached to this NemoClaw instance on Brev.", "success");
+      } else {
+        recordDeploy(
+          "failed",
+          data.launch?.status?.message || "Brev runtime did not become healthy yet.",
+          "warning",
+        );
+      }
+      await wait(250);
       const chatInstance = data.launch
         ? saveLaunchInstance({
             projectId,
             prompt: project?.prompt ?? nextBlueprint.goal,
             blueprint: nextBlueprint,
-            launch: data.launch,
+            launch: {
+              ...data.launch,
+              events: runEvents,
+            },
           })
         : null;
       setInstanceChatId(chatInstance?.id ?? null);
-      const launchEvents = Array.isArray(data.launch?.events) ? data.launch.events : [];
-      setEvents((current) => [...current, ...launchEvents]);
-      syncWorkflowFromRuntimeEvents(launchEvents);
+      if (chatInstance?.id) {
+        recordDeploy(
+          createdOnBrev ? "chat" : "failed",
+          `Agent chat link created at /instance/${chatInstance.id}.`,
+          createdOnBrev ? "success" : "warning",
+        );
+        addProgress(`Deploying: instance chat created at /instance/${chatInstance.id}.`);
+      }
+      if (createdOnBrev) {
+        await wait(250);
+        recordDeploy("ready", `${nextBlueprint.agent_name} is live on Brev with memory and chat attached.`, "success");
+      }
+      if (chatInstance && data.launch) {
+        saveLaunchInstance({
+          projectId,
+          prompt: project?.prompt ?? nextBlueprint.goal,
+          blueprint: nextBlueprint,
+          launch: {
+            ...data.launch,
+            events: runEvents,
+          },
+        });
+      }
       const cloudStatus =
         createdOnBrev && chatInstance
           ? `${data.launch?.mode === "already_running" ? "Attached to the running Brev NemoClaw instance." : "Brev cloud instance creation started."} The generated startup manifest, integrations, NemoClaw chat runtime, and secret names are attached.\n\nInstance chat: /instance/${chatInstance.id}`
           : `${data.launch?.status?.message || "Brev launch returned a setup issue."}\n\nI created the instance chat for this generated NemoClaw manifest so you can inspect and test it now. Refresh Brev login, then press Deploy again to attach the same flow to a live Brev instance.${chatInstance ? `\n\nInstance chat: /instance/${chatInstance.id}` : ""}`;
       setChat((current) => [...current, ["assistant", cloudStatus]]);
+      await refreshIntegrationNeeds(project?.prompt ?? nextBlueprint.goal, nextBlueprint, {
+        announce: true,
+      });
       setProject(
         updateProject(projectId, {
           status: createdOnBrev ? "deployed" : "ready",
@@ -962,6 +1282,10 @@ function WorkspacePage() {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Brev deploy failed.";
+      const failureEvent = deploymentRuntimeEvent(message, "error");
+      setDeploymentPhase("failed");
+      setDeploymentEvents((current) => [...current, failureEvent]);
+      setEvents((current) => [...current, failureEvent]);
       setError(message);
       setWorkflowGraph((current) =>
         focusWorkflowNode(
@@ -1031,6 +1355,82 @@ function WorkspacePage() {
     }
   }
 
+  async function refreshIntegrationNeeds(
+    promptText = message || project?.prompt || blueprint?.goal || "",
+    nextBlueprint = blueprint,
+    options: { announce?: boolean } = {},
+  ) {
+    if (!promptText && !nextBlueprint) return;
+    try {
+      const response = await fetch("/api/clawforge/integrations/needs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          prompt: promptText,
+          blueprint: nextBlueprint,
+          user_id: auth.email ?? "clawforge-demo-user",
+        }),
+      });
+      const data = await response.json();
+      const needs = Array.isArray(data.integrations?.connection_needs)
+        ? (data.integrations.connection_needs as IntegrationNeed[])
+        : [];
+      setIntegrationNeeds(needs);
+      if (options.announce && needs.length > 0) {
+        addProgress(
+          `Integrations: ${needs
+            .slice(0, 3)
+            .map((need) => need.label)
+            .join(", ")} ${needs.length > 3 ? `and ${needs.length - 3} more ` : ""}will be requested before the agent uses those tools.`,
+        );
+      }
+    } catch {
+      setIntegrationNeeds([]);
+    }
+  }
+
+  async function connectIntegration(need: IntegrationNeed) {
+    setConnectingIntegrationId(need.id);
+    addProgress(`Integrations: opening secure connection for ${need.label}...`);
+    try {
+      const response = await fetch("/api/clawforge/integrations/connect", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          integration_id: need.id,
+          user_id: auth.email ?? "clawforge-demo-user",
+          callback_url: window.location.href,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error?.message || `Could not connect ${need.label}.`);
+      }
+      const url = data.connect?.redirect_url as string | undefined;
+      if (url) {
+        window.open(url, "_blank", "noopener,noreferrer");
+        addChat("assistant", `I opened the secure ${need.label} connection flow. Once it finishes, come back here and I’ll refresh the agent’s tool access.`);
+        const refreshOnReturn = () => {
+          if (document.visibilityState === "visible") {
+            void refreshIntegrationNeeds(project?.prompt ?? blueprint?.goal ?? message, blueprint);
+          }
+        };
+        window.addEventListener("focus", refreshOnReturn, { once: true });
+        document.addEventListener("visibilitychange", refreshOnReturn, { once: true });
+      } else {
+        addChat("assistant", data.connect?.message ?? `${need.label} needs admin setup before it can be connected.`);
+      }
+      await refreshIntegrationNeeds(project?.prompt ?? blueprint?.goal ?? message, blueprint);
+    } catch (err) {
+      addChat(
+        "assistant",
+        err instanceof Error ? err.message : `${need.label} connection needs attention.`,
+      );
+    } finally {
+      setConnectingIntegrationId(null);
+    }
+  }
+
   async function sendChat(nextMessage = message) {
     const clean = nextMessage.trim();
     if (!clean) return;
@@ -1039,6 +1439,8 @@ function WorkspacePage() {
     const requestedModel = matchModelCommand(clean);
     setChat((current) => [...current, ["user", clean]]);
     setChatLoading(true);
+    addProgress("Thinking: reading your request, updating the agent plan, and checking required tools...");
+    void refreshIntegrationNeeds(clean, blueprintWithModel(blueprint), { announce: true });
 
     const pendingClarification =
       project && !blueprint && setupQuestionsForPrompt(project.prompt).length > 0;
@@ -1052,6 +1454,7 @@ function WorkspacePage() {
           agentId: undefined,
         }) ?? project;
       setProject(updated);
+      addProgress("Thinking: merging your answers into the workflow and safety policy...");
       const optimisticGraph = buildOptimisticWorkflowGraph(nextPrompt);
       const remainingQuestions = setupQuestionsForPrompt(nextPrompt);
       if (remainingQuestions.length > 0) {
@@ -1080,6 +1483,7 @@ function WorkspacePage() {
       ]);
       const nextBlueprint = await loadBlueprint(updated, { preserveChat: true });
       if (nextBlueprint) {
+        void refreshIntegrationNeeds(nextPrompt, nextBlueprint, { announce: true });
         setChat((current) => [
           ...current,
           [
@@ -1107,6 +1511,7 @@ function WorkspacePage() {
     ) {
       action = "brev_deploy";
       actionReply = "Deploying the custom NemoClaw instance.";
+      addProgress("Deploying: preparing Brev and the instance chat link...");
     } else if (
       lower.includes("brev") ||
       lower.includes("cloud launch") ||
@@ -1114,6 +1519,7 @@ function WorkspacePage() {
     ) {
       action = "brev_plan";
       actionReply = "Preparing the cloud workspace for this custom NemoClaw instance.";
+      addProgress("Planning: generating the Brev launch manifest and required connections...");
     } else if (lower.includes("polic")) {
       action = "show_policies";
       setPanel("agent");
@@ -1150,21 +1556,31 @@ function WorkspacePage() {
       lower.startsWith("create ") ||
       lower.startsWith("build ") ||
       lower.startsWith("generate ") ||
+      lower.startsWith("change ") ||
+      lower.startsWith("update ") ||
+      lower.startsWith("edit ") ||
+      lower.includes("make it ") ||
       lower.includes("create a nemoclaw agent") ||
       lower.includes("build a nemoclaw agent")
     ) {
       action = "regenerate";
       actionReply = "Regenerating the NemoClaw instance from your new goal.";
+      addProgress("Building: creating a new workflow graph, policies, memory, and tool map...");
     } else if (
       lower.includes("add slack") ||
       lower.includes("add email") ||
       lower.includes("add calendar") ||
       lower.includes("add phone") ||
       lower.includes("add github") ||
+      lower.includes("remove ") ||
+      lower.includes("change ") ||
+      lower.includes("update ") ||
+      lower.includes("edit ") ||
       lower.includes("connect")
     ) {
       action = "augment";
       actionReply = "Updating the goal and rebuilding the integration-aware NemoClaw blueprint.";
+      addProgress("Building: applying the requested change and recalculating integrations...");
     } else if (lower.includes("why")) {
       action = "explain_pause";
       actionReply =
@@ -1175,8 +1591,15 @@ function WorkspacePage() {
       focusWorkflowFromChat(action, clean, {
         doneBefore: action !== "regenerate" && action !== "augment" && action !== "model",
       });
+    } else if (workflowGraph.nodes.length > 0) {
+      focusWorkflowFromChat("augment", clean, { doneBefore: true });
     }
 
+    const stopProgress = queueProgress([
+      "Thinking: mapping your request to the current graph...",
+      "Thinking: checking tools, policies, and memory boundaries...",
+      "Thinking: updating the canvas with the safest next step...",
+    ]);
     try {
       const response = await fetch("/api/clawforge/nemoclaw/chat", {
         method: "POST",
@@ -1211,6 +1634,7 @@ function WorkspacePage() {
         ],
       ]);
     } finally {
+      stopProgress();
       setChatLoading(false);
     }
 
@@ -1279,6 +1703,7 @@ function WorkspacePage() {
       setProject(updated);
       const nextBlueprint = await loadBlueprint(updated, { preserveChat: true });
       if (nextBlueprint) {
+        void refreshIntegrationNeeds(nextPrompt, nextBlueprint, { announce: true });
         setChat((current) => [
           ...current,
           [
@@ -1375,51 +1800,119 @@ function WorkspacePage() {
         <aside className="flex min-h-[560px] flex-col border-b border-white/10 bg-[#050505] lg:sticky lg:top-[73px] lg:h-[calc(100vh-73px)] lg:border-b-0 lg:border-r">
           <div className="border-b border-white/10 p-5">
             <div className="text-[11px] uppercase tracking-[0.28em] text-white/35">chat</div>
-            <h1 className="mt-4 max-w-[12ch] text-4xl font-semibold leading-[0.98] tracking-tight md:text-5xl">
-              Build the instance.
+            <h1 className="mt-4 max-w-[13ch] text-3xl font-semibold leading-[1.02] tracking-tight md:text-4xl">
+              Build a NemoClaw.
             </h1>
-            <p className="mt-4 max-w-sm text-sm leading-relaxed text-white/48">
-              Tell ClawForge what the agent should do. The canvas updates as it builds.
+            <p className="mt-3 max-w-sm text-sm leading-relaxed text-white/48">
+              Describe the work. I’ll ask what’s missing, wire the tools, then deploy it.
             </p>
           </div>
           <div className="flex-1 space-y-4 overflow-y-auto p-5 pb-6">
             {chat.map(([role, body], index) => (
               <div
                 key={`${role}-${index}`}
-                className={`max-w-[92%] border p-4 text-sm leading-relaxed ${
-                  role === "user"
-                    ? "ml-auto border-white/14 bg-white text-black"
-                    : "border-white/12 bg-white/[0.035] text-white/68"
+                className={`whitespace-pre-wrap text-sm leading-relaxed ${
+                  role === "progress"
+                    ? "max-w-full border-l border-white/12 py-1 pl-3 text-xs text-white/38"
+                    : role === "user"
+                      ? "ml-auto max-w-[92%] border border-white/14 bg-white p-4 text-black"
+                      : "max-w-[92%] border border-white/12 bg-white/[0.035] p-4 text-white/68"
                 }`}
               >
-                {body}
+                {role === "progress" ? (
+                  <span className="inline-flex items-start gap-2">
+                    <span
+                      className="mt-1.5 h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-white/45"
+                      aria-hidden="true"
+                    />
+                    <span>{body}</span>
+                  </span>
+                ) : (
+                  body
+                )}
               </div>
             ))}
+            {chatLoading && (
+              <div className="max-w-full border-l border-white/12 py-1 pl-3 text-xs text-white/38">
+                <span className="inline-flex items-start gap-2">
+                  <span
+                    className="mt-1.5 h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-300"
+                    aria-hidden="true"
+                  />
+                  <span>ClawForge is thinking through tools, policy, memory, and deployment...</span>
+                </span>
+              </div>
+            )}
 
-            {instanceChatId && (
-              <Link
-                to="/instance/$instanceId"
-                params={{ instanceId: instanceChatId }}
-                className="inline-flex w-full items-center justify-center rounded-full bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-white/88"
-              >
-                Open agent chat
-              </Link>
+            {integrationNeeds.length > 0 && (
+              <div className="rounded-[20px] border border-white/12 bg-white/[0.035] p-4">
+                <div className="flex items-center gap-2 text-sm font-medium text-white">
+                  <CircleAlert className="h-4 w-4 text-amber-200" aria-hidden="true" />
+                  Connect tools before they run
+                </div>
+                <div className="mt-3 space-y-2">
+                  {integrationNeeds.slice(0, 5).map((need) => (
+                    <div
+                      key={need.id}
+                      className="flex items-center justify-between gap-3 border-t border-white/8 pt-2 first:border-t-0 first:pt-0"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-xs font-medium text-white/75">
+                          {need.label}
+                        </div>
+                        <div className="truncate text-[11px] text-white/34">{need.purpose}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void connectIntegration(need)}
+                        disabled={!need.connectable || connectingIntegrationId === need.id}
+                        className="shrink-0 rounded-full border border-white/12 px-3 py-1.5 text-[11px] text-white/62 transition hover:border-white/28 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        {connectingIntegrationId === need.id
+                          ? "Opening"
+                          : need.connected
+                            ? "Connected"
+                            : need.action_label}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
 
             <div className="border border-white/12 bg-white/[0.025] p-4">
               <div className="flex items-center gap-2 text-sm text-white">
                 <Sparkles className="h-4 w-4" aria-hidden="true" />
-                Forging NemoClaw instance
+                {progressCard.title}
               </div>
-              <div className="mt-4 grid gap-2 text-xs text-white/54">
-                {buildLog.map((item) => (
-                  <div key={item} className="flex items-center gap-2">
-                    <Check className="h-3.5 w-3.5 text-emerald-300" aria-hidden="true" />
-                    {item}
+              <div className="mt-4 grid gap-3 text-xs">
+                {progressCard.rows.map((step) => (
+                  <div key={step.label} className="flex items-start gap-3">
+                    <span
+                      className={`mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border ${
+                        step.failed
+                          ? "border-red-300/60 text-red-200"
+                          : step.done
+                            ? "border-emerald-300/60 text-emerald-200"
+                            : step.active
+                              ? "border-amber-200/60 text-amber-100"
+                              : "border-white/14 text-white/30"
+                      }`}
+                    >
+                      {step.done ? <Check className="h-2.5 w-2.5" aria-hidden="true" /> : null}
+                    </span>
+                    <div>
+                      <div className="text-white/68">{step.label}</div>
+                      <div className="text-white/34">{step.detail}</div>
+                    </div>
                   </div>
                 ))}
               </div>
+              <div className="mt-4 border-t border-white/8 pt-3 text-[11px] text-white/30">
+                {progressCard.footer}
+              </div>
             </div>
+            <div ref={chatEndRef} />
           </div>
           <div className="sticky bottom-0 border-t border-white/10 bg-[#050505]/96 p-4 backdrop-blur-xl">
             <div className="mb-3 flex flex-wrap gap-2">
@@ -1540,10 +2033,10 @@ function WorkspacePage() {
               </div>
 
               <div className="relative h-[560px] overflow-hidden rounded-[10px] border border-white/12 bg-[#050505] shadow-[0_30px_90px_rgba(0,0,0,0.35)]">
-                {workflowGraph.nodes.length > 0 ? (
+                {visibleWorkflowGraph.nodes.length > 0 ? (
                   <>
                     <WorkflowCanvas
-                      graph={workflowGraph}
+                      graph={visibleWorkflowGraph}
                       activeNodeId={activeWorkflowNodeId}
                       selectedNodeId={selectedNodeId ?? undefined}
                       onNodeClick={setSelectedNodeId}
@@ -1770,23 +2263,65 @@ function WorkspacePage() {
                       <p>
                         {brevLaunch?.instanceName ?? "Deploy to create the live NemoClaw instance."}
                       </p>
-                      <p>
-                        {brevLaunch?.status?.message ??
-                          "The instance includes tools, safety checks, shared memory, and a chat link."}
-                      </p>
+	                      <p>
+	                        {brevLaunch?.status?.message ??
+	                          "The instance includes tools, safety checks, shared memory, and a chat link."}
+	                      </p>
                       <div className="border-t border-white/8 pt-3">
                         <div className="text-xs uppercase tracking-[0.18em] text-white/32">
-                          Required connections
+                          Deployment
+                        </div>
+                        <div className="mt-3 space-y-2">
+                          {deploySteps.map((step) => (
+                            <div key={step.label} className="flex items-start gap-2">
+                              <span
+                                className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
+                                  step.failed
+                                    ? "bg-red-300"
+                                    : step.done
+                                      ? "bg-emerald-300"
+                                      : step.active
+                                        ? "animate-pulse bg-amber-200"
+                                        : "bg-white/18"
+                                }`}
+                                aria-hidden="true"
+                              />
+                              <div>
+                                <div className="text-white/65">{step.label}</div>
+                                <div className="text-xs text-white/34">{step.detail}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+	                      <div className="border-t border-white/8 pt-3">
+	                        <div className="text-xs uppercase tracking-[0.18em] text-white/32">
+	                          Required connections
                         </div>
                         <div className="mt-2 space-y-2">
                           {(brevLaunch?.integrationManifest?.integrations ?? [])
                             .filter((integration) => integration.required)
                             .map((integration) => (
-                              <div key={integration.id} className="flex justify-between gap-3">
-                                <span>{integration.label}</span>
-                                <span className="text-white/34">{integration.status}</span>
-                              </div>
-                            ))}
+	                              <div key={integration.id} className="flex items-center justify-between gap-3">
+	                                <span>{integration.label}</span>
+                                  {integrationNeeds.find((need) => need.id === integration.id) ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const need = integrationNeeds.find(
+                                          (item) => item.id === integration.id,
+                                        );
+                                        if (need) void connectIntegration(need);
+                                      }}
+                                      className="rounded-full border border-white/12 px-2.5 py-1 text-[11px] text-white/58 transition hover:border-white/28 hover:text-white"
+                                    >
+                                      Connect
+                                    </button>
+                                  ) : (
+	                                  <span className="text-white/34">{integration.status}</span>
+                                  )}
+	                              </div>
+	                            ))}
                           {!brevLaunch?.integrationManifest?.integrations?.some(
                             (integration) => integration.required,
                           ) && <span className="text-white/38">No required connections yet.</span>}
@@ -1823,14 +2358,14 @@ function WorkspacePage() {
                           Talk to agent
                         </Link>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() => void deployToBrev()}
-                          disabled={!blueprint || cloudDeploying}
-                          className="inline-flex w-full items-center justify-center rounded-full bg-white px-4 py-2 text-sm font-semibold text-black transition hover:bg-white/88 disabled:opacity-45"
-                        >
-                          Deploy and create chat link
-                        </button>
+	                        <button
+	                          type="button"
+	                          onClick={() => void deployToBrev()}
+	                          disabled={!blueprint || cloudDeploying}
+	                          className="inline-flex w-full items-center justify-center rounded-full bg-white px-4 py-2 text-sm font-semibold text-black transition hover:bg-white/88 disabled:opacity-45"
+	                        >
+	                          {cloudDeploying ? "Deploying..." : "Deploy and create chat link"}
+	                        </button>
                       )}
                     </div>
                   </div>

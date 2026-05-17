@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { isSupabaseConfigured, supabase, type SupabaseSession } from "@/lib/supabase/client";
+import type { SupabaseUser } from "@/lib/supabase/client";
 
 export type ClawForgeAuthState = {
   loading: boolean;
   session: SupabaseSession | null;
+  user: SupabaseUser | null;
   demoEmail: string | null;
   email: string | null;
   isAuthenticated: boolean;
@@ -84,11 +86,13 @@ export function useClawForgeAuth(): ClawForgeAuthState {
     };
   }, []);
 
-  const email = session?.user?.email ?? demoEmail;
+  const user = session?.user ?? null;
+  const email = user?.email ?? demoEmail;
 
   return {
     loading,
     session,
+    user,
     demoEmail,
     email,
     isAuthenticated: Boolean(email) || !isSupabaseConfigured,

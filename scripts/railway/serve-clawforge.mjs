@@ -197,6 +197,7 @@ function instanceName(record) {
     record?.name ||
     record?.instance_name ||
     record?.instanceName ||
+    record?.machine_name ||
     record?.workspace_name ||
     record?.id ||
     null
@@ -208,6 +209,8 @@ function instanceState(record) {
     record?.status ||
     record?.state ||
     record?.phase ||
+    record?.lifecycle_state ||
+    record?.lifecycleState ||
     record?.health_status ||
     record?.shell_status ||
     record?.build_status ||
@@ -234,18 +237,22 @@ function matchingInstance(instances, name) {
 }
 
 function runningNemoClawInstance(instances) {
-  return (
-    instances
-      .map(detectInstance)
-      .find(
-        (instance) => instance.running && /clawforge|nemoclaw|openclaw/i.test(instance.name || ""),
-      ) || null
+  const detected = instances.map(detectInstance);
+  const named = detected.find(
+    (instance) => instance.running && /clawforge|nemoclaw|openclaw/i.test(instance.name || ""),
   );
+  if (named) return named;
+  const running = detected.filter((instance) => instance.running);
+  return running.length === 1 ? running[0] : null;
 }
 
 function redactToken(value) {
   if (!process.env.BREV_TOKEN) return value;
   return String(value).replaceAll(process.env.BREV_TOKEN, "[redacted-brev-token]");
+}
+
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", "'\"'\"'")}'`;
 }
 
 async function nativeBrevStatus(url) {
@@ -470,6 +477,7 @@ set -euo pipefail
 set +x
 export CLAWFORGE_REPO_URL="\${CLAWFORGE_REPO_URL:-https://github.com/animvsh/clawforge.git}"
 export CLAWFORGE_ROOT="\${CLAWFORGE_ROOT:-/home/shadeform/clawforge}"
+export CLAWFORGE_REPO_BUNDLE="\${CLAWFORGE_REPO_BUNDLE:-}"
 export CLAWFORGE_INTEGRATION_MANIFEST_B64='${manifestB64}'
 export CLAWFORGE_AGENT_NAME='${String(manifest.agent.name).replaceAll("'", "'\"'\"'")}'
 export CLAWFORGE_BLUEPRINT_ID='${manifest.agent.blueprint_id || ""}'
@@ -477,12 +485,148 @@ export CLAWFORGE_MODEL='${manifest.agent.model || ""}'
 export CLAWFORGE_PROVIDER='${manifest.agent.provider || ""}'
 if ! command -v git >/dev/null 2>&1; then sudo apt-get update && sudo apt-get install -y git; fi
 mkdir -p "$(dirname "\${CLAWFORGE_ROOT}")"
-if [[ ! -d "\${CLAWFORGE_ROOT}/.git" ]]; then git clone "\${CLAWFORGE_REPO_URL}" "\${CLAWFORGE_ROOT}"; else git -C "\${CLAWFORGE_ROOT}" pull --ff-only || true; fi
+if [[ -n "\${CLAWFORGE_REPO_BUNDLE}" && -f "\${CLAWFORGE_REPO_BUNDLE}" ]]; then
+  rm -rf "\${CLAWFORGE_ROOT}"
+  mkdir -p "\${CLAWFORGE_ROOT}"
+  tar -xzf "\${CLAWFORGE_REPO_BUNDLE}" -C "\${CLAWFORGE_ROOT}"
+elif [[ ! -d "\${CLAWFORGE_ROOT}/.git" ]]; then
+  git clone "\${CLAWFORGE_REPO_URL}" "\${CLAWFORGE_ROOT}"
+else
+  git -C "\${CLAWFORGE_ROOT}" pull --ff-only || true
+fi
 cd "\${CLAWFORGE_ROOT}"
 ./scripts/brev/setup-clawforge.sh
 `;
   await writeFile(filePath, script, { mode: 0o700 });
   return filePath;
+}
+
+async function runStartupOnBrev(cliPath, instanceName, startupScript) {
+  const safeName = instanceName.replace(/[^a-z0-9-]+/gi, "-");
+  const remotePath = `/tmp/clawforge-${safeName}-startup.sh`;
+  const remoteLogPath = `/tmp/clawforge-${safeName}-deploy.log`;
+  const copied = await run(
+    cliPath,
+    ["copy", startupScript, `${instanceName}:${remotePath}`],
+    120_000,
+  );
+  if (!copied.ok) return copied;
+  const bundle = await createRepoBundle(safeName);
+  if (!bundle.ok || !bundle.path) return bundle;
+  const remoteBundlePath = `/tmp/clawforge-${safeName}-source.tar.gz`;
+  const copiedBundle = await run(
+    cliPath,
+    ["copy", bundle.path, `${instanceName}:${remoteBundlePath}`],
+    180_000,
+  );
+  if (!copiedBundle.ok) return copiedBundle;
+  const remoteCommand = [
+    `chmod +x ${remotePath}`,
+    `(nohup env CLAWFORGE_REPO_BUNDLE=${remoteBundlePath} bash ${remotePath} > ${remoteLogPath} 2>&1 < /dev/null & echo "clawforge-deploy-started:$!")`,
+  ].join(" && ");
+  const started = await run(
+    cliPath,
+    ["exec", instanceName, `bash -lc ${shellQuote(remoteCommand)}`],
+    30_000,
+  );
+  if (!started.ok) return started;
+  const healthy = await pollBrevRuntimeHealth(cliPath, instanceName, remoteLogPath);
+  return {
+    ok: healthy.ok,
+    stdout: [started.stdout, healthy.stdout].filter(Boolean).join("\n"),
+    stderr: healthy.ok
+      ? started.stderr
+      : [started.stderr, healthy.stderr].filter(Boolean).join("\n"),
+    exitCode: healthy.ok ? 0 : 1,
+  };
+}
+
+async function pollBrevRuntimeHealth(cliPath, instanceName, remoteLogPath) {
+  const startedAt = Date.now();
+  let last = { ok: false, stdout: "", stderr: "", exitCode: 1 };
+  while (Date.now() - startedAt < 600_000) {
+    const result = await run(
+      cliPath,
+      [
+        "exec",
+        instanceName,
+        [
+          "curl -fsS http://127.0.0.1:8000/health >/tmp/clawforge-mem0-health.json",
+          "curl -fsS http://127.0.0.1:5173/api/health >/tmp/clawforge-app-health.json",
+          "cat /tmp/clawforge-mem0-health.json",
+          "printf '\\n---app---\\n'",
+          "cat /tmp/clawforge-app-health.json",
+        ].join(" && "),
+      ],
+      20_000,
+    );
+    if (result.ok) return result;
+    last = result;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 5_000));
+  }
+  const logs = await run(
+    cliPath,
+    ["exec", instanceName, `tail -120 ${shellQuote(remoteLogPath)} 2>/dev/null || true`],
+    20_000,
+  );
+  return {
+    ok: false,
+    stdout: logs.stdout,
+    stderr: logs.stderr || last.stderr || "Timed out waiting for Brev runtime health.",
+    exitCode: 1,
+  };
+}
+
+async function checkBrevRuntimeHealth(cliPath, instanceName) {
+  return run(
+    cliPath,
+    [
+      "exec",
+      instanceName,
+      [
+        "curl -fsS http://127.0.0.1:8000/health >/tmp/clawforge-mem0-health.json",
+        "curl -fsS http://127.0.0.1:5173/api/health >/tmp/clawforge-app-health.json",
+        "cat /tmp/clawforge-mem0-health.json",
+        "printf '\\n---app---\\n'",
+        "cat /tmp/clawforge-app-health.json",
+      ].join(" && "),
+    ],
+    30_000,
+  );
+}
+
+async function createRepoBundle(safeName) {
+  const bundleDir = resolve(root, ".runtime/brev");
+  await mkdir(bundleDir, { recursive: true, mode: 0o700 });
+  const bundlePath = join(bundleDir, `${safeName}-source.tar.gz`);
+  const result = await run(
+    "tar",
+    [
+      "-czf",
+      bundlePath,
+      "--exclude",
+      ".git",
+      "--exclude",
+      "node_modules",
+      "--exclude",
+      "dist",
+      "--exclude",
+      ".runtime",
+      "--exclude",
+      ".env",
+      "--exclude",
+      ".env.local",
+      "--exclude",
+      "playwright-report",
+      "--exclude",
+      "test-results",
+      ".",
+    ],
+    120_000,
+  );
+  return result.ok
+    ? { ...result, path: bundlePath }
+    : { ...result, stderr: result.stderr || "Could not package ClawForge source." };
 }
 
 async function handleNativeBrev(request, response, url) {
@@ -540,16 +684,27 @@ async function handleNativeBrev(request, response, url) {
         mode = "create_blocked";
         ok = false;
       } else if (existingInstance?.name) {
-        mode = "already_running";
-        ok = true;
+        const setup = await runStartupOnBrev(status.cliPath, existingInstance.name, startupScript);
+        const health = setup.ok
+          ? setup
+          : await checkBrevRuntimeHealth(status.cliPath, existingInstance.name);
+        mode = health.ok ? "already_running" : "create_failed";
+        ok = health.ok;
         events.push({
           id: `railway_brev_attach_${Date.now()}`,
           agent_id: manifest.agent.id,
-          type: "agent.started",
-          message: `Attached to existing Brev NemoClaw instance "${existingInstance.name}".`,
+          type: health.ok ? "agent.started" : "agent.error",
+          message: health.ok
+            ? `Deployed NemoClaw runtime onto existing Brev instance "${existingInstance.name}".`
+            : `Brev instance "${existingInstance.name}" is running, but NemoClaw setup failed.`,
           timestamp: new Date().toISOString(),
-          severity: "success",
-          metadata: { instance_name: existingInstance.name, state: existingInstance.state },
+          severity: health.ok ? "success" : "error",
+          metadata: {
+            instance_name: existingInstance.name,
+            state: existingInstance.state,
+            stdout: health.stdout.slice(0, 800),
+            stderr: health.stderr.slice(0, 800),
+          },
         });
       } else {
         const created = await run(
@@ -577,7 +732,7 @@ async function handleNativeBrev(request, response, url) {
       launch: {
         ok,
         mode,
-        instanceName,
+        instanceName: existingInstance?.name && mode === "already_running" ? existingInstance.name : instanceName,
         command,
         status: mode === "created" ? await nativeBrevStatus() : status,
         events,

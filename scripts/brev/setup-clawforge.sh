@@ -29,16 +29,16 @@ node_major() {
   node -p "Number(process.versions.node.split('.')[0])" 2>/dev/null || printf '0'
 }
 
-install_node_20() {
-  if [[ "${INSTALL_NODE_20:-auto}" == "0" ]]; then
-    fail "Node.js 20+ is required. Set INSTALL_NODE_20=auto or install Node 20+ before rerunning."
+install_node_22() {
+  if [[ "${INSTALL_NODE_22:-auto}" == "0" ]]; then
+    fail "Node.js 22+ is required. Set INSTALL_NODE_22=auto or install Node 22+ before rerunning."
   fi
 
-  have curl || fail "curl is required to install Node.js 20 on this Brev VM."
-  have sudo || fail "sudo is required to install Node.js 20 on this Brev VM."
+  have curl || fail "curl is required to install Node.js 22 on this Brev VM."
+  have sudo || fail "sudo is required to install Node.js 22 on this Brev VM."
 
-  log "Installing Node.js 20 from NodeSource"
-  curl -fsSL https://deb.nodesource.com/setup_20.x -o /tmp/clawforge-nodesource-setup.sh
+  log "Installing Node.js 22 from NodeSource"
+  curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/clawforge-nodesource-setup.sh
   sudo -E bash /tmp/clawforge-nodesource-setup.sh
   sudo apt-get install -y nodejs
   rm -f /tmp/clawforge-nodesource-setup.sh
@@ -48,8 +48,8 @@ log "Preparing ClawForge in ${REPO_ROOT}"
 
 have git || fail "git is required on the Brev instance."
 
-if ! have node || [[ "$(node_major)" -lt 20 ]]; then
-  install_node_20
+if ! have node || [[ "$(node_major)" -lt 22 ]]; then
+  install_node_22
 fi
 
 have npm || fail "npm is required after Node.js installation."
@@ -113,6 +113,69 @@ cat > .runtime/memory/mem0-runtime.json <<EOF
 }
 EOF
 chmod 600 .runtime/memory/mem0-runtime.json
+
+setup_self_hosted_mem0() {
+  log "Setting up self-hosted mem0-compatible memory service"
+  have python3 || fail "python3 is required for the Brev-hosted memory service."
+
+  python3 -m venv .runtime/mem0-venv
+  .runtime/mem0-venv/bin/python -m pip install --upgrade pip wheel
+  .runtime/mem0-venv/bin/pip install -r services/mem0/requirements.txt
+
+  export MEM0_DATA_DIR="${MEM0_DATA_DIR:-${REPO_ROOT}/.runtime/mem0}"
+  export MEM0_API_URL="${MEM0_API_URL:-http://127.0.0.1:${MEM0_PORT:-8000}}"
+  export NEMOTRON_EMBEDDING_MODEL="${NEMOTRON_EMBEDDING_MODEL:-nvidia/nv-embedqa-e5-v5}"
+  mkdir -p "${MEM0_DATA_DIR}"
+
+  cat > .runtime/memory/mem0-runtime.json <<EOF
+{
+  "engine": "self_hosted_mem0",
+  "hosted_on": "brev",
+  "scope": "workspace",
+  "api_url": "${MEM0_API_URL}",
+  "reasoning_model": "${CLAWFORGE_MODEL:-nvidia/llama-3.1-nemotron-nano-8b-v1}",
+  "embedding_model": "${NEMOTRON_EMBEDDING_MODEL}",
+  "storage_path": "${MEM0_DATA_DIR}"
+}
+EOF
+  chmod 600 .runtime/memory/mem0-runtime.json
+
+  if [[ -f .runtime/mem0.pid ]]; then
+    old_mem0_pid="$(cat .runtime/mem0.pid || true)"
+    if [[ -n "${old_mem0_pid}" ]] && kill -0 "${old_mem0_pid}" >/dev/null 2>&1; then
+      log "Self-hosted mem0 service already running with pid ${old_mem0_pid}."
+    else
+      rm -f .runtime/mem0.pid
+    fi
+  fi
+
+  if [[ ! -f .runtime/mem0.pid ]]; then
+    log "Starting self-hosted mem0-compatible API on ${MEM0_API_URL}"
+    nohup env \
+      MEM0_DATA_DIR="${MEM0_DATA_DIR}" \
+      MEM0_API_KEY="${MEM0_API_KEY:-}" \
+      NVIDIA_NEMOTRON_MODEL="${CLAWFORGE_MODEL:-nvidia/llama-3.1-nemotron-nano-8b-v1}" \
+      NEMOTRON_EMBEDDING_MODEL="${NEMOTRON_EMBEDDING_MODEL}" \
+      .runtime/mem0-venv/bin/uvicorn services.mem0.server:app --host 127.0.0.1 --port "${MEM0_PORT:-8000}" \
+      > .runtime/mem0.log 2>&1 &
+    echo "$!" > .runtime/mem0.pid
+    sleep 3
+  fi
+
+  if curl -fsS "${MEM0_API_URL}/health" >/tmp/clawforge-mem0-health.json; then
+    log "Self-hosted mem0 memory service is healthy."
+    cat /tmp/clawforge-mem0-health.json
+    rm -f /tmp/clawforge-mem0-health.json
+  else
+    warn "Self-hosted mem0 memory service did not pass health check yet. Inspect .runtime/mem0.log on the Brev VM."
+  fi
+}
+
+if [[ "${START_MEM0:-1}" == "1" ]]; then
+  setup_self_hosted_mem0
+else
+  log "Skipping self-hosted mem0 because START_MEM0=0."
+fi
 
 log "Checking required Brev secret names. Values are intentionally hidden."
 required_secret_names=(

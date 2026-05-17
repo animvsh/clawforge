@@ -1,5 +1,5 @@
 import { isSupabaseConfigured, supabase, type SupabaseSession } from "@/lib/supabase/client";
-import { X } from "lucide-react";
+import { Chrome, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   clearDemoEmail,
@@ -131,6 +131,22 @@ export function AuthPanel({ forceOpen = false, locked = false, onAuthenticated }
     setPassword("");
   }
 
+  async function signInWithGoogle() {
+    if (!supabase) return;
+    setLoading(true);
+    setMessage("");
+    const redirectTo = typeof window === "undefined" ? undefined : window.location.href;
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: redirectTo ? { redirectTo } : undefined,
+    });
+    if (error) {
+      setLoading(false);
+      setMessageTone("error");
+      setMessage(error.message);
+    }
+  }
+
   async function signOut() {
     if (supabase) await supabase.auth.signOut();
     clearDemoEmail();
@@ -215,6 +231,22 @@ export function AuthPanel({ forceOpen = false, locked = false, onAuthenticated }
         </div>
 
         <form onSubmit={submit} className="p-5">
+          <button
+            type="button"
+            onClick={() => void signInWithGoogle()}
+            disabled={loading}
+            className="mb-4 flex h-12 w-full items-center justify-center gap-2 rounded-full border border-white/14 bg-white/[0.035] text-sm font-semibold text-white/78 transition hover:border-white/30 hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <Chrome className="h-4 w-4" aria-hidden="true" />
+            Continue with Google
+          </button>
+
+          <div className="mb-4 flex items-center gap-3 text-[10px] uppercase tracking-[0.2em] text-white/26">
+            <span className="h-px flex-1 bg-white/10" />
+            or
+            <span className="h-px flex-1 bg-white/10" />
+          </div>
+
           <div className="grid grid-cols-2 gap-px overflow-hidden rounded-full border border-white/10 bg-white/10 p-1">
             {[
               ["signin", "Sign in"],

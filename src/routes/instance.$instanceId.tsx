@@ -1,5 +1,17 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { ArrowLeft, ArrowUp, Check, Copy, Server, Shield, Sparkles } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowUp,
+  Check,
+  Copy,
+  Hash,
+  Mail,
+  MessageCircle,
+  Phone,
+  Server,
+  Shield,
+  Sparkles,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AuthPanel } from "@/components/clawforge/AuthPanel";
 import { ClawForgeLogo } from "@/components/clawforge/ClawForgeFrame";
@@ -35,9 +47,9 @@ function timeLabel(value: string) {
 
 function statusCopy(instance: ClawForgeInstance) {
   if (instance.mode === "create_failed") {
-    return "This chat is ready for the generated NemoClaw manifest. Brev cloud attach is waiting for a healthy runtime connection, but you can inspect policies, memory, integrations, and the runtime plan here.";
+    return "The agent is still building. Brev did not return a healthy runtime yet, so this page is showing the deployment plan, logs, and generated NemoClaw manifest while the cloud attach is repaired.";
   }
-  if (instance.status === "created") {
+  if (isLiveBrevInstance(instance)) {
     return "This chat is attached to the Brev-hosted NemoClaw agent. Runtime updates, policies, memory, and integration context are available here.";
   }
   if (instance.status === "failed") {
@@ -46,7 +58,15 @@ function statusCopy(instance: ClawForgeInstance) {
       "The cloud runtime needs attention, but this chat still controls the generated NemoClaw manifest."
     );
   }
-  return "This is the NemoClaw agent chat for the generated manifest. Once Brev auth is active, the same URL attaches to the live runtime.";
+  return "The agent is still building. This page will become the live NemoClaw chat as soon as the Brev runtime is ready.";
+}
+
+function isLiveBrevInstance(instance: ClawForgeInstance) {
+  return (
+    instance.status === "created" &&
+    !instance.instanceName.startsWith("local-") &&
+    (instance.mode === "already_running" || instance.mode === "created")
+  );
 }
 
 function InstanceChatPage() {
@@ -71,13 +91,14 @@ function InstanceChatPage() {
       setProvider(stored.blueprint?.provider ?? recommended.provider);
       setModel(stored.blueprint?.model ?? recommended.model);
       setEvents([
+        ...(stored.events ?? []),
         {
           id: `instance_loaded_${stored.id}`,
           agent_id: stored.blueprint?.blueprint_id ?? stored.id,
           type: "agent.started",
           message: `${stored.agentName} chat web UI attached to ${stored.instanceName}.`,
           timestamp: new Date().toISOString(),
-          severity: stored.status === "failed" ? "warning" : "success",
+	          severity: stored.status === "created" ? "success" : "warning",
         },
       ]);
       setChat([
@@ -98,6 +119,7 @@ function InstanceChatPage() {
   const displayStatus = useMemo(() => {
     if (!instance) return "";
     if (instance.mode === "create_failed") return "waiting for Brev attach";
+    if (!isLiveBrevInstance(instance)) return "building";
     return instance.status;
   }, [instance]);
 
@@ -105,6 +127,23 @@ function InstanceChatPage() {
     if (!instance) return "";
     if (instance.mode === "create_failed") return "preview";
     return instance.mode.replaceAll("_", " ");
+  }, [instance]);
+
+  const deploymentSteps = useMemo(() => {
+    if (!instance) return [];
+    const live = isLiveBrevInstance(instance);
+    const failed = instance.mode === "create_failed" || instance.status === "failed";
+    return [
+      ["Manifest", true, "Agent prompt, policy, tools, and memory plan generated"],
+      ["Brev runtime", live, instance.message ?? "Waiting for Brev health check"],
+      [
+        "Memory",
+        Boolean(instance.integrationManifest) && live,
+        "Self-hosted mem0 runtime attached on Brev",
+      ],
+      ["Chat link", true, `/instance/${instance.id}`],
+      ...(failed ? [["Needs attention", false, "Review deployment logs and redeploy from workspace"]] : []),
+    ] as Array<[string, boolean, string]>;
   }, [instance]);
 
   async function sendChat(nextMessage = message) {
@@ -165,7 +204,12 @@ function InstanceChatPage() {
       setEvents((current) => [...current, ...nextEvents]);
       setChat((current) => [
         ...current,
-        ["assistant", localReply ? `${localReply}\n\n${reply}` : reply],
+        [
+          "assistant",
+          localReply && !reply.toLowerCase().includes(localReply.toLowerCase().slice(0, 24))
+            ? `${localReply}\n\n${reply}`
+            : reply,
+        ],
       ]);
     } catch (err) {
       setChat((current) => [
@@ -261,17 +305,48 @@ function InstanceChatPage() {
           </h1>
           <p className="mt-4 text-sm leading-relaxed text-white/54">{statusCopy(instance)}</p>
 
-          <div className="mt-6 border border-white/12 bg-white/[0.025] p-4">
+	            <div className="mt-6 border border-white/12 bg-white/[0.025] p-4">
             <div className="flex items-center gap-2 text-sm font-medium text-white">
               <Server className="h-4 w-4" aria-hidden="true" />
               {instance.instanceName}
+	            </div>
+
+            {!isLiveBrevInstance(instance) && (
+              <div className="mt-4 border border-amber-200/20 bg-amber-200/[0.04] p-4">
+                <div className="text-sm font-medium text-amber-100">Still deploying</div>
+                <p className="mt-2 text-sm leading-relaxed text-white/50">
+                  The generated agent exists, but the Brev-hosted NemoClaw runtime is not ready yet.
+                  Keep this page open for logs, or redeploy from the workspace.
+                </p>
+              </div>
+            )}
+
+            <div className="mt-4 border border-white/12 bg-white/[0.025] p-4">
+              <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">
+                deployment
+              </div>
+              <div className="mt-4 space-y-3">
+                {deploymentSteps.map(([label, done, detail]) => (
+                  <div key={label} className="flex gap-3">
+                    <span
+                      className={`mt-1 h-2 w-2 rounded-full ${
+                        done ? "bg-emerald-300" : "animate-pulse bg-amber-200"
+                      }`}
+                      aria-hidden="true"
+                    />
+                    <div>
+                      <div className="text-sm text-white/70">{label}</div>
+                      <div className="text-xs text-white/34">{detail}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
             <div className="mt-3 grid gap-2 text-xs text-white/45">
               <div>Status: {instance.status}</div>
               <div>Mode: {displayMode}</div>
               <div>
-                Runtime:{" "}
-                {instance.status === "created" ? "Brev-hosted NemoClaw" : "NemoClaw preview"}
+                Runtime: {isLiveBrevInstance(instance) ? "Brev NemoClaw" : "NemoClaw preview"}
               </div>
             </div>
           </div>
@@ -314,6 +389,30 @@ function InstanceChatPage() {
               )}
             </div>
           </div>
+
+          <div className="mt-4 border border-white/12 bg-white/[0.025] p-4">
+            <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">channels</div>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              {[
+                ["Slack", Hash],
+                ["Discord", MessageCircle],
+                ["Telegram", MessageCircle],
+                ["Email", Mail],
+                ["SMS", Phone],
+                ["Calls", Phone],
+              ].map(([label, Icon]) => (
+                <button
+                  key={String(label)}
+                  type="button"
+                  className="flex items-center gap-2 rounded-2xl border border-white/10 bg-black/35 px-3 py-2 text-xs text-white/52 transition hover:border-white/24 hover:text-white"
+                  onClick={() => void sendChat(`Add ${label} as a channel for this agent`)}
+                >
+                  <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
         </aside>
 
         <section className="grid min-w-0 bg-black xl:grid-cols-[1fr_360px]">
@@ -322,7 +421,7 @@ function InstanceChatPage() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">
-                    chat web ui
+                    agent chat
                   </div>
                   <h2 className="mt-2 text-2xl font-semibold text-white">{instance.agentName}</h2>
                 </div>

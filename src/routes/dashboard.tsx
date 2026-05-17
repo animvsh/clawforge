@@ -1,5 +1,5 @@
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowRight, Plus } from "lucide-react";
+import { ArrowRight, Plus, Trash2 } from "lucide-react";
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { AuthPanel } from "@/components/clawforge/AuthPanel";
@@ -8,11 +8,13 @@ import { useClawForgeAuth } from "@/lib/clawforge/auth";
 import {
   listInstances,
   listProjectInstances,
+  deleteProjectInstances,
   type ClawForgeInstance,
 } from "@/lib/clawforge/instances";
 import {
   type ClawForgeProject,
   createProject,
+  deleteProject,
   ensureDemoProjects,
   listProjects,
 } from "@/lib/clawforge/projects";
@@ -85,6 +87,13 @@ function DashboardPage() {
       to: "/workspace/$projectId",
       params: { projectId: project.id },
     });
+  }
+
+  function removeProject(projectId: string) {
+    deleteProject(projectId);
+    deleteProjectInstances(projectId);
+    setProjects(listProjects());
+    setInstances(listInstances());
   }
 
   return (
@@ -230,8 +239,16 @@ function DashboardPage() {
                       className="inline-flex items-center justify-center gap-2 rounded-full border border-white/12 px-4 py-2 text-sm font-semibold text-white/70 transition hover:border-white/28 hover:text-white"
                     >
                       Deploy instance
-                    </Link>
-                  )}
+	                    </Link>
+	                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeProject(project.id)}
+                    className="inline-flex items-center justify-center gap-2 rounded-full border border-white/12 px-4 py-2 text-sm font-semibold text-white/45 transition hover:border-red-300/35 hover:text-red-100"
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    Delete agent
+                  </button>
                 </div>
               </div>
             );

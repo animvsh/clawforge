@@ -7,6 +7,7 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 
 import appCss from "../styles.css?url";
 
@@ -118,9 +119,34 @@ function RootShell({ children }: { children: React.ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const [showSplash, setShowSplash] = useState(true);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setShowSplash(false), 850);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
+      {showSplash && (
+        <div className="fixed inset-0 z-[100] grid place-items-center bg-black text-white transition-opacity">
+          <div className="flex flex-col items-center gap-5">
+            <div className="grid h-16 w-16 animate-[clawforgePulse_850ms_ease-out_both] place-items-center rounded-full border border-white/12 bg-white/[0.035]">
+              <div className="h-0 w-0 translate-x-0.5 border-y-[13px] border-l-[22px] border-y-transparent border-l-white" />
+            </div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.34em] text-white/46">
+              clawforge
+            </div>
+          </div>
+          <style>{`
+            @keyframes clawforgePulse {
+              0% { opacity: 0; transform: scale(0.88); filter: blur(4px); }
+              45% { opacity: 1; transform: scale(1.03); filter: blur(0); }
+              100% { opacity: 1; transform: scale(1); filter: blur(0); }
+            }
+          `}</style>
+        </div>
+      )}
       <Outlet />
     </QueryClientProvider>
   );

@@ -100,13 +100,18 @@ interface WorkflowCanvasProps {
 }
 
 type WorkflowNodeData = WorkflowNode & Record<string, unknown>;
+type WorkflowNodeCardData = WorkflowNodeData & { isActive?: boolean };
 type WorkflowFlowNode = Node<WorkflowNodeData>;
 
 // ---------------------------------------------------------------------------
 // Data mapping helpers
 // ---------------------------------------------------------------------------
 
-function graphNodesToFlowNodes(graph: WorkflowGraph, selectedNodeId?: string): WorkflowFlowNode[] {
+function graphNodesToFlowNodes(
+  graph: WorkflowGraph,
+  selectedNodeId?: string,
+  activeNodeId?: string,
+): WorkflowFlowNode[] {
   return graph.nodes.map((node) => {
     const x = node.x !== undefined ? node.x * COL_SPACING : 0;
     const y = node.y !== undefined ? node.y * ROW_SPACING : 0;
@@ -114,7 +119,7 @@ function graphNodesToFlowNodes(graph: WorkflowGraph, selectedNodeId?: string): W
       id: node.id,
       type: "workflow",
       position: { x, y },
-      data: { ...node },
+      data: { ...node, isActive: node.id === activeNodeId },
       selected: node.id === selectedNodeId,
     };
   });
@@ -174,11 +179,11 @@ function computeDefaultPositions(graph: WorkflowGraph): WorkflowNode[] {
 // ---------------------------------------------------------------------------
 
 function WorkflowNodeCard({ data }: NodeProps) {
-  const node = data as WorkflowNodeData;
+  const node = data as WorkflowNodeCardData;
   const statusStyle = STATUS_STYLES[node.status] ?? STATUS_STYLES.idle;
   const kindColor = KIND_COLORS[node.kind] ?? "#71717a";
 
-  const isRunning = node.status === "running" || node.status === "generating";
+  const isRunning = node.status === "running" || node.status === "generating" || node.isActive;
 
   return (
     <div
@@ -193,7 +198,9 @@ function WorkflowNodeCard({ data }: NodeProps) {
           ? statusStyle.glow
             ? `${statusStyle.glow}, 0 0 20px rgba(96,165,250,0.25)`
             : "0 0 20px rgba(96,165,250,0.25)"
-          : "none",
+          : node.isActive
+            ? "0 0 0 1px rgba(255,255,255,0.18)"
+            : "none",
         animation: statusStyle.anim ?? undefined,
         transition: "border-color 0.2s, box-shadow 0.2s",
         userSelect: "none",
@@ -317,6 +324,7 @@ interface CanvasInnerProps {
 
 function CanvasInner({
   graph,
+  activeNodeId,
   selectedNodeId,
   onNodeClick,
   onNodesChange,
@@ -333,8 +341,8 @@ function CanvasInner({
   }, [graph]);
 
   const initialNodes = useMemo(
-    () => graphNodesToFlowNodes(layoutedGraph, selectedNodeId),
-    [layoutedGraph, selectedNodeId],
+    () => graphNodesToFlowNodes(layoutedGraph, selectedNodeId, activeNodeId),
+    [activeNodeId, layoutedGraph, selectedNodeId],
   );
 
   const initialEdges = useMemo(() => graphEdgesToFlowEdges(layoutedGraph), [layoutedGraph]);
@@ -368,19 +376,28 @@ function CanvasInner({
 
     const layouted = computeDefaultPositions(graph);
     const layoutedGraphAdjusted = { ...graph, nodes: layouted };
-    setNodes(graphNodesToFlowNodes(layoutedGraphAdjusted, selectedNodeId));
+    setNodes(graphNodesToFlowNodes(layoutedGraphAdjusted, selectedNodeId, activeNodeId));
     setEdges(graphEdgesToFlowEdges(layoutedGraphAdjusted));
     lastPositionSignatureRef.current = positionSignature;
     setTimeout(() => {
       fitView({ padding: 0.3, duration: 200 });
     }, 50);
-  }, [fitView, graph, positionSignature, selectedNodeId, setEdges, setNodes, topologySignature]);
+  }, [
+    activeNodeId,
+    fitView,
+    graph,
+    positionSignature,
+    selectedNodeId,
+    setEdges,
+    setNodes,
+    topologySignature,
+  ]);
 
   // Reapply saved/server-provided coordinates without fitting the viewport.
   useEffect(() => {
     if (lastPositionSignatureRef.current === positionSignature) return;
     lastPositionSignatureRef.current = positionSignature;
-    const latestFlowNodes = graphNodesToFlowNodes(layoutedGraph, selectedNodeId);
+    const latestFlowNodes = graphNodesToFlowNodes(layoutedGraph, selectedNodeId, activeNodeId);
     setNodes((currentNodes) => {
       const currentById = new Map(currentNodes.map((node) => [node.id, node]));
       return latestFlowNodes.map((node) => ({
@@ -390,7 +407,7 @@ function CanvasInner({
         selected: node.selected,
       }));
     });
-  }, [layoutedGraph, positionSignature, selectedNodeId, setNodes]);
+  }, [activeNodeId, layoutedGraph, positionSignature, selectedNodeId, setNodes]);
 
   // Sync selected/status data without replacing node positions.
   useEffect(() => {
@@ -398,11 +415,14 @@ function CanvasInner({
     setNodes((nds) =>
       nds.map((n) => ({
         ...n,
-        data: (latestById.get(n.id) ?? n.data) as WorkflowNodeData,
+        data: {
+          ...(latestById.get(n.id) ?? n.data),
+          isActive: n.id === activeNodeId,
+        } as WorkflowNodeData,
         selected: n.id === selectedNodeId,
       })),
     );
-  }, [layoutedGraph.nodes, selectedNodeId, setNodes]);
+  }, [activeNodeId, layoutedGraph.nodes, selectedNodeId, setNodes]);
 
   const handleNodesChange = useCallback(
     (changes: Parameters<typeof onNodesChangeInternal>[0]) => {
@@ -464,38 +484,55 @@ function CanvasInner({
   };
 
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      onNodesChange={handleNodesChange}
-      onEdgesChange={handleEdgesChange}
-      onConnect={handleConnect}
-      onNodeClick={handleNodeClick}
-      onNodeDragStop={handleNodeDragStop}
-      nodeTypes={nodeTypes}
-      fitViewOptions={{ padding: 0.3 }}
-      defaultEdgeOptions={{
-        markerEnd: { type: MarkerType.ArrowClosed },
-        style: { stroke: "rgba(255,255,255,0.35)", strokeWidth: 1.5 },
-      }}
-      style={{ background: "#0a0a0a" }}
-      minZoom={0.25}
-      maxZoom={2.5}
-    >
-      <Background color="#2a2a2a" gap={24} size={1} />
-      <Controls
-        style={{
-          background: "#141414",
-          border: "1px solid rgba(255,255,255,0.12)",
-          borderRadius: 8,
+    <>
+      <style>{`
+        .clawforge-flow .react-flow__controls {
+          overflow: hidden;
+          background: #111111;
+          border: 1px solid rgba(255,255,255,0.14);
+          border-radius: 8px;
+          box-shadow: none;
+        }
+        .clawforge-flow .react-flow__controls-button {
+          background: #151515;
+          border-bottom: 1px solid rgba(255,255,255,0.10);
+          color: #f5f5f5;
+        }
+        .clawforge-flow .react-flow__controls-button:hover {
+          background: #242424;
+        }
+        .clawforge-flow .react-flow__controls-button svg {
+          fill: #f5f5f5;
+        }
+      `}</style>
+      <ReactFlow
+        className="clawforge-flow"
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={handleNodesChange}
+        onEdgesChange={handleEdgesChange}
+        onConnect={handleConnect}
+        onNodeClick={handleNodeClick}
+        onNodeDragStop={handleNodeDragStop}
+        nodeTypes={nodeTypes}
+        fitViewOptions={{ padding: 0.3 }}
+        defaultEdgeOptions={{
+          markerEnd: { type: MarkerType.ArrowClosed },
+          style: { stroke: "rgba(255,255,255,0.35)", strokeWidth: 1.5 },
         }}
-      />
-      <MiniMap
-        nodeColor={(n) => KIND_COLORS[(n.data as WorkflowNodeData)?.kind] ?? "#71717a"}
-        style={{ background: "#141414" }}
-        maskColor="rgba(0,0,0,0.6)"
-      />
-    </ReactFlow>
+        style={{ background: "#0a0a0a" }}
+        minZoom={0.25}
+        maxZoom={2.5}
+      >
+        <Background color="#2a2a2a" gap={24} size={1} />
+        <Controls />
+        <MiniMap
+          nodeColor={(n) => KIND_COLORS[(n.data as WorkflowNodeData)?.kind] ?? "#71717a"}
+          style={{ background: "#141414" }}
+          maskColor="rgba(0,0,0,0.6)"
+        />
+      </ReactFlow>
+    </>
   );
 }
 

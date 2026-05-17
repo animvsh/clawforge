@@ -29,6 +29,14 @@ export type ClawForgeInstance = {
     secret_names?: string[];
     capabilities?: Record<string, boolean>;
   };
+  events?: Array<{
+    id: string;
+    agent_id: string;
+    type: string;
+    message: string;
+    timestamp: string;
+    severity?: string;
+  }>;
   createdAt: string;
   updatedAt: string;
 };
@@ -70,6 +78,10 @@ export function listProjectInstances(projectId: string): ClawForgeInstance[] {
   return listInstances().filter((instance) => instance.projectId === projectId);
 }
 
+export function deleteProjectInstances(projectId: string) {
+  saveInstances(listInstances().filter((instance) => instance.projectId !== projectId));
+}
+
 export function saveLaunchInstance({
   projectId,
   prompt,
@@ -89,6 +101,7 @@ export function saveLaunchInstance({
     };
     openHands?: ClawForgeInstance["openHands"];
     integrationManifest?: ClawForgeInstance["integrationManifest"];
+    events?: ClawForgeInstance["events"];
   };
 }): ClawForgeInstance {
   const now = new Date().toISOString();
@@ -121,6 +134,7 @@ export function saveLaunchInstance({
     blueprint,
     openHands: launch.openHands,
     integrationManifest: launch.integrationManifest,
+    events: launch.events,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };

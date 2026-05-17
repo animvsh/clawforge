@@ -271,8 +271,10 @@ function selectBrevInstances(
   const targetInstance = targetInstanceName
     ? (detected.find((instance) => instance.name === targetInstanceName) ?? null)
     : null;
+  const runningInstances = detected.filter((instance) => instance.running);
   const runningNemoClawInstance =
-    detected.find((instance) => instance.running && isNemoClawInstance(instance)) ?? null;
+    detected.find((instance) => instance.running && isNemoClawInstance(instance)) ??
+    (runningInstances.length === 1 ? runningInstances[0] : null);
   return { targetInstance, runningNemoClawInstance };
 }
 
@@ -393,7 +395,8 @@ async function writeStartupScript(
 set -euo pipefail
 set +x
 export CLAWFORGE_REPO_URL="\${CLAWFORGE_REPO_URL:-https://github.com/animvsh/clawforge.git}"
-export CLAWFORGE_ROOT="\${CLAWFORGE_ROOT:-/home/ubuntu/workspace/clawforge}"
+export CLAWFORGE_ROOT="\${CLAWFORGE_ROOT:-/home/shadeform/clawforge}"
+export CLAWFORGE_REPO_BUNDLE="\${CLAWFORGE_REPO_BUNDLE:-}"
 export CLAWFORGE_INTEGRATION_MANIFEST_B64=${shellQuote(manifestB64)}
 export CLAWFORGE_REQUIRED_SECRET_NAMES=${shellQuote(secretNames)}
 export CLAWFORGE_AGENT_NAME=${shellQuote(manifest.agent.name)}
@@ -407,7 +410,11 @@ if ! command -v git >/dev/null 2>&1; then
   sudo apt-get install -y git
 fi
 mkdir -p "$(dirname "\${CLAWFORGE_ROOT}")"
-if [[ ! -d "\${CLAWFORGE_ROOT}/.git" ]]; then
+if [[ -n "\${CLAWFORGE_REPO_BUNDLE}" && -f "\${CLAWFORGE_REPO_BUNDLE}" ]]; then
+  rm -rf "\${CLAWFORGE_ROOT}"
+  mkdir -p "\${CLAWFORGE_ROOT}"
+  tar -xzf "\${CLAWFORGE_REPO_BUNDLE}" -C "\${CLAWFORGE_ROOT}"
+elif [[ ! -d "\${CLAWFORGE_ROOT}/.git" ]]; then
   git clone "\${CLAWFORGE_REPO_URL}" "\${CLAWFORGE_ROOT}"
 else
   git -C "\${CLAWFORGE_ROOT}" pull --ff-only || true
@@ -488,6 +495,217 @@ async function runCommand(
       exitCode: null,
     };
   }
+}
+
+async function runShellCommand(command: string, timeoutMs = 8_000): Promise<CommandResult> {
+  if (!hasNodeRuntime()) {
+    return { ok: false, stdout: "", stderr: "Server runtime unavailable.", exitCode: null };
+  }
+
+  try {
+    const childProcess = await import("node:child_process");
+    const result = await new Promise<CommandResult>((resolve) => {
+      const env = {
+        ...process.env,
+        PATH: [
+          "/opt/homebrew/bin",
+          "/usr/local/bin",
+          "/usr/bin",
+          "/bin",
+          "/usr/sbin",
+          "/sbin",
+          process.env.PATH ?? "",
+        ].join(":"),
+      };
+      childProcess.exec(command, { timeout: timeoutMs, env }, (error, stdout, stderr) => {
+        resolve({
+          ok: !error,
+          stdout: String(stdout ?? ""),
+          stderr: String(stderr ?? ""),
+          exitCode:
+            error && typeof (error as { code?: unknown }).code === "number"
+              ? ((error as { code: number }).code ?? null)
+              : error
+                ? 1
+                : 0,
+        });
+      });
+    });
+    return result;
+  } catch (error) {
+    return {
+      ok: false,
+      stdout: "",
+      stderr: error instanceof Error ? error.message : "Command runtime unavailable.",
+      exitCode: null,
+    };
+  }
+}
+
+function runBrevExecShell(
+  cliPath: string,
+  instanceName: string,
+  remoteCommand: string,
+  timeoutMs = 30_000,
+): Promise<CommandResult> {
+  return runShellCommand(
+    `${shellQuote(cliPath)} exec ${shellQuote(instanceName)} ${shellQuote(remoteCommand)}`,
+    timeoutMs,
+  );
+}
+
+async function runStartupOnBrevInstance(
+  cliPath: string,
+  instanceName: string,
+  startupScript: { arg: string; path: string | null; inline: boolean },
+): Promise<CommandResult> {
+  if (!startupScript.path) {
+    return runCommand(cliPath, ["exec", instanceName, startupScript.arg], 240_000);
+  }
+  const remotePath = `/tmp/clawforge-${sanitizeFilePart(instanceName)}-startup.sh`;
+  const remoteLogPath = `/tmp/clawforge-${sanitizeFilePart(instanceName)}-deploy.log`;
+  const copied = await runCommand(
+    cliPath,
+    ["copy", startupScript.path, `${instanceName}:${remotePath}`],
+    120_000,
+  );
+  if (!copied.ok) return copied;
+  const bundle = await createRepoBundle(instanceName);
+  if (!bundle.ok || !bundle.path) return bundle;
+  const remoteBundlePath = `/tmp/clawforge-${sanitizeFilePart(instanceName)}-source.tar.gz`;
+  const copiedBundle = await runCommand(
+    cliPath,
+    ["copy", bundle.path, `${instanceName}:${remoteBundlePath}`],
+    180_000,
+  );
+  if (!copiedBundle.ok) return copiedBundle;
+  const remoteCommand = [
+    `chmod +x ${remotePath}`,
+    `(nohup env CLAWFORGE_REPO_BUNDLE=${remoteBundlePath} bash ${remotePath} > ${remoteLogPath} 2>&1 < /dev/null & echo "clawforge-deploy-started:$!")`,
+  ].join(" && ");
+  const started = await runCommand(
+    cliPath,
+    ["exec", instanceName, `bash -lc ${shellQuote(remoteCommand)}`],
+    30_000,
+  );
+  if (!started.ok) return started;
+  const healthy = await pollBrevRuntimeHealth(cliPath, instanceName, remoteLogPath);
+  return {
+    ok: healthy.ok,
+    stdout: [started.stdout, healthy.stdout].filter(Boolean).join("\n"),
+    stderr: healthy.ok
+      ? started.stderr
+      : [started.stderr, healthy.stderr].filter(Boolean).join("\n"),
+    exitCode: healthy.ok ? 0 : 1,
+  };
+}
+
+async function createRepoBundle(instanceName: string): Promise<CommandResult & { path?: string }> {
+  if (!hasNodeRuntime()) {
+    return {
+      ok: false,
+      stdout: "",
+      stderr: "Cannot package ClawForge source outside the Node runtime.",
+      exitCode: null,
+    };
+  }
+  try {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const directory = path.join(process.cwd(), ".runtime", "brev");
+    await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+    const bundlePath = path.join(directory, `${sanitizeFilePart(instanceName)}-source.tar.gz`);
+    const result = await runCommand(
+      "tar",
+      [
+        "-czf",
+        bundlePath,
+        "--exclude",
+        ".git",
+        "--exclude",
+        "node_modules",
+        "--exclude",
+        "dist",
+        "--exclude",
+        ".runtime",
+        "--exclude",
+        ".env",
+        "--exclude",
+        ".env.local",
+        "--exclude",
+        "playwright-report",
+        "--exclude",
+        "test-results",
+        ".",
+      ],
+      120_000,
+    );
+    return result.ok
+      ? { ...result, path: bundlePath }
+      : { ...result, stderr: result.stderr || "Could not package ClawForge source." };
+  } catch (error) {
+    return {
+      ok: false,
+      stdout: "",
+      stderr: error instanceof Error ? error.message : "Could not package ClawForge source.",
+      exitCode: null,
+    };
+  }
+}
+
+async function pollBrevRuntimeHealth(
+  cliPath: string,
+  instanceName: string,
+  remoteLogPath: string,
+): Promise<CommandResult> {
+  const startedAt = Date.now();
+  let last: CommandResult = { ok: false, stdout: "", stderr: "", exitCode: 1 };
+  while (Date.now() - startedAt < 600_000) {
+    const result = await runCommand(
+      cliPath,
+      [
+        "exec",
+        instanceName,
+        [
+          "curl -fsS http://127.0.0.1:8000/health >/tmp/clawforge-mem0-health.json",
+          "curl -fsS http://127.0.0.1:5173/api/health >/tmp/clawforge-app-health.json",
+          "cat /tmp/clawforge-mem0-health.json",
+          "printf '\\n---app---\\n'",
+          "cat /tmp/clawforge-app-health.json",
+        ].join(" && "),
+      ],
+      20_000,
+    );
+    if (result.ok) return result;
+    last = result;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 5_000));
+  }
+
+  const logs = await runCommand(
+    cliPath,
+    ["exec", instanceName, `tail -120 ${shellQuote(remoteLogPath)} 2>/dev/null || true`],
+    20_000,
+  );
+  return {
+    ok: false,
+    stdout: logs.stdout,
+    stderr: logs.stderr || last.stderr || "Timed out waiting for Brev runtime health.",
+    exitCode: 1,
+  };
+}
+
+async function checkBrevRuntimeHealth(
+  cliPath: string,
+  instanceName: string,
+): Promise<CommandResult> {
+  const healthCommand = [
+    "curl -fsS http://127.0.0.1:8000/health >/tmp/clawforge-mem0-health.json",
+    "curl -fsS http://127.0.0.1:5173/api/health >/tmp/clawforge-app-health.json",
+    "cat /tmp/clawforge-mem0-health.json",
+    "printf '\\n---app---\\n'",
+    "cat /tmp/clawforge-app-health.json",
+  ].join(" && ");
+  return runBrevExecShell(cliPath, instanceName, healthCommand, 30_000);
 }
 
 function parseBrevInstances(stdout: string): Array<Record<string, unknown>> {
@@ -696,7 +914,7 @@ export async function createBrevLaunchPlan(
     configuredBrevInstanceName();
   const integrationManifest = await buildIntegrationManifest(resolvedName, options);
   const startupScript = await writeStartupScript(resolvedName, integrationManifest);
-  const command = `brev create ${resolvedName} --type l40s-48gb.1x --startup-script ${
+  const command = `brev create ${resolvedName} --type massedcompute_L40S --startup-script ${
     startupScript.inline ? "<inline-clawforge-startup>" : startupScript.arg
   }`;
   const openHands = openHandsConnection();
@@ -760,10 +978,14 @@ export async function createBrevLaunchPlan(
 
 export async function createBrevInstance(
   instanceName?: string | null,
-  instanceType = "l40s-48gb.1x",
+  instanceType = "massedcompute_L40S",
   confirmed = false,
   options: BrevIntegrationOptions = {},
 ): Promise<BrevLaunchPlan> {
+  const normalizedInstanceType =
+    instanceType === "l40s-48gb.1x" || instanceType === "verda_L40S"
+      ? "massedcompute_L40S"
+      : instanceType;
   const requestedName = normalizeInstanceName(instanceName);
   const status = await getBrevStatus(requestedName);
   const runningInstance = existingRunningInstance(status);
@@ -774,7 +996,7 @@ export async function createBrevInstance(
     configuredBrevInstanceName();
   const integrationManifest = await buildIntegrationManifest(resolvedName, options);
   const startupScript = await writeStartupScript(resolvedName, integrationManifest);
-  const command = `brev create ${resolvedName} --type ${instanceType} --startup-script ${
+  const command = `brev create ${resolvedName} --type ${normalizedInstanceType} --startup-script ${
     startupScript.inline ? "<inline-clawforge-startup>" : startupScript.arg
   }`;
   const openHands = openHandsConnection();
@@ -786,7 +1008,7 @@ export async function createBrevInstance(
       {
         action: "brev.create",
         effect: confirmed ? "allow" : "require_approval",
-        instance_type: instanceType,
+        instance_type: normalizedInstanceType,
         estimated_cost: "about $1.74/hr for the current cheapest L40S option",
         agent_name: integrationManifest.agent.name,
         integration_manifest: {
@@ -858,11 +1080,12 @@ export async function createBrevInstance(
     events.push(
       runtimeEvent(
         "agent.started",
-        "Attached to existing running Brev NemoClaw instance.",
+        "Attached to the existing running Brev NemoClaw runtime.",
         "success",
         {
           instance_name: runningInstance.name,
           state: runningInstance.state,
+          health_check: "running-instance-detected",
         },
       ),
     );
@@ -884,7 +1107,14 @@ export async function createBrevInstance(
 
   const result = await runCommand(
     status.cliPath,
-    ["create", resolvedName, "--type", instanceType, "--startup-script", startupScript.arg],
+    [
+      "create",
+      resolvedName,
+      "--type",
+      normalizedInstanceType,
+      "--startup-script",
+      startupScript.arg,
+    ],
     180_000,
   );
 
@@ -915,7 +1145,7 @@ export async function createBrevInstance(
     runtimeEvent("agent.started", "Brev instance creation started for NemoClaw.", "success", {
       stdout: redactBrevOutput(result.stdout).slice(0, 800),
       instance_name: resolvedName,
-      instance_type: instanceType,
+      instance_type: normalizedInstanceType,
     }),
   );
 
@@ -961,33 +1191,30 @@ export async function chatWithNemoClawAgent(
       };
     }
   }
-  const isReceptionistRequest =
-    /\b(phone|call|calls|receptionist|sms|text|calendar|schedule|appointment|booking)\b/i.test(
-      normalized,
-    );
+  const intent = detectNemoClawChatIntent(normalized);
   const registry = createProviderRegistry(env);
   const activeProvider = registry.getProvider(provider);
   const fallbackChain = registry.getConfig().fallback_chain.join(" -> ");
-  const providerReply = await registry
-    .summarize(
-      {
-        prompt: `User is chatting with a NemoClaw agent runtime. Reply in two concise sentences in friendly, non-technical language. User request: ${normalized}`,
-        context: {
-          runtime_mode: openHands.mode,
-          fallback_chain: fallbackChain,
-        },
-      },
-      provider,
-    )
-    .catch(() =>
-      openHands.mode === "simulated"
-        ? "I can inspect the generated NemoClaw plan, run policy checks, and show the runtime trace. Attach Brev to execute this against the live workspace."
-        : "NemoClaw is ready to route this request into the configured remote runtime.",
-    );
-  const reply = isReceptionistRequest
-    ? `${providerReply}\n\nTo finish this agent, connect Phone/SMS and Calendar access. I will keep booking, texting, and customer-record updates approval-gated before anything changes outside the sandbox.`
-    : providerReply;
-  const events = [
+  const providerReply =
+    provider === "mock"
+      ? ""
+      : await registry
+          .summarize(
+            {
+              prompt: `User is chatting with a custom NemoClaw agent runtime. Reply in two concise sentences in friendly, non-technical language. Do not mention SSH, incident response, failed logins, or brute force unless the user asked about security logs. User request: ${normalized}`,
+              context: {
+                runtime_mode: openHands.mode,
+                fallback_chain: fallbackChain,
+                instance_name: env.CLAWFORGE_INSTANCE_NAME,
+                blueprint_id: env.CLAWFORGE_BLUEPRINT_ID,
+                intent,
+              },
+            },
+            provider,
+          )
+          .catch(() => "");
+  const reply = composeNemoClawChatReply(normalized, intent, providerReply, openHands.mode);
+  const events: RuntimeEvent[] = [
     runtimeEvent("agent.thinking", `NemoClaw received: ${normalized}`, "info", {
       runtime_mode: openHands.mode,
       conversation_id: openHands.conversationId,
@@ -1006,16 +1233,8 @@ export async function chatWithNemoClawAgent(
         runtime_api_url: openHands.runtimeApiUrl,
       },
     ),
-    runtimeEvent(
-      "policy.checked",
-      "NemoClaw policy broker kept shell execution approval-gated.",
-      "warning",
-      {
-        action: "shell.execute",
-        effect: "require_approval",
-      },
-    ),
   ];
+  events.push(...eventsForNemoClawChatIntent(intent));
 
   return {
     ok: true,
@@ -1026,3 +1245,199 @@ export async function chatWithNemoClawAgent(
 }
 
 export const chatWithOpenHands = chatWithNemoClawAgent;
+
+type NemoClawChatIntent =
+  | "email"
+  | "calendar"
+  | "phone"
+  | "docs"
+  | "github"
+  | "security"
+  | "integrations"
+  | "status"
+  | "general";
+
+function detectNemoClawChatIntent(message: string): NemoClawChatIntent {
+  if (/\b(email|gmail|inbox|reply|repl(?:y|ies)|send mail|draft)\b/i.test(message)) return "email";
+  if (/\b(calendar|calendly|schedule|meeting|appointment|booking)\b/i.test(message))
+    return "calendar";
+  if (/\b(phone|call|calls|sms|text|receptionist|voice)\b/i.test(message)) return "phone";
+  if (/\b(doc|docs|sheet|spreadsheet|slide|drive|file)\b/i.test(message)) return "docs";
+  if (/\b(github|issue|pull request|pr|repo|jira|linear|ticket)\b/i.test(message)) return "github";
+  if (/\b(log|logs|incident|ssh|brute|failed login|suspicious|attack|security)\b/i.test(message))
+    return "security";
+  if (/\b(integration|connect|tool|tools|access)\b/i.test(message)) return "integrations";
+  if (/\b(status|deployed|runtime|health|check|test)\b/i.test(message)) return "status";
+  return "general";
+}
+
+function composeNemoClawChatReply(
+  message: string,
+  intent: NemoClawChatIntent,
+  providerReply: string,
+  runtimeMode: OpenHandsConnection["mode"],
+): string {
+  const cleanedProviderReply =
+    intent !== "security" && /ssh|brute[- ]force|failed login|185\.92/i.test(providerReply)
+      ? ""
+      : providerReply.trim();
+
+  if (intent === "email") {
+    return [
+      "I can do that once Email is connected for this agent.",
+      "I’ll request inbox access, read the relevant messages, draft replies, and pause for your approval before anything is sent.",
+    ].join(" ");
+  }
+  if (intent === "calendar") {
+    return [
+      "I can help schedule that through the Calendar integration.",
+      "I’ll check availability, propose times, and ask before creating or changing any event.",
+    ].join(" ");
+  }
+  if (intent === "phone") {
+    return [
+      "I can turn this into a phone or SMS-facing NemoClaw agent.",
+      "I’ll attach the phone/voice channel, keep customer actions inside policy, and require approval for external follow-ups.",
+    ].join(" ");
+  }
+  if (intent === "docs") {
+    return [
+      "I can work with documents, sheets, slides, and Drive once those integrations are connected.",
+      "I’ll inspect only the files you authorize and keep exports or sharing changes approval-gated.",
+    ].join(" ");
+  }
+  if (intent === "github") {
+    return [
+      "I can connect this agent to GitHub, Jira, or Linear for issue and project work.",
+      "I’ll read the relevant items, draft changes, and ask before posting comments, labels, or tickets.",
+    ].join(" ");
+  }
+  if (intent === "security") {
+    return (
+      cleanedProviderReply ||
+      "I can run the security workflow: inspect logs, classify suspicious behavior, write the report, and stop before any risky command runs."
+    );
+  }
+  if (intent === "integrations") {
+    return [
+      "Tell me which job this agent should handle and I’ll choose the integrations it needs.",
+      "If an account is required, I’ll show a connect step inside the chat before the agent can use that tool.",
+    ].join(" ");
+  }
+  if (intent === "status") {
+    return runtimeMode === "remote"
+      ? "This NemoClaw agent is attached to a live runtime. I can run checks, inspect policies, and report live tool activity from here."
+      : "This NemoClaw chat is in preview until the Brev runtime is reachable. The policy pack, memory plan, and integration manifest are still inspectable here.";
+  }
+  return (
+    cleanedProviderReply ||
+    `I can shape this NemoClaw agent around that request. I’ll identify the tools it needs, add policy gates for risky actions, and keep every external action behind a clear approval step.`
+  );
+}
+
+function eventsForNemoClawChatIntent(intent: NemoClawChatIntent): RuntimeEvent[] {
+  if (intent === "email") {
+    return [
+      runtimeEvent(
+        "tool.called",
+        "Email integration requested for inbox reading and drafting.",
+        "info",
+        {
+          tool: "gmail",
+          effect: "connect_required",
+        },
+      ),
+      runtimeEvent("policy.checked", "Sending replies requires human approval.", "warning", {
+        action: "email.send",
+        effect: "require_approval",
+      }),
+    ];
+  }
+  if (intent === "calendar") {
+    return [
+      runtimeEvent(
+        "tool.called",
+        "Calendar integration requested for availability checks.",
+        "info",
+        {
+          tool: "googlecalendar",
+          effect: "connect_required",
+        },
+      ),
+      runtimeEvent("policy.checked", "Creating or changing events requires approval.", "warning", {
+        action: "calendar.write",
+        effect: "require_approval",
+      }),
+    ];
+  }
+  if (intent === "phone") {
+    return [
+      runtimeEvent("tool.called", "Phone and voice channel requested for this agent.", "info", {
+        tool: "voice_phone",
+        effect: "connect_required",
+      }),
+      runtimeEvent(
+        "policy.checked",
+        "External calls and texts require policy approval.",
+        "warning",
+        {
+          action: "phone.contact",
+          effect: "require_approval",
+        },
+      ),
+    ];
+  }
+  if (intent === "docs") {
+    return [
+      runtimeEvent("tool.called", "Workspace document integrations requested.", "info", {
+        tool: "google_workspace",
+        effect: "connect_required",
+      }),
+      runtimeEvent("policy.checked", "Sharing or exporting files requires approval.", "warning", {
+        action: "files.share",
+        effect: "require_approval",
+      }),
+    ];
+  }
+  if (intent === "github") {
+    return [
+      runtimeEvent("tool.called", "Project tracker integration requested.", "info", {
+        tool: "github_jira_linear",
+        effect: "connect_required",
+      }),
+      runtimeEvent(
+        "policy.checked",
+        "Posting comments, labels, or tickets requires approval.",
+        "warning",
+        {
+          action: "tracker.write",
+          effect: "require_approval",
+        },
+      ),
+    ];
+  }
+  if (intent === "security") {
+    return [
+      runtimeEvent(
+        "policy.checked",
+        "NemoClaw policy broker kept shell execution approval-gated.",
+        "warning",
+        {
+          action: "shell.execute",
+          effect: "require_approval",
+        },
+      ),
+    ];
+  }
+  return [
+    runtimeEvent(
+      "policy.checked",
+      "NemoClaw will require approval before external writes.",
+      "warning",
+      {
+        action: "external.write",
+        effect: "require_approval",
+      },
+    ),
+  ];
+}
