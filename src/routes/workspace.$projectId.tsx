@@ -15,7 +15,7 @@ import { ClawForgeLogo } from "@/components/clawforge/ClawForgeFrame";
 import { AuthPanel } from "@/components/clawforge/AuthPanel";
 import { WorkflowCanvas } from "@/components/clawforge/WorkflowCanvas";
 import { useClawForgeAuth } from "@/lib/clawforge/auth";
-import { saveLaunchInstance } from "@/lib/clawforge/instances";
+import { listProjectInstances, saveLaunchInstance } from "@/lib/clawforge/instances";
 import {
   chatModelOptions,
   matchModelCommand,
@@ -36,6 +36,7 @@ import {
 import type {
   BlueprintResponse,
   IncidentReport,
+  MemoryItem,
   PolicyDefinition,
   ProviderMode,
   RuntimeEvent,
@@ -104,6 +105,8 @@ type ProgressRow = {
   failed: boolean;
 };
 
+type WorkspacePanel = "logs" | "agent" | "tools" | "memory" | "instance";
+
 const buildSteps = [
   "Generating agent instructions",
   "Creating NemoClaw policy pack",
@@ -158,6 +161,36 @@ function deploymentRuntimeEvent(message: string, severity: RuntimeEvent["severit
     timestamp: new Date().toISOString(),
     severity,
   };
+}
+
+function workspaceRuntimeEvent(
+  message: string,
+  type: RuntimeEvent["type"] = "agent.thinking",
+  severity: RuntimeEvent["severity"] = "info",
+  agentId = "workspace",
+): RuntimeEvent {
+  return {
+    id: `workspace_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    agent_id: agentId,
+    type,
+    message,
+    timestamp: new Date().toISOString(),
+    severity,
+  };
+}
+
+function memoryFromSchema(
+  blueprint: BlueprintResponse | null,
+  agentId = "workspace",
+): MemoryItem[] {
+  if (!blueprint) return [];
+  return blueprint.memory_schema.map((item) => ({
+    id: `schema_${blueprint.blueprint_id}_${item.id}`,
+    agent_id: agentId,
+    type: item.type,
+    content: `${item.name}: ${item.description}`,
+    created_at: new Date().toISOString(),
+  }));
 }
 
 function wait(ms: number) {
@@ -579,9 +612,10 @@ function WorkspacePage() {
   const [deploymentEvents, setDeploymentEvents] = useState<RuntimeEvent[]>([]);
   const [brevLaunch, setBrevLaunch] = useState<BrevLaunchState | null>(null);
   const [instanceChatId, setInstanceChatId] = useState<string | null>(null);
+  const [memoryItems, setMemoryItems] = useState<MemoryItem[]>([]);
   const [integrationNeeds, setIntegrationNeeds] = useState<IntegrationNeed[]>([]);
   const [connectingIntegrationId, setConnectingIntegrationId] = useState<string | null>(null);
-  const [panel, setPanel] = useState<"logs" | "agent" | "tools" | "instance">("logs");
+  const [panel, setPanel] = useState<WorkspacePanel>("logs");
   const [error, setError] = useState<string | null>(null);
   const [provider, setProvider] = useState<ProviderMode>("auto");
   const [model, setModel] = useState("auto");
@@ -603,6 +637,15 @@ function WorkspacePage() {
     if (currentStatus === "completed") return workflowGraph.nodes.at(-1)?.id;
     return workflowGraph.nodes[Math.min(activeIndex, workflowGraph.nodes.length - 1)]?.id;
   }, [activeIndex, currentStatus, workflowGraph.nodes]);
+  const buildLog = useMemo(() => {
+    if (!blueprint) return buildSteps.slice(0, Math.min(activeIndex + 1, buildSteps.length));
+    return [
+      ...buildSteps,
+      `${blueprint.agent_name} blueprint ready`,
+      `${blueprint.tools.length} tools mapped`,
+      `${blueprint.policies.length} policies generated`,
+    ];
+  }, [activeIndex, blueprint]);
   const selectedWorkflowNode = useMemo(
     () => workflowGraph.nodes.find((node) => node.id === selectedNodeId) ?? null,
     [selectedNodeId, workflowGraph.nodes],
@@ -621,6 +664,34 @@ function WorkspacePage() {
       ),
     };
   }, [activeIndex, blueprint, currentStatus, workflowGraph]);
+  const liveLogEvents = useMemo(() => {
+    const fallbackEvents =
+      events.length || deploymentEvents.length
+        ? []
+        : buildLog.map((item, index) => ({
+            id: `build_${index}`,
+            agent_id: "workspace",
+            type: "agent.thinking" as const,
+            message: item,
+            timestamp: new Date(Date.now() + index * 1000).toISOString(),
+            severity: "info" as const,
+          }));
+    const byId = new Map<string, RuntimeEvent>();
+    for (const event of [...fallbackEvents, ...deploymentEvents, ...events]) {
+      byId.set(event.id, event);
+    }
+    return [...byId.values()].sort(
+      (left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime(),
+    );
+  }, [buildLog, deploymentEvents, events]);
+  const sharedMemoryItems = useMemo(() => {
+    const byId = new Map<string, MemoryItem>();
+    for (const item of memoryFromSchema(blueprint, agentId ?? "workspace")) byId.set(item.id, item);
+    for (const item of memoryItems) byId.set(item.id, item);
+    return [...byId.values()].sort(
+      (left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime(),
+    );
+  }, [agentId, blueprint, memoryItems]);
   const clarificationQuestions = useMemo(
     () => (project && !blueprint ? setupQuestionsForPrompt(project.prompt) : []),
     [blueprint, project],
@@ -661,11 +732,7 @@ function WorkspacePage() {
             ? "Agent files, policies, memory, and integrations generated"
             : "Generating agent files, policies, memory, and integrations",
         done: Boolean(blueprint),
-        active:
-          Boolean(blueprint) &&
-          !brevLaunch &&
-          !cloudDeploying &&
-          deploymentPhase === "idle",
+        active: Boolean(blueprint) && !brevLaunch && !cloudDeploying && deploymentPhase === "idle",
         failed: false,
       },
       row(
@@ -710,12 +777,11 @@ function WorkspacePage() {
       return {
         title: "Deploy progress",
         rows: deploySteps,
-        footer:
-          instanceChatId
-            ? `Ready at /instance/${instanceChatId}`
-            : cloudDeploying
-              ? "Creating runtime and checking health..."
-              : brevLaunch?.status?.message || "Deploy when ready.",
+        footer: instanceChatId
+          ? `Ready at /instance/${instanceChatId}`
+          : cloudDeploying
+            ? "Creating runtime and checking health..."
+            : brevLaunch?.status?.message || "Deploy when ready.",
       };
     }
     return {
@@ -742,14 +808,47 @@ function WorkspacePage() {
           ? "Nodes appear as the instance is forged."
           : "Start with a prompt or edit request.",
     };
-  }, [activeIndex, blueprint, brevLaunch, cloudDeploying, currentStatus, deploySteps, instanceChatId]);
+  }, [
+    activeIndex,
+    blueprint,
+    brevLaunch,
+    cloudDeploying,
+    currentStatus,
+    deploySteps,
+    instanceChatId,
+  ]);
 
   function addChat(role: ChatRole, body: string) {
     setChat((current) => [...current, [role, body]]);
   }
 
+  function addRuntimeLog(
+    body: string,
+    type: RuntimeEvent["type"] = "agent.thinking",
+    severity: RuntimeEvent["severity"] = "info",
+  ) {
+    const event = workspaceRuntimeEvent(body, type, severity, agentId ?? "workspace");
+    setEvents((current) => [...current, event]);
+    syncWorkflowFromRuntimeEvents([event]);
+    return event;
+  }
+
   function addProgress(body: string) {
     addChat("progress", body);
+    addRuntimeLog(body, "agent.thinking");
+  }
+
+  function addMemory(content: string, type: MemoryItem["type"] = "context") {
+    const memory: MemoryItem = {
+      id: `memory_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+      agent_id: agentId ?? "workspace",
+      type,
+      content,
+      created_at: new Date().toISOString(),
+    };
+    setMemoryItems((current) => [memory, ...current.filter((item) => item.id !== memory.id)]);
+    addRuntimeLog(`Memory saved: ${content}`, "memory.updated", "success");
+    return memory;
   }
 
   function queueProgress(steps: string[], interval = 850) {
@@ -780,16 +879,6 @@ function WorkspacePage() {
     setModel(selected.model);
     if (touched) setModelTouched(true);
   }
-
-  const buildLog = useMemo(() => {
-    if (!blueprint) return buildSteps.slice(0, Math.min(activeIndex + 1, buildSteps.length));
-    return [
-      ...buildSteps,
-      `${blueprint.agent_name} blueprint ready`,
-      `${blueprint.tools.length} tools mapped`,
-      `${blueprint.policies.length} policies generated`,
-    ];
-  }, [activeIndex, blueprint]);
 
   useEffect(() => {
     workflowGraphRef.current = workflowGraph;
@@ -845,6 +934,7 @@ function WorkspacePage() {
       setAgentId(null);
       setReport(null);
       setEvents([]);
+      setMemoryItems([]);
       setDeploymentPhase("idle");
       setDeploymentEvents([]);
       setBrevLaunch(null);
@@ -915,6 +1005,13 @@ function WorkspacePage() {
           setModel(recommended.model);
         }
         for (let index = 0; index < blueprintGraph.nodes.length; index += 1) {
+          setEvents((current) => [
+            ...current,
+            workspaceRuntimeEvent(
+              `${preparingActivityForNode(blueprintGraph.nodes[index], index)}: ${blueprintGraph.nodes[index]?.title}`,
+              "agent.thinking",
+            ),
+          ]);
           const nextGraph = {
             ...blueprintGraph,
             nodes: blueprintGraph.nodes.map((node, nodeIndex) => ({
@@ -926,9 +1023,7 @@ function WorkspacePage() {
                     ? ("generating" as const)
                     : ("idle" as const),
               activity:
-                nodeIndex === index
-                  ? preparingActivityForNode(node, nodeIndex)
-                  : node.activity,
+                nodeIndex === index ? preparingActivityForNode(node, nodeIndex) : node.activity,
             })),
           };
           workflowGraphRef.current = nextGraph;
@@ -957,6 +1052,14 @@ function WorkspacePage() {
             blueprintId: data.blueprint.blueprint_id,
           }) ?? nextProject,
         );
+        setEvents((current) => [
+          ...current,
+          workspaceRuntimeEvent(
+            `${data.blueprint.agent_name} blueprint ready with ${data.blueprint.tools.length} tools and ${data.blueprint.policies.length} policies.`,
+            "agent.thinking",
+            "success",
+          ),
+        ]);
         return data.blueprint as BlueprintResponse;
       } catch (err) {
         setError(err instanceof Error ? err.message : "Blueprint failed.");
@@ -977,6 +1080,38 @@ function WorkspacePage() {
       void loadBlueprint(stored);
     }
   }, [auth.isAuthenticated, loadBlueprint, projectId]);
+
+  useEffect(() => {
+    if (!auth.isAuthenticated || !project) return;
+    const [latest] = listProjectInstances(projectId);
+    if (!latest) return;
+    setInstanceChatId((current) => current ?? latest.id);
+    setBrevLaunch(
+      (current) =>
+        current ?? {
+          mode: latest.mode,
+          instanceName: latest.instanceName,
+          command: latest.command ?? "",
+          status: latest.message
+            ? {
+                ok: latest.status === "created",
+                status: latest.status,
+                message: latest.message,
+                cliPath: null,
+              }
+            : undefined,
+          openHands: latest.openHands,
+          integrationManifest: latest.integrationManifest,
+          events: latest.events as RuntimeEvent[] | undefined,
+        },
+    );
+    if (latest.events?.length) {
+      setDeploymentEvents((current) =>
+        current.length ? current : (latest.events as RuntimeEvent[]),
+      );
+      setEvents((current) => (current.length ? current : (latest.events as RuntimeEvent[])));
+    }
+  }, [auth.isAuthenticated, project, projectId]);
 
   useEffect(() => {
     if (currentStatus !== "generating" && currentStatus !== "running") return;
@@ -1200,7 +1335,11 @@ function WorkspacePage() {
     focusWorkflowFromChat("brev_deploy", nextBlueprint.goal);
     setPanel("instance");
     const runEvents: RuntimeEvent[] = [];
-    const recordDeploy = (phase: DeploymentPhase, message: string, severity: RuntimeEvent["severity"] = "info") => {
+    const recordDeploy = (
+      phase: DeploymentPhase,
+      message: string,
+      severity: RuntimeEvent["severity"] = "info",
+    ) => {
       const event = deploymentRuntimeEvent(message, severity);
       runEvents.push(event);
       setDeploymentPhase(phase);
@@ -1215,7 +1354,9 @@ function WorkspacePage() {
     try {
       await wait(250);
       const launchPlan = brevLaunch ?? (await prepareBrevLaunch(nextBlueprint));
-      addProgress(`Deploying: launch plan ready for ${launchPlan?.instanceName ?? nextBlueprint.agent_name}.`);
+      addProgress(
+        `Deploying: launch plan ready for ${launchPlan?.instanceName ?? nextBlueprint.agent_name}.`,
+      );
       recordDeploy(
         "packaging",
         "Packaging generated NemoClaw files, policy YAML, memory config, and integration manifest.",
@@ -1240,7 +1381,10 @@ function WorkspacePage() {
       if (!response.ok || !data.ok) {
         throw new Error(data.error?.message || "Brev deploy failed.");
       }
-      recordDeploy("runtime", "Brev responded. Verifying NemoClaw runtime health and startup logs.");
+      recordDeploy(
+        "runtime",
+        "Brev responded. Verifying NemoClaw runtime health and startup logs.",
+      );
       setBrevLaunch(data.launch);
       const createdOnBrev =
         data.launch?.mode === "created" || data.launch?.mode === "already_running";
@@ -1251,7 +1395,15 @@ function WorkspacePage() {
       syncWorkflowFromRuntimeEvents(launchEvents);
       await wait(350);
       if (createdOnBrev) {
-        recordDeploy("memory", "Self-hosted mem0 is attached to this NemoClaw instance on Brev.", "success");
+        recordDeploy(
+          "memory",
+          "Self-hosted mem0 is attached to this NemoClaw instance on Brev.",
+          "success",
+        );
+        addMemory(
+          `${nextBlueprint.agent_name} has a shared memory boundary attached to the Brev-hosted NemoClaw instance.`,
+          "context",
+        );
       } else {
         recordDeploy(
           "failed",
@@ -1282,7 +1434,11 @@ function WorkspacePage() {
       }
       if (createdOnBrev) {
         await wait(250);
-        recordDeploy("ready", `${nextBlueprint.agent_name} is live on Brev with memory and chat attached.`, "success");
+        recordDeploy(
+          "ready",
+          `${nextBlueprint.agent_name} is live on Brev with memory and chat attached.`,
+          "success",
+        );
       }
       if (chatInstance && data.launch) {
         saveLaunchInstance({
@@ -1356,6 +1512,19 @@ function WorkspacePage() {
       body: JSON.stringify({ decision }),
     });
     if (response.ok) {
+      const approvalData = (await response.json().catch(() => null)) as {
+        memory_item?: MemoryItem;
+      } | null;
+      if (approvalData?.memory_item) {
+        setMemoryItems((current) => [approvalData.memory_item as MemoryItem, ...current]);
+      } else {
+        addMemory(
+          decision === "denied"
+            ? "User denied shell execution for this run. Future risky actions should pause before execution."
+            : "User approved the restricted action for this run. The approval is logged for future audits.",
+          "approval",
+        );
+      }
       setProject(updateProject(projectId, { status: "completed" }) ?? project);
       syncWorkflowFromRuntimeEvents([
         {
@@ -1426,7 +1595,9 @@ function WorkspacePage() {
           `Integrations: ${needs
             .slice(0, 3)
             .map((need) => need.label)
-            .join(", ")} ${needs.length > 3 ? `and ${needs.length - 3} more ` : ""}will be requested before the agent uses those tools.`,
+            .join(
+              ", ",
+            )} ${needs.length > 3 ? `and ${needs.length - 3} more ` : ""}will be requested before the agent uses those tools.`,
         );
       }
     } catch {
@@ -1454,7 +1625,10 @@ function WorkspacePage() {
       const url = data.connect?.redirect_url as string | undefined;
       if (url) {
         window.open(url, "_blank", "noopener,noreferrer");
-        addChat("assistant", `I opened the secure ${need.label} connection flow. Once it finishes, come back here and I’ll refresh the agent’s tool access.`);
+        addChat(
+          "assistant",
+          `I opened the secure ${need.label} connection flow. Once it finishes, come back here and I’ll refresh the agent’s tool access.`,
+        );
         const refreshOnReturn = () => {
           if (document.visibilityState === "visible") {
             void refreshIntegrationNeeds(project?.prompt ?? blueprint?.goal ?? message, blueprint);
@@ -1463,7 +1637,10 @@ function WorkspacePage() {
         window.addEventListener("focus", refreshOnReturn, { once: true });
         document.addEventListener("visibilitychange", refreshOnReturn, { once: true });
       } else {
-        addChat("assistant", data.connect?.message ?? `${need.label} needs admin setup before it can be connected.`);
+        addChat(
+          "assistant",
+          data.connect?.message ?? `${need.label} needs admin setup before it can be connected.`,
+        );
       }
       await refreshIntegrationNeeds(project?.prompt ?? blueprint?.goal ?? message, blueprint);
     } catch (err) {
@@ -1484,7 +1661,9 @@ function WorkspacePage() {
     const requestedModel = matchModelCommand(clean);
     setChat((current) => [...current, ["user", clean]]);
     setChatLoading(true);
-    addProgress("Thinking: reading your request, updating the agent plan, and checking required tools...");
+    addProgress(
+      "Thinking: reading your request, updating the agent plan, and checking required tools...",
+    );
     void refreshIntegrationNeeds(clean, blueprintWithModel(blueprint), { announce: true });
 
     const pendingClarification =
@@ -1571,7 +1750,7 @@ function WorkspacePage() {
       actionReply = "Opening the agent safety plan.";
     } else if (lower.includes("memory")) {
       action = "show_memory";
-      setPanel("agent");
+      setPanel("memory");
       actionReply = "Opening the agent memory and approval history.";
     } else if (lower.includes("deny")) {
       action = "deny";
@@ -1885,7 +2064,9 @@ function WorkspacePage() {
                     className="mt-1.5 h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-300"
                     aria-hidden="true"
                   />
-                  <span>ClawForge is thinking through tools, policy, memory, and deployment...</span>
+                  <span>
+                    ClawForge is thinking through tools, policy, memory, and deployment...
+                  </span>
                 </span>
               </div>
             )}
@@ -2180,8 +2361,8 @@ function WorkspacePage() {
             </div>
 
             <aside className="bg-black p-5">
-              <div className="grid grid-cols-4 gap-px border border-white/12 bg-white/10 text-xs">
-                {(["logs", "agent", "tools", "instance"] as const).map((item) => (
+              <div className="grid grid-cols-5 gap-px border border-white/12 bg-white/10 text-xs">
+                {(["logs", "agent", "tools", "memory", "instance"] as const).map((item) => (
                   <button
                     key={item}
                     type="button"
@@ -2203,16 +2384,32 @@ function WorkspacePage() {
                       Live logs
                     </div>
                     <div className="max-h-[54vh] space-y-2 overflow-y-auto font-mono text-xs text-white/56">
-                      {(events.length
-                        ? events
-                        : buildLog.map((item, index) => ({
-                            id: item,
-                            message: item,
-                            timestamp: `00:0${index + 1}`,
-                          }))
-                      ).map((event) => (
+                      {liveLogEvents.map((event) => (
                         <div key={event.id} className="border-b border-white/8 pb-2">
-                          <span className="text-white/28">[{event.timestamp.slice(-8, -3)}]</span>{" "}
+                          <span className="text-white/28">
+                            [
+                            {Number.isNaN(new Date(event.timestamp).getTime())
+                              ? event.timestamp.slice(-8, -3)
+                              : new Date(event.timestamp).toLocaleTimeString([], {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                  second: "2-digit",
+                                })}
+                            ]
+                          </span>{" "}
+                          <span
+                            className={`mr-1 uppercase ${
+                              event.severity === "error"
+                                ? "text-red-200"
+                                : event.severity === "warning"
+                                  ? "text-amber-200"
+                                  : event.severity === "success"
+                                    ? "text-emerald-200"
+                                    : "text-white/34"
+                            }`}
+                          >
+                            {event.type.replace(".", "/")}
+                          </span>{" "}
                           {event.message}
                         </div>
                       ))}
@@ -2242,6 +2439,26 @@ function WorkspacePage() {
                         </div>
                         <div className="mt-1">{selectedModel.label}</div>
                       </div>
+                    </div>
+                    <div className="mt-5 text-[11px] uppercase tracking-[0.24em] text-white/35">
+                      Workflow
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {(blueprint?.workflow_steps ?? []).map((step, index) => (
+                        <div key={step.id} className="border-b border-white/8 pb-3">
+                          <div className="text-sm text-white/76">
+                            {index + 1}. {step.title}
+                          </div>
+                          <div className="mt-1 text-xs leading-relaxed text-white/42">
+                            {step.description}
+                          </div>
+                        </div>
+                      ))}
+                      {!blueprint?.workflow_steps.length && (
+                        <p className="text-sm text-white/42">
+                          Workflow steps appear once the blueprint is ready.
+                        </p>
+                      )}
                     </div>
                     <div className="mt-5 text-[11px] uppercase tracking-[0.24em] text-white/35">
                       Safety
@@ -2297,6 +2514,89 @@ function WorkspacePage() {
                         </p>
                       )}
                     </div>
+                    <div className="mt-5 border-t border-white/8 pt-4">
+                      <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">
+                        Required integrations
+                      </div>
+                      <div className="mt-4 space-y-3">
+                        {integrationNeeds.map((need) => (
+                          <div key={need.id} className="border border-white/10 bg-black/40 p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <div className="text-sm font-medium text-white">{need.label}</div>
+                                <p className="mt-1 text-xs leading-relaxed text-white/45">
+                                  {need.purpose}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => void connectIntegration(need)}
+                                disabled={
+                                  !need.connectable ||
+                                  need.connected ||
+                                  connectingIntegrationId === need.id
+                                }
+                                className="shrink-0 rounded-full border border-white/12 px-3 py-1.5 text-[11px] text-white/62 transition hover:border-white/28 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                              >
+                                {need.connected
+                                  ? "Connected"
+                                  : connectingIntegrationId === need.id
+                                    ? "Opening"
+                                    : need.action_label}
+                              </button>
+                            </div>
+                            <div className="mt-3 text-[10px] uppercase tracking-[0.14em] text-white/30">
+                              {need.required ? "required" : "optional"} ·{" "}
+                              {need.status.replaceAll("_", " ")}
+                            </div>
+                          </div>
+                        ))}
+                        {!integrationNeeds.length && (
+                          <p className="text-sm text-white/45">
+                            No external account connections are required for this agent yet.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {panel === "memory" && (
+                  <div>
+                    <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">
+                      shared memory
+                    </div>
+                    <h3 className="mt-4 text-xl font-semibold text-white">Workspace memory</h3>
+                    <p className="mt-3 text-sm leading-relaxed text-white/52">
+                      These memories are attached to this NemoClaw workspace. Approval decisions,
+                      tool context, deployment state, and learned preferences show up here.
+                    </p>
+                    <div className="mt-5 space-y-3">
+                      {sharedMemoryItems.map((item) => (
+                        <div key={item.id} className="border border-white/10 bg-black/40 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="text-sm leading-relaxed text-white/72">
+                              {item.content}
+                            </div>
+                            <span className="shrink-0 text-[10px] uppercase tracking-[0.14em] text-white/30">
+                              {item.type}
+                            </span>
+                          </div>
+                          <div className="mt-3 text-[10px] uppercase tracking-[0.14em] text-white/28">
+                            {new Date(item.created_at).toLocaleString([], {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                      {!sharedMemoryItems.length && (
+                        <p className="text-sm text-white/45">
+                          Memory rules and runtime memories appear after the blueprint is generated.
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )}
                 {panel === "instance" && (
@@ -2309,10 +2609,10 @@ function WorkspacePage() {
                       <p>
                         {brevLaunch?.instanceName ?? "Deploy to create the live NemoClaw instance."}
                       </p>
-	                      <p>
-	                        {brevLaunch?.status?.message ??
-	                          "The instance includes tools, safety checks, shared memory, and a chat link."}
-	                      </p>
+                      <p>
+                        {brevLaunch?.status?.message ??
+                          "The instance includes tools, safety checks, shared memory, and a chat link."}
+                      </p>
                       <div className="border-t border-white/8 pt-3">
                         <div className="text-xs uppercase tracking-[0.18em] text-white/32">
                           Deployment
@@ -2340,34 +2640,37 @@ function WorkspacePage() {
                           ))}
                         </div>
                       </div>
-	                      <div className="border-t border-white/8 pt-3">
-	                        <div className="text-xs uppercase tracking-[0.18em] text-white/32">
-	                          Required connections
+                      <div className="border-t border-white/8 pt-3">
+                        <div className="text-xs uppercase tracking-[0.18em] text-white/32">
+                          Required connections
                         </div>
                         <div className="mt-2 space-y-2">
                           {(brevLaunch?.integrationManifest?.integrations ?? [])
                             .filter((integration) => integration.required)
                             .map((integration) => (
-	                              <div key={integration.id} className="flex items-center justify-between gap-3">
-	                                <span>{integration.label}</span>
-                                  {integrationNeeds.find((need) => need.id === integration.id) ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const need = integrationNeeds.find(
-                                          (item) => item.id === integration.id,
-                                        );
-                                        if (need) void connectIntegration(need);
-                                      }}
-                                      className="rounded-full border border-white/12 px-2.5 py-1 text-[11px] text-white/58 transition hover:border-white/28 hover:text-white"
-                                    >
-                                      Connect
-                                    </button>
-                                  ) : (
-	                                  <span className="text-white/34">{integration.status}</span>
-                                  )}
-	                              </div>
-	                            ))}
+                              <div
+                                key={integration.id}
+                                className="flex items-center justify-between gap-3"
+                              >
+                                <span>{integration.label}</span>
+                                {integrationNeeds.find((need) => need.id === integration.id) ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const need = integrationNeeds.find(
+                                        (item) => item.id === integration.id,
+                                      );
+                                      if (need) void connectIntegration(need);
+                                    }}
+                                    className="rounded-full border border-white/12 px-2.5 py-1 text-[11px] text-white/58 transition hover:border-white/28 hover:text-white"
+                                  >
+                                    Connect
+                                  </button>
+                                ) : (
+                                  <span className="text-white/34">{integration.status}</span>
+                                )}
+                              </div>
+                            ))}
                           {!brevLaunch?.integrationManifest?.integrations?.some(
                             (integration) => integration.required,
                           ) && <span className="text-white/38">No required connections yet.</span>}
@@ -2404,14 +2707,14 @@ function WorkspacePage() {
                           Talk to agent
                         </Link>
                       ) : (
-	                        <button
-	                          type="button"
-	                          onClick={() => void deployToBrev()}
-	                          disabled={!blueprint || cloudDeploying}
-	                          className="inline-flex w-full items-center justify-center rounded-full bg-white px-4 py-2 text-sm font-semibold text-black transition hover:bg-white/88 disabled:opacity-45"
-	                        >
-	                          {cloudDeploying ? "Deploying..." : "Deploy and create chat link"}
-	                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void deployToBrev()}
+                          disabled={!blueprint || cloudDeploying}
+                          className="inline-flex w-full items-center justify-center rounded-full bg-white px-4 py-2 text-sm font-semibold text-black transition hover:bg-white/88 disabled:opacity-45"
+                        >
+                          {cloudDeploying ? "Deploying..." : "Deploy and create chat link"}
+                        </button>
                       )}
                     </div>
                   </div>
