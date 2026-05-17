@@ -193,6 +193,7 @@ function InstanceChatPage() {
           conversation_id: instance.openHands?.conversationId,
           instance_name: instance.instanceName,
           blueprint_id: instance.blueprint?.blueprint_id,
+          blueprint: instance.blueprint,
         }),
       });
       const data = await response.json();
@@ -416,7 +417,7 @@ function InstanceChatPage() {
         </aside>
 
         <section className="grid min-w-0 bg-black xl:grid-cols-[1fr_360px]">
-          <div className="flex min-h-[calc(100vh-73px)] flex-col">
+          <div className="flex h-[calc(100vh-73px)] min-h-[620px] flex-col">
             <div className="border-b border-white/10 p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -428,7 +429,7 @@ function InstanceChatPage() {
               </div>
             </div>
 
-            <div className="flex-1 space-y-4 overflow-y-auto p-5">
+            <div className="flex-1 space-y-4 overflow-y-auto p-5 pb-44">
               {chat.map(([role, body], index) => (
                 <div
                   key={`${role}-${index}`}
@@ -443,7 +444,7 @@ function InstanceChatPage() {
               ))}
             </div>
 
-            <div className="border-t border-white/10 p-4">
+            <div className="sticky bottom-0 border-t border-white/10 bg-black/94 p-4 backdrop-blur-xl">
               <div className="mb-3 flex flex-wrap gap-2">
                 {[
                   "Run sandbox check",

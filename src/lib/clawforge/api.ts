@@ -685,6 +685,7 @@ export async function handleClawForgeApi(
       model?: unknown;
       instance_name?: unknown;
       blueprint_id?: unknown;
+      blueprint?: unknown;
       conversation_id?: unknown;
     }>(request);
     const message = typeof body.message === "string" ? body.message : "";
@@ -706,6 +707,9 @@ export async function handleClawForgeApi(
           typeof body.instance_name === "string" ? body.instance_name : undefined,
         CLAWFORGE_BLUEPRINT_ID:
           typeof body.blueprint_id === "string" ? body.blueprint_id : undefined,
+        CLAWFORGE_BLUEPRINT_JSON: isBlueprintResponse(body.blueprint)
+          ? JSON.stringify(body.blueprint)
+          : undefined,
         CLAWFORGE_CONVERSATION_ID:
           typeof body.conversation_id === "string" ? body.conversation_id : undefined,
       },

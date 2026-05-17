@@ -2,7 +2,7 @@ import { DEMO_AGENT_ID } from "../fixtures";
 import { getIntegrationStatus, type IntegrationConfig } from "../integrations/composio";
 import { getPipedreamStatus } from "../integrations/pipedream";
 import { createProviderRegistry } from "../providers";
-import type { BlueprintResponse, ProviderMode, RuntimeEvent } from "../types";
+import type { AgentTemplateId, BlueprintResponse, ProviderMode, RuntimeEvent } from "../types";
 
 export type BrevInstanceStatus = "not_installed" | "not_authenticated" | "ready" | "error";
 
@@ -66,6 +66,14 @@ type CommandResult = {
   stdout: string;
   stderr: string;
   exitCode: number | null;
+};
+
+type NemoClawChatContext = {
+  agentName: string;
+  templateId: AgentTemplateId | null;
+  goal: string | null;
+  tools: string[];
+  integrations: string[];
 };
 
 export type NemoClawIntegrationManifest = {
@@ -167,6 +175,40 @@ function runtimeEvent(
     severity,
     metadata,
   };
+}
+
+function parseChatContext(env: Record<string, string | undefined>): NemoClawChatContext {
+  const fallbackName =
+    env.CLAWFORGE_INSTANCE_NAME?.replace(/^clawforge-/, "").replace(/-/g, " ") || "NemoClaw";
+  const fallback: NemoClawChatContext = {
+    agentName: fallbackName
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" "),
+    templateId: null,
+    goal: null,
+    tools: [],
+    integrations: [],
+  };
+  if (!env.CLAWFORGE_BLUEPRINT_JSON) return fallback;
+  try {
+    const blueprint = JSON.parse(env.CLAWFORGE_BLUEPRINT_JSON) as BlueprintResponse;
+    return {
+      agentName: blueprint.agent_name || fallback.agentName,
+      templateId: blueprint.template_id ?? null,
+      goal: blueprint.goal ?? null,
+      tools: blueprint.tools
+        .filter((tool) => tool.enabled)
+        .map((tool) => tool.name)
+        .slice(0, 6),
+      integrations: blueprint.integration_requirements
+        .filter((integration) => integration.status === "required")
+        .map((integration) => integration.label),
+    };
+  } catch {
+    return fallback;
+  }
 }
 
 function readEnv(name: string): string {
@@ -1172,6 +1214,7 @@ export async function chatWithNemoClawAgent(
 ): Promise<OpenHandsChatResponse> {
   const openHands = openHandsConnection(env);
   const normalized = message.trim() || "Inspect the NemoClaw sandbox.";
+  const context = parseChatContext(env);
   if (env.CLAWFORGE_ALLOW_REMOTE_OPENHANDS !== "0") {
     const remote = await proxyRemoteRuntimeChat(openHands, normalized, provider);
     if (remote) {
@@ -1201,19 +1244,23 @@ export async function chatWithNemoClawAgent(
       : await registry
           .summarize(
             {
-              prompt: `User is chatting with a custom NemoClaw agent runtime. Reply in two concise sentences in friendly, non-technical language. Do not mention SSH, incident response, failed logins, or brute force unless the user asked about security logs. User request: ${normalized}`,
+              prompt: `You are ${context.agentName}, a deployed NemoClaw agent. Reply as this specific agent, not as a product demo. Stay grounded in this goal: ${context.goal ?? "help the user safely"}. If the user only greets you, greet them and say what this agent can do next. Keep it concise and do not mention SSH, incident response, failed logins, or brute force unless the user asked about security logs. User request: ${normalized}`,
               context: {
                 runtime_mode: openHands.mode,
                 fallback_chain: fallbackChain,
                 instance_name: env.CLAWFORGE_INSTANCE_NAME,
                 blueprint_id: env.CLAWFORGE_BLUEPRINT_ID,
+                agent_name: context.agentName,
+                template_id: context.templateId,
+                tools: context.tools,
+                integrations: context.integrations,
                 intent,
               },
             },
             provider,
           )
           .catch(() => "");
-  const reply = composeNemoClawChatReply(normalized, intent, providerReply, openHands.mode);
+  const reply = composeNemoClawChatReply(normalized, intent, providerReply, openHands.mode, context);
   const events: RuntimeEvent[] = [
     runtimeEvent("agent.thinking", `NemoClaw received: ${normalized}`, "info", {
       runtime_mode: openHands.mode,
@@ -1247,6 +1294,7 @@ export async function chatWithNemoClawAgent(
 export const chatWithOpenHands = chatWithNemoClawAgent;
 
 type NemoClawChatIntent =
+  | "greeting"
   | "email"
   | "calendar"
   | "phone"
@@ -1258,6 +1306,8 @@ type NemoClawChatIntent =
   | "general";
 
 function detectNemoClawChatIntent(message: string): NemoClawChatIntent {
+  if (/^(hi|hello|hey|yo|sup|gm|good morning|good afternoon|good evening)[!. ]*$/i.test(message.trim()))
+    return "greeting";
   if (/\b(email|gmail|inbox|reply|repl(?:y|ies)|send mail|draft)\b/i.test(message)) return "email";
   if (/\b(calendar|calendly|schedule|meeting|appointment|booking)\b/i.test(message))
     return "calendar";
@@ -1276,27 +1326,44 @@ function composeNemoClawChatReply(
   intent: NemoClawChatIntent,
   providerReply: string,
   runtimeMode: OpenHandsConnection["mode"],
+  context: NemoClawChatContext,
 ): string {
   const cleanedProviderReply =
-    intent !== "security" && /ssh|brute[- ]force|failed login|185\.92/i.test(providerReply)
+    intent !== "security" &&
+    /ssh|brute[- ]force|failed login|185\.92|product demo|two[- ]sentence/i.test(providerReply)
       ? ""
       : providerReply.trim();
 
+  if (intent === "greeting") {
+    const capability =
+      context.templateId === "phone_receptionist"
+        ? "I can answer calls, take messages, check availability, and ask before booking or texting."
+        : context.templateId === "github_triage"
+          ? "I can inspect issues, draft triage decisions, and ask before posting changes."
+          : context.templateId === "inbox_approval"
+            ? "I can summarize inbox items, draft replies, and ask before sending anything."
+            : context.templateId === "research_sandbox"
+              ? "I can gather sources, prepare a brief, and keep publishing approval-gated."
+              : context.templateId === "incident_response"
+                ? "I can inspect logs, write incident reports, and stop before risky commands run."
+                : "Tell me what you want this agent to do next and I’ll keep tools, memory, and approvals inside NemoClaw policy.";
+    return `Hi, I’m ${context.agentName}. ${capability}`;
+  }
   if (intent === "email") {
     return [
-      "I can do that once Email is connected for this agent.",
+      `${context.agentName} can do that once Email is connected for this agent.`,
       "I’ll request inbox access, read the relevant messages, draft replies, and pause for your approval before anything is sent.",
     ].join(" ");
   }
   if (intent === "calendar") {
     return [
-      "I can help schedule that through the Calendar integration.",
+      `${context.agentName} can help schedule that through the Calendar integration.`,
       "I’ll check availability, propose times, and ask before creating or changing any event.",
     ].join(" ");
   }
   if (intent === "phone") {
     return [
-      "I can turn this into a phone or SMS-facing NemoClaw agent.",
+      `${context.agentName} can handle phone or SMS work for this workflow.`,
       "I’ll attach the phone/voice channel, keep customer actions inside policy, and require approval for external follow-ups.",
     ].join(" ");
   }
@@ -1305,6 +1372,9 @@ function composeNemoClawChatReply(
       "I can work with documents, sheets, slides, and Drive once those integrations are connected.",
       "I’ll inspect only the files you authorize and keep exports or sharing changes approval-gated.",
     ].join(" ");
+  }
+  if (cleanedProviderReply) {
+    return cleanedProviderReply;
   }
   if (intent === "github") {
     return [
@@ -1326,12 +1396,11 @@ function composeNemoClawChatReply(
   }
   if (intent === "status") {
     return runtimeMode === "remote"
-      ? "This NemoClaw agent is attached to a live runtime. I can run checks, inspect policies, and report live tool activity from here."
-      : "This NemoClaw chat is in preview until the Brev runtime is reachable. The policy pack, memory plan, and integration manifest are still inspectable here.";
+      ? `${context.agentName} is attached to a live runtime. I can run checks, inspect policies, and report live tool activity from here.`
+      : `${context.agentName} is attached to the Brev-backed NemoClaw workspace. I can inspect the policy pack, memory plan, and integration manifest here.`;
   }
   return (
-    cleanedProviderReply ||
-    `I can shape this NemoClaw agent around that request. I’ll identify the tools it needs, add policy gates for risky actions, and keep every external action behind a clear approval step.`
+    `${context.agentName} can help with that inside its NemoClaw safety boundary. I’ll use the connected tools where available, ask before external actions, and save useful decisions to memory.`
   );
 }
 

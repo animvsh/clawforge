@@ -552,6 +552,16 @@ function suggestedAnswerText(question: ClarificationQuestion, suggestion: string
   return `${question.question} ${suggestion}`;
 }
 
+function preparingActivityForNode(node: WorkflowNode, index: number) {
+  if (node.kind === "input") return "Reading the prompt";
+  if (node.kind === "model") return "Choosing the reasoning step";
+  if (node.kind === "policy") return "Writing safety rules";
+  if (node.kind === "approval") return "Adding a human checkpoint";
+  if (node.kind === "memory") return "Defining shared memory";
+  if (node.kind === "output") return "Preparing the deployable agent";
+  return node.activity ?? `Adding step ${index + 1}`;
+}
+
 function WorkspacePage() {
   const { projectId } = Route.useParams();
   const auth = useClawForgeAuth();
@@ -888,23 +898,58 @@ function WorkspacePage() {
         setBlueprint(data.blueprint);
         void refreshIntegrationNeeds(nextProject.prompt, data.blueprint);
         const blueprintGraph = buildBlueprintWorkflowGraph(nextProject.prompt, data.blueprint);
-        setActiveIndex(blueprintGraph.nodes.length - 1);
-        setWorkflowGraph({
+        const stagedGraph = {
           ...blueprintGraph,
           nodes: blueprintGraph.nodes.map((node, index) => ({
             ...node,
-            status: "ready",
-            activity:
-              index === blueprintGraph.nodes.length - 1
-                ? "Blueprint ready from chat"
-                : node.activity,
+            status: index === 0 ? ("generating" as const) : ("idle" as const),
+            activity: index === 0 ? preparingActivityForNode(node, index) : node.activity,
           })),
-        });
+        };
+        setActiveIndex(0);
+        setWorkflowGraph(stagedGraph);
+        workflowGraphRef.current = stagedGraph;
         const recommended = recommendModelForTemplate(data.blueprint.template_id);
         if (!modelTouched) {
           setProvider(recommended.provider);
           setModel(recommended.model);
         }
+        for (let index = 0; index < blueprintGraph.nodes.length; index += 1) {
+          const nextGraph = {
+            ...blueprintGraph,
+            nodes: blueprintGraph.nodes.map((node, nodeIndex) => ({
+              ...node,
+              status:
+                nodeIndex < index
+                  ? ("ready" as const)
+                  : nodeIndex === index
+                    ? ("generating" as const)
+                    : ("idle" as const),
+              activity:
+                nodeIndex === index
+                  ? preparingActivityForNode(node, nodeIndex)
+                  : node.activity,
+            })),
+          };
+          workflowGraphRef.current = nextGraph;
+          setWorkflowGraph(nextGraph);
+          setActiveIndex(index);
+          await wait(index === 0 ? 520 : 680);
+        }
+        const readyGraph = {
+          ...blueprintGraph,
+          nodes: blueprintGraph.nodes.map((node, index) => ({
+            ...node,
+            status: "ready" as const,
+            activity:
+              index === blueprintGraph.nodes.length - 1
+                ? "Blueprint ready from chat"
+                : node.activity,
+          })),
+        };
+        workflowGraphRef.current = readyGraph;
+        setActiveIndex(blueprintGraph.nodes.length - 1);
+        setWorkflowGraph(readyGraph);
         setProject(
           updateProject(nextProject.id, {
             name: data.blueprint.agent_name,
@@ -940,7 +985,7 @@ function WorkspacePage() {
       () => {
         setActiveIndex((current) => Math.min(current + 1, nodeCount - 1));
       },
-      currentStatus === "running" ? 850 : 420,
+      currentStatus === "running" ? 1100 : 900,
     );
     return () => window.clearInterval(timer);
   }, [currentStatus, workflowGraph.nodes.length]);
@@ -1608,6 +1653,7 @@ function WorkspacePage() {
           message: clean,
           provider: requestedModel?.provider ?? provider,
           model: requestedModel?.model ?? model,
+          blueprint: blueprintWithModel(blueprint),
         }),
       });
       const data = await response.json();

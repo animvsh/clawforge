@@ -74,6 +74,40 @@ function node(
   return { id, title, subtitle, kind, status, icon, x, y };
 }
 
+function iconForAction(action = "", name = "") {
+  const text = `${action} ${name}`.toLowerCase();
+  if (/phone|call|voice/.test(text)) return "☎️";
+  if (/sms|text|message|slack|discord|telegram|alert/.test(text)) return "💬";
+  if (/calendar|schedule|appointment|booking/.test(text)) return "📅";
+  if (/gmail|email|inbox|mail/.test(text)) return "✉️";
+  if (/github|repo|pull|issue/.test(text)) return "⌘";
+  if (/linear|jira|ticket/.test(text)) return "☑";
+  if (/sheet|spreadsheet/.test(text)) return "▦";
+  if (/doc|drive|file|report|brief|write/.test(text)) return "📄";
+  if (/log|security|threat|incident|siem/.test(text)) return "🛡";
+  if (/shell|command|execute/.test(text)) return "⌁";
+  if (/search|research|source/.test(text)) return "⌕";
+  return "◆";
+}
+
+function kindForStep(stepTitle: string, tool?: ToolDefinition): WorkflowNodeKind {
+  const text = `${stepTitle} ${tool?.name ?? ""} ${tool?.action ?? ""}`.toLowerCase();
+  if (/classif|reason|decide|intent|summar|analy/.test(text)) return "model";
+  return "tool";
+}
+
+function activityForTool(tool?: ToolDefinition) {
+  if (!tool) return "Mapped from the requested workflow";
+  if (tool.permission === "approval_required") return "Added with human approval required";
+  if (tool.permission === "blocked") return "Added as blocked by policy";
+  if (tool.permission === "read_only") return "Added as a read-only tool";
+  return "Added as an allowed tool";
+}
+
+function nodeStatusForTool(tool?: ToolDefinition): WorkflowNodeStatus {
+  return tool?.permission === "blocked" ? "blocked" : "idle";
+}
+
 function compactRows(graph: WorkflowGraph): WorkflowGraph {
   const perRow = graph.nodes.length > 7 ? 3 : 4;
   return {
@@ -355,56 +389,154 @@ export function buildBlueprintWorkflowGraph(
   const blockedCount = blueprint.policies.filter(
     (policy: PolicyDefinition) => policy.effect === "deny",
   ).length;
-  const enabledTools = blueprint.tools.filter(
-    (tool: ToolDefinition) => tool.enabled && tool.permission !== "blocked",
-  ).length;
-  const graph = buildOptimisticWorkflowGraph(prompt);
+  const nodes: WorkflowNode[] = [];
+  const edges: WorkflowEdge[] = [];
+  const toolById = new Map(blueprint.tools.map((tool) => [tool.id, tool]));
+  const lowerPrompt = prompt.toLowerCase();
+  const inputTitle =
+    blueprint.template_id === "phone_receptionist"
+      ? "Inbound Call"
+      : blueprint.template_id === "github_triage"
+        ? "GitHub Activity"
+        : blueprint.template_id === "inbox_approval"
+          ? "New Inbox Item"
+          : blueprint.template_id === "research_sandbox"
+            ? "Research Goal"
+            : /log|security|incident/.test(lowerPrompt)
+              ? "Security Event"
+              : "User Goal";
 
-  return {
-    ...graph,
-    nodes: graph.nodes.map((item) => {
-      if (item.kind === "model") {
-        return {
-          ...item,
-          title: blueprint.model || item.title,
-          subtitle: `${blueprint.provider} reasoning`,
-        };
-      }
-      if (item.kind === "policy") {
-        return {
-          ...item,
-          title: "NemoClaw Policy",
-          subtitle: `${approvalCount} approval gates, ${blockedCount} blocked actions`,
-        };
-      }
-      if (item.kind === "approval") {
-        return {
-          ...item,
-          subtitle: approvalCount > 0 ? "Pause risky steps" : "No approval gates",
-        };
-      }
-      if (item.kind === "memory") {
-        return {
-          ...item,
-          subtitle: `${blueprint.memory_schema.length} memory rules`,
-        };
-      }
-      if (item.kind === "output") {
-        return {
-          ...item,
-          title: blueprint.agent_name || item.title,
-          subtitle: "Live agent + final output",
-        };
-      }
-      if (item.kind === "tool" && item.subtitle.includes("tool")) {
-        return {
-          ...item,
-          subtitle: `${enabledTools} tools selected`,
-        };
-      }
-      return item;
-    }),
-  };
+  nodes.push(
+    node(
+      "input-0",
+      inputTitle,
+      "Generated from the prompt",
+      "input",
+      "ready",
+      iconForAction("", inputTitle),
+      0,
+      0,
+    ),
+  );
+
+  const workflowSteps = blueprint.workflow_steps.length
+    ? blueprint.workflow_steps
+    : blueprint.tools
+        .filter((tool) => tool.enabled)
+        .slice(0, 6)
+        .map((tool, index) => ({
+          id: `generated_step_${index}`,
+          title: tool.name,
+          description: tool.purpose,
+          tool_id: tool.id,
+        }));
+
+  workflowSteps.slice(0, 7).forEach((step, index) => {
+    const tool = step.tool_id ? toolById.get(step.tool_id) : undefined;
+    const kind = kindForStep(step.title, tool);
+    nodes.push({
+      ...node(
+        makeNodeId(kind, index),
+        tool?.name ?? step.title,
+        tool
+          ? `${tool.permission.replaceAll("_", " ")} · ${tool.risk_level} risk`
+          : step.description,
+        kind,
+        nodeStatusForTool(tool),
+        iconForAction(tool?.action, tool?.name ?? step.title),
+        index + 1,
+        index % 2,
+      ),
+      activity: activityForTool(tool),
+    });
+  });
+
+  const requiredIntegrations = blueprint.integration_requirements.filter(
+    (integration) => integration.status === "required",
+  );
+  requiredIntegrations.slice(0, 4).forEach((integration, index) => {
+    nodes.push({
+      ...node(
+        `integration-${index}`,
+        integration.label,
+        "Connect before this tool runs",
+        "tool",
+        "idle",
+        iconForAction(integration.id, integration.label),
+        nodes.length,
+        index % 2,
+      ),
+      activity: `Detected from the goal: ${integration.purpose}`,
+    });
+  });
+
+  nodes.push({
+    ...node(
+      "policy-0",
+      "NemoClaw Policy",
+      `${approvalCount} approval gates, ${blockedCount} blocked actions`,
+      "policy",
+      "idle",
+      "🛡",
+      nodes.length,
+      0,
+    ),
+    activity: "Policy pack generated from risky actions",
+  });
+
+  if (approvalCount > 0) {
+    nodes.push({
+      ...node(
+        "approval-0",
+        "Human Approval",
+        "Pause before external or risky actions",
+        "approval",
+        "idle",
+        "⏸",
+        nodes.length,
+        0,
+      ),
+      activity: "Added because this agent can affect the outside world",
+    });
+  }
+
+  nodes.push({
+    ...node(
+      "memory-0",
+      "Shared Memory",
+      `${blueprint.memory_schema.length} memory rules`,
+      "memory",
+      "idle",
+      "▣",
+      nodes.length,
+      0,
+    ),
+    activity: "Stores decisions and workspace context",
+  });
+  nodes.push({
+    ...node(
+      "output-0",
+      blueprint.agent_name || "NemoClaw Agent",
+      "Live agent + final output",
+      "output",
+      "idle",
+      "✓",
+      nodes.length,
+      0,
+    ),
+    activity: "Ready to deploy after review",
+  });
+
+  for (let index = 0; index < nodes.length - 1; index += 1) {
+    edges.push({
+      id: makeEdgeId(index),
+      sourceId: nodes[index].id,
+      targetId: nodes[index + 1].id,
+      type: "execution",
+    });
+  }
+
+  return compactRows({ nodes, edges });
 }
 
 // ---------------------------------------------------------------------------
