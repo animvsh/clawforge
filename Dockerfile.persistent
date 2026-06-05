@@ -1,0 +1,266 @@
+# =============================================================================
+# ClawForge Persistent Agent Runtime Dockerfile
+# =============================================================================
+# Multi-stage build:
+#   Stage 1 (base):  python:3.11-slim — agent runtime, task queue, Brev CLI
+#   Stage 2 (node):  node:22-bookworm-slim — ClawForge API server
+#   Final:           merged filesystem with both runtimes
+#
+# Entrypoint behaviour (controlled by SERVICE_MODE env var):
+#   api          — run only the ClawForge Node.js API server (serve-clawforge.mjs)
+#   agent        — run only the Python agent runtime (agent_service.py + task_queue.py)
+#   all (default) — run both (API foreground, agent in background via supervisord)
+# =============================================================================
+
+# ─── Stage 1: Python runtime for the agent ───────────────────────────────────
+FROM python:3.11-slim AS python-base
+
+WORKDIR /app
+
+# Install Python deps, curl (for Brev CLI), and supervisord for managing
+# multiple processes inside the container.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        git \
+        bash \
+        sudo \
+        ca-certificates \
+        supervisor \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --shell /bin/bash --gid 0 --uid 1001 app \
+    && apt-get clean
+
+# Install Brev CLI (authenticate at runtime via BREV_TOKEN secret)
+RUN curl -fsSL https://raw.githubusercontent.com/brevdev/brev-cli/main/bin/install-latest.sh \
+        | bash \
+    && mv /root/.local/bin/brev /usr/local/bin/brev
+
+# Python dependencies for the agent runtime.
+# Add your agent_service.py / task_queue.py requirements here.
+# Examples: openhands, mem0, anthropic, redis, etc.
+# RUN pip install --no-cache-dir -U openhands mem0 anthropic redis
+
+# Copy agent entrypoint scripts.
+COPY scripts/agent/agent_service.py /app/agent_service.py
+COPY scripts/agent/task_queue.py   /app/task_queue.py
+
+# ─── Stage 2: Node.js runtime for the API server ─────────────────────────────
+FROM node:22-bookworm-slim AS node-base
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        bash \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Node.js dependency manifests and install.
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+# Copy built artefacts and server entry.
+COPY dist/               /app/dist/
+COPY scripts/railway/    /app/scripts/railway/
+
+# ─── Final: merged runtime ───────────────────────────────────────────────────
+FROM python:3.11-slim AS final
+
+WORKDIR /app
+
+# Install runtime packages (supervisor, curl, git, bash).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        git \
+        bash \
+        sudo \
+        ca-certificates \
+        supervisor \
+        tini \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && tini --version   # verify tini is available
+
+# ----- Node.js 22 from nodesource -----
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Verify Node.js.
+RUN node --version && npm --version
+
+# ----- Non-root user -----
+RUN useradd --create-home --shell /bin/bash --gid 0 --uid 1001 app
+USER app
+WORKDIR /app
+
+# ----- Install Brev CLI for user -----
+ENV PATH="/home/app/.local/bin:${PATH}"
+RUN curl -fsSL https://raw.githubusercontent.com/brevdev/brev-cli/main/bin/install-latest.sh | bash \
+    && mv /root/.local/bin/brev /home/app/.local/bin/brev \
+    && chmod +x /home/app/.local/bin/brev
+
+# ----- Python package dependencies for agent runtime -----
+# Uncomment and extend as needed:
+# RUN pip install --no-cache-dir openhands mem0 anthropic redis
+
+# ----- Copy Python agent files -----
+COPY --chown=app:app scripts/agent/agent_service.py /app/agent_service.py
+COPY --chown=app:app scripts/agent/task_queue.py   /app/task_queue.py
+
+# ----- Copy Node.js files -----
+COPY --chown=app:app package*.json    /app/
+COPY --chown=app:app dist/             /app/dist/
+COPY --chown=app:app scripts/railway/  /app/scripts/railway/
+
+# npm ci is run as root first then we fix ownership below.
+# (If you need to avoid root install, use multi-stage copy of node_modules.)
+USER root
+RUN npm ci --omit=dev && chown -R app:app /app/node_modules /app/dist
+USER app
+
+# ----- Health check -----
+# Used by docker-compose healthcheck and Brev/docker restart logic.
+# Probe the API health endpoint when in "all" or "api" mode.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -sf http://localhost:8080/api/health > /dev/null || \
+        curl -sf http://localhost:5173/api/health > /dev/null || \
+        exit 1
+
+# ----- Signal handling -----
+# SIGTERM triggers graceful shutdown; tini (init) reaped in the final stage
+# forwards SIGTERM correctly to the supervised processes.
+STOPSIGNAL SIGTERM
+
+# ----- Logs to stdout -----
+# supervisor and all foreground processes write to stdout/stderr (captured by Docker).
+# No log files inside the container — everything goes to `docker logs`.
+
+# ----- Entrypoint -----
+# Supervises the API server (Node.js) and the agent runtime (Python).
+# SERVICE_MODE controls what runs:
+#   api   — Node.js API only
+#   agent — Python agent only
+#   all   — both, supervised
+COPY <<'EOF' /entrypoint.sh
+#!/bin/bash
+set -euo pipefail
+
+SERVICE_MODE="${SERVICE_MODE:-all}"
+
+log() { echo "[clawforge-entrypoint] $*"; }
+sigterm_received=0
+
+# Graceful shutdown handler — forward SIGTERM to child processes.
+trap 'sigterm_received=1; log "SIGTERM received, shutting down gracefully..."; kill -TERM 0' SIGTERM
+
+# Ensure runtime directories exist.
+mkdir -p /app/.runtime/reports /app/.runtime/memory /app/.runtime/audit /app/.runtime/integrations /app/.runtime/nemoclaw /app/.runtime/brev
+
+# Optionally install NemoClaw (enabled via INSTALL_NEMOCLAW=1 on the container).
+if [[ "${INSTALL_NEMOCLAW:-0}" == "1" ]]; then
+    log "NemoClaw installation requested..."
+    bash -c "$(curl -fsSL https://www.nvidia.com/nemoclaw.sh)" || true
+fi
+
+# Optionally login to Brev if BREV_TOKEN is set.
+if [[ -n "${BREV_TOKEN:-}" ]]; then
+    log "Logging into Brev CLI..."
+    brev login --token "${BREV_TOKEN}" || log "Brev login failed — continuing anyway."
+fi
+
+# Write instance manifest.
+cat > /app/.runtime/nemoclaw/instance.json <<JSON
+{
+  "ok": true,
+  "agent_name": "${CLAWFORGE_AGENT_NAME:-ClawForge Agent}",
+  "blueprint_id": "${CLAWFORGE_BLUEPRINT_ID:-}",
+  "runtime": "NemoClaw",
+  "policy_mode": "enforced",
+  "chat_web_ui": "http://0.0.0.0:5173",
+  "health_url": "http://127.0.0.1:5173/api/health",
+  "created_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+}
+JSON
+
+# ── API-only mode ─────────────────────────────────────────────────────────────
+run_api() {
+    log "Starting ClawForge API server on port ${CLAWFORGE_PORT:-8080}..."
+    exec node /app/scripts/railway/serve-clawforge.mjs
+}
+
+# ── Agent-only mode ──────────────────────────────────────────────────────────
+run_agent() {
+    log "Starting agent runtime (agent_service.py)..."
+    exec python /app/agent_service.py
+}
+
+# ── All-services mode (supervisord) ──────────────────────────────────────────
+run_supervised() {
+    log "Starting supervised services: API + Agent..."
+
+    # Write supervisord.conf inline.
+    cat > /etc/supervisor/conf.d/clawforge.conf <<'SUPERVISOR'
+[supervisord]
+nodaemon=true
+logfile=/dev/null
+logfile_maxbytes=0
+pidfile=/var/run/supervisord.pid
+loglevel=info
+
+[program:api]
+command=node /app/scripts/railway/serve-clawforge.mjs
+stdout_logfile=/dev/stdout
+stderr_logfile=/dev/stderr
+autostart=true
+autorestart=true
+startretries=5
+stopsignal=TERM
+stopasgroup=true
+killasgroup=true
+
+[program:agent]
+command=python /app/agent_service.py
+stdout_logfile=/dev/stdout
+stderr_logfile=/dev/stderr
+autostart=true
+autorestart=true
+startretries=5
+stopsignal=TERM
+stopasgroup=true
+killasgroup=true
+
+[program:task-queue]
+command=python /app/task_queue.py
+stdout_logfile=/dev/stdout
+stderr_logfile=/dev/stderr
+autostart=true
+autorestart=true
+startretries=5
+stopsignal=TERM
+stopasgroup=true
+killasgroup=true
+SUPERVISOR
+
+    # supervisord starts all [program:*] entries.
+    # Docker will SIGTERM the supervised tree on `docker stop`.
+    exec /usr/bin/supervisord -c /etc/supervisor/conf.d/clawforge.conf
+}
+
+case "${SERVICE_MODE}" in
+    api)
+        run_api
+        ;;
+    agent)
+        run_agent
+        ;;
+    all|*)
+        run_supervised
+        ;;
+esac
+EOF
+
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]
+CMD []
